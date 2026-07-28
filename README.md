@@ -26,6 +26,18 @@ dev tools: `pytest`, `ruff`, `mypy`) into a local virtualenv.
 # 1. Initialize a workflow home (copies the built-in `secure-spec-driven` schema)
 loopspec init ./loopspec
 
+# 1b. Optionally scaffold AI-tool skills/commands (/lpsx:new, /lpsx:continue,
+#     /lpsx:archive, /lpsx:bulk-archive) for the tools you use. Supported ids:
+#     claude, codex, opencode, cursor, windsurf.
+loopspec init ./loopspec --tools claude,codex
+#   -> writes .claude/skills/loopspec-*/SKILL.md + .claude/commands/lpsx/*.md
+#      and .codex/skills/loopspec-*/SKILL.md + a global ~/.codex/prompts/lpsx-*.md
+# These land in your *project root* (the parent of the workflow home), because
+# that's where AI tools look for .claude/.codex — override with --project-root.
+# Use --tools all for every supported tool, or omit --tools in an interactive
+# terminal to get a numbered prompt instead. Non-interactively, omitting
+# --tools is equivalent to --tools none (no tool scaffolding).
+
 # 2. Create a change
 loopspec new add-payment --home ./loopspec --json
 

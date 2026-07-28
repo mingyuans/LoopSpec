@@ -31,8 +31,10 @@ from .instructions import build_instructions
 from .models import KEBAB_RE
 from .policy import build_next_steps
 from .rollback import compute_reset_closure, rollback_change
+from .scaffold import ScaffoldResult, scaffold_tools
 from .schema_loader import load_schema
 from .state import compute_states, is_complete
+from .tools_cli import is_interactive, prompt_tools_interactively, resolve_tools_arg
 
 app = typer.Typer(help="loopspec: a gated artifact workflow CLI.")
 schemas_app = typer.Typer(help="Manage workflow schemas.")
@@ -45,6 +47,22 @@ HomeOption = typer.Option(DEFAULT_HOME, "--home", help="Workflow home directory.
 JsonOption = typer.Option(False, "--json", help="Emit machine-readable JSON.")
 HomePathArgument = typer.Argument(DEFAULT_HOME)
 NoBuiltinOption = typer.Option(False, "--no-builtin", help="Skip copying built-in schemas.")
+ToolsOption = typer.Option(
+    None,
+    "--tools",
+    help=(
+        "all|none|comma-separated tool ids (e.g. claude,codex) to scaffold "
+        "skills/commands for. Defaults to none when not run interactively."
+    ),
+)
+ProjectRootOption = typer.Option(
+    None,
+    "--project-root",
+    help=(
+        "Where to write AI-tool skill/command dirs (.claude, .codex, ...). "
+        "Defaults to the parent of the workflow home, i.e. your project root."
+    ),
+)
 
 
 def _emit(data: dict[str, Any], as_json: bool) -> None:
@@ -141,6 +159,8 @@ def _builtin_schemas_source() -> Path:
 def init(
     path: Path = HomePathArgument,
     no_builtin: bool = NoBuiltinOption,
+    tools: str | None = ToolsOption,
+    project_root: Path | None = ProjectRootOption,
     as_json: bool = JsonOption,
 ) -> None:
     """Initialize a workflow home."""
@@ -167,10 +187,28 @@ def init(
                     shutil.copytree(candidate, destination)
                     copied_schemas.append(candidate.name)
 
+    try:
+        if tools is None:
+            tool_ids = prompt_tools_interactively() if is_interactive() else []
+        else:
+            tool_ids = resolve_tools_arg(tools)
+    except LoopspecError as exc:
+        _fail(exc, as_json)
+
+    # AI tools look for `.claude/`, `.codex/`, ... at the *project* root, not
+    # inside the workflow home, so scaffold into the workflow home's parent
+    # unless the caller pointed us somewhere else explicitly.
+    scaffold_root = (project_root or path.resolve().parent).resolve()
+    scaffold_result = scaffold_tools(scaffold_root, tool_ids) if tool_ids else ScaffoldResult()
+
     result = {
         "workflowHome": str(path.resolve()),
+        "projectRoot": str(scaffold_root),
         "createdFiles": created_files,
         "copiedSchemas": copied_schemas,
+        "toolsConfigured": tool_ids,
+        "scaffoldedFiles": scaffold_result.written_files,
+        "skippedCommandGeneration": scaffold_result.skipped_command_generation,
         "nextSteps": [
             f"Run `loopspec schemas list --home {path} --json` to see available schemas."
         ],

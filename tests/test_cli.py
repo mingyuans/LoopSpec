@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from loopspec.cli import app
@@ -302,3 +303,99 @@ def test_bulk_archive_dry_run_lists_candidates(tmp_path: Path):
     assert data["dryRun"] is True
     assert len(data["candidates"]) == 1
     assert change_dir.exists()
+
+
+@pytest.fixture
+def isolated_codex_home(tmp_path: Path, monkeypatch) -> Path:
+    """Keep Codex's global prompt scaffolding out of the developer's real ~/.codex."""
+
+    codex_home = tmp_path / "codex-home"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    return codex_home
+
+
+def test_init_without_tools_flag_scaffolds_nothing(tmp_path: Path):
+    project_root = tmp_path / "proj"
+    project_root.mkdir()
+    code, _ = run("init", str(project_root / "wf"), "--json")
+    assert code == 0
+    assert not any(
+        (project_root / f".{tool}").exists() for tool in ("claude", "codex", "opencode")
+    )
+
+
+def test_init_scaffolds_into_project_root_not_workflow_home(tmp_path: Path):
+    project_root = tmp_path / "proj"
+    project_root.mkdir()
+    home = project_root / "wf"
+
+    code, data = run("init", str(home), "--tools", "claude", "--json")
+    assert code == 0
+    assert data["projectRoot"] == str(project_root.resolve())
+    # .claude belongs at the project root, where AI tools actually look for it...
+    assert (project_root / ".claude" / "skills" / "loopspec-new" / "SKILL.md").is_file()
+    assert (project_root / ".claude" / "commands" / "lpsx" / "new.md").is_file()
+    # ...and must NOT be buried inside the workflow home.
+    assert not (home / ".claude").exists()
+
+
+def test_init_project_root_override(tmp_path: Path):
+    home = tmp_path / "wf"
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+
+    code, data = run(
+        "init", str(home), "--tools", "claude", "--project-root", str(elsewhere), "--json"
+    )
+    assert code == 0
+    assert data["projectRoot"] == str(elsewhere.resolve())
+    assert (elsewhere / ".claude" / "skills" / "loopspec-new" / "SKILL.md").is_file()
+    assert not (tmp_path / ".claude").exists()
+
+
+def test_init_tools_all_scaffolds_every_registered_tool(tmp_path: Path, isolated_codex_home: Path):
+    project_root = tmp_path / "proj"
+    project_root.mkdir()
+
+    code, data = run("init", str(project_root / "wf"), "--tools", "all", "--json")
+    assert code == 0
+    assert set(data["toolsConfigured"]) == {"claude", "codex", "opencode", "cursor", "windsurf"}
+    assert (project_root / ".claude" / "skills" / "loopspec-new" / "SKILL.md").is_file()
+    assert (project_root / ".claude" / "commands" / "lpsx" / "new.md").is_file()
+    assert (project_root / ".opencode" / "commands" / "lpsx-new.md").is_file()
+    # Codex commands are user-global by design, not project-local.
+    assert (isolated_codex_home / "prompts" / "lpsx-new.md").is_file()
+    assert not (project_root / ".codex" / "commands").exists()
+
+
+def test_init_tools_subset(tmp_path: Path, isolated_codex_home: Path):
+    project_root = tmp_path / "proj"
+    project_root.mkdir()
+
+    code, data = run("init", str(project_root / "wf"), "--tools", "claude,codex", "--json")
+    assert code == 0
+    assert set(data["toolsConfigured"]) == {"claude", "codex"}
+    assert (project_root / ".claude" / "skills" / "loopspec-archive" / "SKILL.md").is_file()
+    assert not (project_root / ".opencode").exists()
+
+
+def test_init_tools_unknown_id_rejected(tmp_path: Path):
+    home = tmp_path / "wf"
+    code, data = run("init", str(home), "--tools", "not-a-real-tool", "--json")
+    assert code == 1
+    assert data["error"] == "config_invalid"
+    assert "claude" in data["fix"]
+
+
+def test_init_tools_rerun_overwrites_existing_scaffold(tmp_path: Path):
+    project_root = tmp_path / "proj"
+    project_root.mkdir()
+    home = project_root / "wf"
+
+    run("init", str(home), "--tools", "claude", "--json")
+    skill_file = project_root / ".claude" / "skills" / "loopspec-new" / "SKILL.md"
+    skill_file.write_text("hand-edited")
+
+    code, _ = run("init", str(home), "--tools", "claude", "--json")
+    assert code == 0
+    assert "hand-edited" not in skill_file.read_text()
