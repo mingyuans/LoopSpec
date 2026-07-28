@@ -41,8 +41,11 @@ def build_next_steps(
 
     for node_id in build_order:
         if states[node_id].status == "ready":
+            # Change names are kebab-case-only, so no shell quoting is needed --
+            # and quoting actively breaks callers that run the emitted command
+            # literally, without shell quote-stripping.
             return [
-                f'Run `loopspec instructions {node_id} --change "{change_name}" --json`, '
+                f"Run `loopspec instructions {node_id} --change {change_name} --json`, "
                 "then write the artifact per the returned template(s) and update state.md."
             ]
 
