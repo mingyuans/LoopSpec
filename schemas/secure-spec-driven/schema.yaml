@@ -1,0 +1,55 @@
+name: secure-spec-driven
+version: 1
+description: Spec-driven workflow (proposal -> specs/design -> tasks) gated by a security review
+
+nodes:
+  - id: proposal
+    generates: proposal.md
+    description: Initial proposal document outlining the change
+    template: proposal.md
+    requires: []
+    instruction:
+      file: proposal.md
+
+  - id: specs
+    generates: "specs/**/*.md"
+    description: Detailed specifications for the change
+    template: spec.md
+    requires: [proposal]
+    instruction:
+      file: specs.md
+
+  - id: design
+    generates: design.md
+    description: Technical design document with implementation details
+    template: design.md
+    requires: [proposal]
+    instruction:
+      file: design.md
+
+  - id: tasks
+    generates: tasks.md
+    description: Implementation checklist with trackable tasks
+    template: tasks.md
+    requires: [specs, design]
+    instruction:
+      file: tasks.md
+
+  - id: security
+    generates: null
+    description: Security review gate over the design and tasks
+    template: null
+    requires: [tasks]
+    instruction:
+      file: security.md
+    gate:
+      outputs:
+        pass: security/pass.md
+        fail: security/fail.md
+      templates:
+        pass: security-pass.md
+        fail: security-fail.md
+      on_fail:
+        reset: [design]
+        max_retries: 3
+        on_exhausted: escalate
