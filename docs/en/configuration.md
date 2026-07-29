@@ -4,8 +4,7 @@
 > Audience: humans setting up a project, and LLM agents that need to read or write a valid `config.yaml`.
 > Language: **English** · [中文](../zh/configuration.md)
 
-`config.yaml` sits at the root of the [workflow home](overview.md#glossary) and configures the
-project as a whole. `loopspec init` writes a two-line starter version:
+`config.yaml` sits at the root of the [workflow home](overview.md#glossary) and configures the project as a whole. `loopspec init` writes a two-line starter version:
 
 <!-- loopspec:example=config -->
 ```yaml
@@ -13,8 +12,7 @@ artifacts_dir: changes
 schema: secure-spec-driven
 ```
 
-Everything else is optional. Unknown fields are rejected rather than ignored, so a typo such as
-`schemata:` fails with `config_invalid` instead of being silently dropped.
+Everything else is optional. Unknown fields are rejected rather than ignored, so a typo such as `schemata:` fails with `config_invalid` instead of being silently dropped.
 
 ## Top-level fields
 
@@ -27,8 +25,7 @@ Everything else is optional. Unknown fields are rejected rather than ignored, so
 | `context` | string | no | none | Project-wide context, returned verbatim as the `context` field of every `loopspec instructions` response. |
 | `rules` | object | no | empty | Per-node extra rules: node id to a list of strings, returned as the `rules` field of that node's `loopspec instructions` response. |
 
-At least one of `schema` or `schemas` must be present. A config with neither fails with
-`config_invalid` and the message `config.yaml must define schema or schemas`.
+At least one of `schema` or `schemas` must be present. A config with neither fails with `config_invalid` and the message `config.yaml must define schema or schemas`.
 
 ### `schemas[]` entries
 
@@ -61,15 +58,11 @@ Enforced when any command loads the config; each failure exits 1 with `config_in
 | `schemas[*].path` must be a safe relative path. | `schemas[*].path must be a safe relative path: <value>` |
 | Every candidate schema must be loadable. | `Candidate schema '<name>' cannot be loaded: <dir> not found` |
 
-A `rules` key naming a node that the schema does not define is **not** an error. It surfaces as a
-`warnings` entry (`rules reference unknown node '<key>'`) in the `loopspec instructions` response, so
-a renamed node does not break the workflow.
+A `rules` key naming a node that the schema does not define is **not** an error. It surfaces as a `warnings` entry (`rules reference unknown node '<key>'`) in the `loopspec instructions` response, so a renamed node does not break the workflow.
 
 ## How the schema is resolved
 
-There are two different resolution paths, and mixing them up is the most common configuration
-mistake. The difference is that a change records its schema in `.workflow.yaml` at creation time, so
-after creation the project default no longer decides anything.
+There are two different resolution paths, and mixing them up is the most common configuration mistake. The difference is that a change records its schema in `.workflow.yaml` at creation time, so after creation the project default no longer decides anything.
 
 | Situation | Order of precedence |
 | --- | --- |
@@ -78,13 +71,9 @@ after creation the project default no longer decides anything.
 
 Consequences worth knowing:
 
-- Changing `schema` in `config.yaml` does not migrate existing changes. They keep the schema recorded
-  in their `.workflow.yaml`.
-- Listing several candidates makes `--schema` mandatory for `loopspec new`. That is deliberate: it
-  forces an explicit choice rather than silently picking the first entry.
-- `.workflow.yaml` has two fields, both written by `loopspec new`: `schema` (the resolved schema name)
-  and `created` (a `YYYY-MM-DD` date). It is not meant to be hand-edited, but editing `schema` is the
-  supported way to move an in-flight change onto a different workflow.
+- Changing `schema` in `config.yaml` does not migrate existing changes. They keep the schema recorded in their `.workflow.yaml`.
+- Listing several candidates makes `--schema` mandatory for `loopspec new`. That is deliberate: it forces an explicit choice rather than silently picking the first entry.
+- `.workflow.yaml` has two fields, both written by `loopspec new`: `schema` (the resolved schema name) and `created` (a `YYYY-MM-DD` date). It is not meant to be hand-edited, but editing `schema` is the supported way to move an in-flight change onto a different workflow.
 
 ## Examples
 
@@ -100,9 +89,7 @@ schema: secure-spec-driven
 
 ### Multiple candidate schemas
 
-Two workflows to choose from, plus the instruction an agent should follow when choosing. Note the
-absence of `schema`: with several candidates and no default, `loopspec new` always demands
-`--schema`.
+Two workflows to choose from, plus the instruction an agent should follow when choosing. Note the absence of `schema`: with several candidates and no default, `loopspec new` always demands `--schema`.
 
 <!-- loopspec:example=config -->
 ```yaml
@@ -126,9 +113,7 @@ loopspec new update-readme --schema docs-only --json
 
 ### Project context and per-node rules
 
-`context` is prepended to every node's instruction payload; `rules` adds node-specific constraints.
-Both are passed through verbatim, so they are the place to encode house style without editing the
-schema itself.
+`context` is prepended to every node's instruction payload; `rules` adds node-specific constraints. Both are passed through verbatim, so they are the place to encode house style without editing the schema itself.
 
 <!-- loopspec:example=config -->
 ```yaml
@@ -149,9 +134,7 @@ rules:
 
 ### Custom layout
 
-`artifacts_dir` renames the directory holding changes; `schemas[*].path` nests each change's
-artifacts in a subdirectory, which keeps `state.md` and `.workflow.yaml` visually separate from the
-documents themselves.
+`artifacts_dir` renames the directory holding changes; `schemas[*].path` nests each change's artifacts in a subdirectory, which keeps `state.md` and `.workflow.yaml` visually separate from the documents themselves.
 
 <!-- loopspec:example=config -->
 ```yaml
@@ -180,6 +163,5 @@ loopspec/
 
 ## Next
 
-- [Schema reference](schema-reference.md) — the format of the `schema.yaml` files that `schema` and
-  `schemas[*].name` point at.
+- [Schema reference](schema-reference.md) — the format of the `schema.yaml` files that `schema` and `schemas[*].name` point at.
 - [CLI reference](cli-reference.md) — the commands that read this file.

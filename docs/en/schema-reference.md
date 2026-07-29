@@ -4,9 +4,7 @@
 > Audience: humans authoring a workflow, and LLM agents asked to write or repair a `schema.yaml`.
 > Language: **English** · [中文](../zh/schema-reference.md)
 
-A schema describes one workflow: which documents a change must produce, in what order, and which
-steps are [gates](overview.md#glossary) that can send the work back. Schemas live in
-`<home>/schemas/<name>/` and are referenced from `config.yaml`.
+A schema describes one workflow: which documents a change must produce, in what order, and which steps are [gates](overview.md#glossary) that can send the work back. Schemas live in `<home>/schemas/<name>/` and are referenced from `config.yaml`.
 
 ## Directory layout
 
@@ -17,12 +15,9 @@ steps are [gates](overview.md#glossary) that can send the work back. Schemas liv
   instructions/      # instruction text, when a node uses `instruction: {file: ...}`
 ```
 
-`schema.yaml` is the only required file. `templates/` becomes required as soon as any plain node
-exists, because every plain node must name a template. `instructions/` is only needed for nodes that
-reference an instruction file rather than inlining the text.
+`schema.yaml` is the only required file. `templates/` becomes required as soon as any plain node exists, because every plain node must name a template. `instructions/` is only needed for nodes that reference an instruction file rather than inlining the text.
 
-Both directories are sandboxes: a `template` or `instruction.file` value that resolves outside its
-directory is rejected, so `../../etc/passwd` is not a usable template name.
+Both directories are sandboxes: a `template` or `instruction.file` value that resolves outside its directory is rejected, so `../../etc/passwd` is not a usable template name.
 
 ## Top-level fields
 
@@ -69,24 +64,17 @@ A file reference suits anything longer, and keeps `schema.yaml` readable:
     file: proposal.md
 ```
 
-The `file` value is resolved under `instructions/` and read at load time, so a missing file fails
-fast with `instruction_not_found` rather than at the moment an agent asks for that node.
+The `file` value is resolved under `instructions/` and read at load time, so a missing file fails fast with `instruction_not_found` rather than at the moment an agent asks for that node.
 
 ### `generates` and globs
 
-A plain node is `done` once `generates` matches something. A concrete path must exist as a file. A
-glob (any value containing `*`, `?` or `[`) is matched with `Path.glob` against the artifact root;
-one or more matches count as done, and `loopspec status` reports every match, sorted.
+A plain node is `done` once `generates` matches something. A concrete path must exist as a file. A glob (any value containing `*`, `?` or `[`) is matched with `Path.glob` against the artifact root; one or more matches count as done, and `loopspec status` reports every match, sorted.
 
-Glob matching deliberately excludes two things: anything under `.attempts/`, so an archived previous
-attempt never makes a reset node look done, and the reserved change-level files `state.md` and
-`.workflow.yaml`, even when a broad glob such as `**/*.md` would otherwise match them.
+Glob matching deliberately excludes two things: anything under `.attempts/`, so an archived previous attempt never makes a reset node look done, and the reserved change-level files `state.md` and `.workflow.yaml`, even when a broad glob such as `**/*.md` would otherwise match them.
 
 ### `tracks`
 
-A node declaring `tracks` is only `done` when the tracked file exists **and** every checkbox in it is
-ticked. This is what makes an implementation node wait for the actual work rather than for a report
-to be written.
+A node declaring `tracks` is only `done` when the tracked file exists **and** every checkbox in it is ticked. This is what makes an implementation node wait for the actual work rather than for a report to be written.
 
 ```yaml
 - id: apply
@@ -107,18 +95,14 @@ to be written.
       max_retries: 2
 ```
 
-Checkbox parsing recognises `- [ ]`, `- [x]`, `- [X]` and the `*`-prefixed equivalents, at any
-indentation. A file with zero checkboxes counts as *not* complete, so an empty task list cannot make
-a tracked node pass. Parsing never raises: a missing or unreadable tracked file reads as zero tasks,
-and surfaces as a `tracked file not found: <path>` warning from `loopspec instructions`.
+Checkbox parsing recognises `- [ ]`, `- [x]`, `- [X]` and the `*`-prefixed equivalents, at any indentation. A file with zero checkboxes counts as *not* complete, so an empty task list cannot make a tracked node pass. Parsing never raises: a missing or unreadable tracked file reads as zero tasks, and surfaces as a `tracked file not found: <path>` warning from `loopspec instructions`.
 
 Constraints, all checked at load time:
 
 - `tracks` must be a safe relative path — not absolute, no `..`.
 - `tracks` must be a concrete path, not a glob. Progress has to come from one definite file.
 - Some node must declare that exact path in its `generates`.
-- At least one such producing node must be an ancestor of the tracking node, so the file is
-  guaranteed to exist by the time the tracking node runs.
+- At least one such producing node must be an ancestor of the tracking node, so the file is guaranteed to exist by the time the tracking node runs.
 
 ### `gate`
 
@@ -128,9 +112,7 @@ Constraints, all checked at load time:
 | `templates` | object | yes | none | The two verdict templates. See [`gate.templates`](#gatetemplates). |
 | `on_fail` | object | yes | none | What to redo when the verdict is FAIL. See [`gate.on_fail`](#gateon_fail). |
 
-Writing the PASS file means the gate passed; writing the FAIL file means it failed. Writing both is
-`gate_output_conflict`, because the verdict would be ambiguous — delete whichever file does not
-reflect reality.
+Writing the PASS file means the gate passed; writing the FAIL file means it failed. Writing both is `gate_output_conflict`, because the verdict would be ambiguous — delete whichever file does not reflect reality.
 
 ### `gate.outputs`
 
@@ -146,8 +128,7 @@ reflect reality.
 | `pass` | string | yes | none | Template filename under `templates/` for the PASS verdict. |
 | `fail` | string | yes | none | Template filename under `templates/` for the FAIL verdict. |
 
-Both are returned by `loopspec instructions` as `templates.pass` and `templates.fail`, so the agent
-sees both shapes before deciding the verdict.
+Both are returned by `loopspec instructions` as `templates.pass` and `templates.fail`, so the agent sees both shapes before deciding the verdict.
 
 ### `gate.on_fail`
 
@@ -157,26 +138,17 @@ sees both shapes before deciding the verdict.
 | `max_retries` | integer | no | `3` | How many rollbacks this gate may consume. Must be 0 or greater. Once used up, the gate becomes `exhausted` instead of `failed`. |
 | `on_exhausted` | string | no | `escalate` | What exhaustion means: `escalate` (hand off to a human) or `stop`. |
 
-`reset` names the *starting points*. The actual reset set is the closure: those nodes, the gate
-itself, and every transitive dependent. Declaring `reset: [design]` in a graph where `tasks` requires
-`design` and `security` requires `tasks` resets `design`, `tasks` and `security` — you do not list the
-downstream nodes yourself.
+`reset` names the *starting points*. The actual reset set is the closure: those nodes, the gate itself, and every transitive dependent. Declaring `reset: [design]` in a graph where `tasks` requires `design` and `security` requires `tasks` resets `design`, `tasks` and `security` — you do not list the downstream nodes yourself.
 
-Choosing `reset` is the main design decision in a gate. Reset the node that owns the *kind* of
-mistake the gate detects: a security review finds "how" problems, so it resets `design`; a human
-approval often rejects "what" is being built, so it resets `specs` as well.
+Choosing `reset` is the main design decision in a gate. Reset the node that owns the *kind* of mistake the gate detects: a security review finds "how" problems, so it resets `design`; a human approval often rejects "what" is being built, so it resets `specs` as well.
 
 ## Reserved paths
 
-`state.md` and `.workflow.yaml` belong to the change, not to any node. Declaring either as a
-`generates`, `gate.outputs.pass` or `gate.outputs.fail` fails with `schema_invalid`. They are also
-excluded from glob matching, and a rollback never archives them — which is what makes `state.md` the
-only durable memory across rounds.
+`state.md` and `.workflow.yaml` belong to the change, not to any node. Declaring either as a `generates`, `gate.outputs.pass` or `gate.outputs.fail` fails with `schema_invalid`. They are also excluded from glob matching, and a rollback never archives them — which is what makes `state.md` the only durable memory across rounds.
 
 ## Load-time validation
 
-Loading happens in two phases: structural validation with Pydantic (unknown fields are errors, not
-warnings), then semantic checks. The first failure raises; nothing is loaded partially.
+Loading happens in two phases: structural validation with Pydantic (unknown fields are errors, not warnings), then semantic checks. The first failure raises; nothing is loaded partially.
 
 | Check | Error code |
 | --- | --- |
@@ -200,13 +172,11 @@ warnings), then semantic checks. The first failure raises; nothing is loaded par
 | Every `instruction.file` path stays inside `instructions/` and is a safe relative path. | `schema_invalid` |
 | Every referenced instruction file exists. | `instruction_not_found` |
 
-Run `loopspec schemas validate <name> --json` to execute all of it. On success you get the topological
-build order, which is also the order `loopspec status` reports nodes in.
+Run `loopspec schemas validate <name> --json` to execute all of it. On success you get the topological build order, which is also the order `loopspec status` reports nodes in.
 
 ## A complete minimal schema
 
-Two nodes: one document, then one gate reviewing it. Enough to be genuinely usable, and small enough
-to read in one go.
+Two nodes: one document, then one gate reviewing it. Enough to be genuinely usable, and small enough to read in one go.
 
 <!-- loopspec:example=schema-dir -->
 ```yaml
@@ -265,11 +235,7 @@ loopspec new my-first-change --schema draft-and-review --json
 loopspec status my-first-change --json
 ```
 
-The resulting flow: `draft` starts `ready`; once `draft.md` exists it is `done` and `review` becomes
-`ready`; writing `review/approved.md` completes the change, while writing `review/rejected.md` makes
-`review` `failed` and `loopspec rollback` moves `draft.md` and the rejection into
-`.attempts/round-001/` so the draft can be rewritten with the rejection's blocking issues in hand.
-After two rejections the gate is `exhausted` and asks for a human.
+The resulting flow: `draft` starts `ready`; once `draft.md` exists it is `done` and `review` becomes `ready`; writing `review/approved.md` completes the change, while writing `review/rejected.md` makes `review` `failed` and `loopspec rollback` moves `draft.md` and the rejection into `.attempts/round-001/` so the draft can be rewritten with the rejection's blocking issues in hand. After two rejections the gate is `exhausted` and asks for a human.
 
 ## Next
 

@@ -4,8 +4,7 @@
 > Audience: LLM agents driving LoopSpec, and humans writing the prompts that drive them.
 > Language: **English** · [中文](../zh/agent-protocol.md)
 
-Always pass `--json`. Always read `nextSteps`. Never infer the next step from filenames or from
-memory of an earlier turn — the filesystem is the source of truth and it may have changed.
+Always pass `--json`. Always read `nextSteps`. Never infer the next step from filenames or from memory of an earlier turn — the filesystem is the source of truth and it may have changed.
 
 ## The main loop
 
@@ -48,8 +47,7 @@ loopspec archive <change> --json
 
 ## The rollback branch
 
-When a gate's verdict is FAIL, `status` reports that node as `failed` and fills in
-`pendingRollback`. The loop changes shape:
+When a gate's verdict is FAIL, `status` reports that node as `failed` and fills in `pendingRollback`. The loop changes shape:
 
 | Step | Command | Field to read | What to do with it |
 | --- | --- | --- | --- |
@@ -60,9 +58,7 @@ When a gate's verdict is FAIL, `status` reports that node as `failed` and fills 
 | 5 | `loopspec status <change> --json` | `nextSteps` | Resume the main loop; the reset nodes are `ready` again. |
 | 6 | `loopspec instructions <node> ...` | `priorAttempts[].blockingIssues` | The reason the previous attempt was rejected. Resolve each issue concretely — a rewording that leaves the same problem in place will fail the gate again. |
 
-A gate reported as `exhausted` cannot be rolled back again; `loopspec rollback` refuses with
-`retries_exhausted`. Read `loopspec history <change> --json` for the full record of past rounds and
-escalate to a human.
+A gate reported as `exhausted` cannot be rolled back again; `loopspec rollback` refuses with `retries_exhausted`. Read `loopspec history <change> --json` for the full record of past rounds and escalate to a human.
 
 ## Nodes that are not documents
 
@@ -70,14 +66,11 @@ Three behaviours surprise agents that assume every node means "write one markdow
 
 ### Gates write one of two files
 
-A gate node's `resolvedOutputPath` is an object, not a string. Write to `.pass` or `.fail` — never
-both. Both existing raises `gate_output_conflict` on the next command, and the change cannot proceed
-until one is deleted.
+A gate node's `resolvedOutputPath` is an object, not a string. Write to `.pass` or `.fail` — never both. Both existing raises `gate_output_conflict` on the next command, and the change cannot proceed until one is deleted.
 
 ### A tracked node is not done when its report is written
 
-A node declaring `tracks` stays `ready` until every checkbox in the tracked file is ticked, even after
-its PASS output exists. This is deliberate: it makes an implementation node wait for the actual work.
+A node declaring `tracks` stays `ready` until every checkbox in the tracked file is ticked, even after its PASS output exists. This is deliberate: it makes an implementation node wait for the actual work.
 
 The practical consequences:
 
@@ -85,25 +78,17 @@ The practical consequences:
 - `isComplete` stays `false`.
 - `loopspec archive` refuses with `archive_unsafe`.
 
-So tick each checkbox in the tracked file as you finish that task — `- [ ]` to `- [x]` — rather than
-batching the edits at the end. Checkbox state is how progress survives an interrupted session.
-`status` reports `taskProgress` counts per tracked node, and `instructions` adds the per-task list.
+So tick each checkbox in the tracked file as you finish that task — `- [ ]` to `- [x]` — rather than batching the edits at the end. Checkbox state is how progress survives an interrupted session. `status` reports `taskProgress` counts per tracked node, and `instructions` adds the per-task list.
 
 ### A human approval gate is not yours to decide
 
-If a schema has a node whose instruction asks for a human decision, the verdict belongs to the human.
-Summarise the plan, ask using your host tool's interactive question facility, and record whatever the
-human answers.
+If a schema has a node whose instruction asks for a human decision, the verdict belongs to the human. Summarise the plan, ask using your host tool's interactive question facility, and record whatever the human answers.
 
-If you have no way to reach a human, or the human has not answered yet, write **neither** output file
-and stop, reporting that the change is waiting on approval. The node stays `ready`, which is the
-correct state for "waiting on a person". A fabricated PASS defeats the entire purpose of the gate.
+If you have no way to reach a human, or the human has not answered yet, write **neither** output file and stop, reporting that the change is waiting on approval. The node stays `ready`, which is the correct state for "waiting on a person". A fabricated PASS defeats the entire purpose of the gate.
 
 ## Working with state.md
 
-`state.md` is the change's working memory. It lives in the change directory, is returned in full as
-the `state` field of every `loopspec instructions` response, and is the one file a rollback never
-touches. When `warnings` contains `state_missing`, recreate it with the six standard sections:
+`state.md` is the change's working memory. It lives in the change directory, is returned in full as the `state` field of every `loopspec instructions` response, and is the one file a rollback never touches. When `warnings` contains `state_missing`, recreate it with the six standard sections:
 
 ```markdown
 # Change State
@@ -118,15 +103,10 @@ touches. When `warnings` contains `state_missing`, recreate it with the six stan
 
 Rules that make it useful rather than decorative:
 
-- **Append, do not rewrite.** Existing entries are the record of earlier rounds. Since `state.md` has
-  no `.attempts/` history, an overwrite is unrecoverable.
-- **Every entry must stand alone.** Replace every pronoun and deictic reference — "this", "that",
-  "it", "the one above" — with what it refers to: a capability name, a file path, a task number, a
-  node id. Later nodes read `state.md` with none of the current conversation's context, so an entry
-  containing "that" looks like information but cannot be resolved.
+- **Append, do not rewrite.** Existing entries are the record of earlier rounds. Since `state.md` has no `.attempts/` history, an overwrite is unrecoverable.
+- **Every entry must stand alone.** Replace every pronoun and deictic reference — "this", "that", "it", "the one above" — with what it refers to: a capability name, a file path, a task number, a node id. Later nodes read `state.md` with none of the current conversation's context, so an entry containing "that" looks like information but cannot be resolved.
 - **Keep qualifiers intact.** "Fine, but X has to land first" must not be distilled into "fine".
-- **Verbatim human words go in the verdict file**, not in `state.md`. `state.md` gets the distilled
-  point plus the path to the verdict file, so anyone who needs the exact wording knows where to look.
+- **Verbatim human words go in the verdict file**, not in `state.md`. `state.md` gets the distilled point plus the path to the verdict file, so anyone who needs the exact wording knows where to look.
 
 ## Reading a change you did not create
 
@@ -137,10 +117,7 @@ loopspec status <change> --json
 loopspec history <change> --json
 ```
 
-`status` gives the current shape: what is done, what is next, whether a gate has failed.
-`history` gives the past: every attempts round, which gate failed, and where the archived artifacts
-went. Then `loopspec instructions <node>` for the `ready` node hands you `contextFiles` — the real
-paths of everything already produced — plus `state` for the decisions behind them.
+`status` gives the current shape: what is done, what is next, whether a gate has failed. `history` gives the past: every attempts round, which gate failed, and where the archived artifacts went. Then `loopspec instructions <node>` for the `ready` node hands you `contextFiles` — the real paths of everything already produced — plus `state` for the decisions behind them.
 
 ## Checklist
 
@@ -156,5 +133,4 @@ paths of everything already produced — plus `state` for the decisions behind t
 ## Next
 
 - [CLI reference](cli-reference.md) — every field of every response.
-- [secure-spec-driven](workflows/secure-spec-driven.md) — the built-in workflow's node-by-node
-  expectations.
+- [secure-spec-driven](workflows/secure-spec-driven.md) — the built-in workflow's node-by-node expectations.

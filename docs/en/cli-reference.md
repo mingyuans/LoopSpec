@@ -4,9 +4,7 @@
 > Audience: humans looking up a flag, and LLM agents that need the exact response shape.
 > Language: **English** · [中文](../zh/cli-reference.md)
 
-Every command accepts `--json`. That is the primary protocol for driving LoopSpec from an agent;
-without it you get a plain-text summary meant for a person. Both modes present the same facts, but
-the human-readable mode is allowed to aggregate (counts instead of full path lists).
+Every command accepts `--json`. That is the primary protocol for driving LoopSpec from an agent; without it you get a plain-text summary meant for a person. Both modes present the same facts, but the human-readable mode is allowed to aggregate (counts instead of full path lists).
 
 Two options recur on nearly every command:
 
@@ -15,13 +13,11 @@ Two options recur on nearly every command:
 | `--home` | path | `./loopspec` | The workflow home to operate on. See [workflow home](overview.md#glossary). |
 | `--json` | flag | off | Emit machine-readable JSON on stdout instead of the human summary. |
 
-All JSON paths in the examples below are shown rooted at `/path/to/project` — real output contains
-absolute paths on your machine.
+All JSON paths in the examples below are shown rooted at `/path/to/project` — real output contains absolute paths on your machine.
 
 ## Failure contract
 
-Every command that fails exits with code **1** and, in `--json` mode, prints an object with exactly
-three fields:
+Every command that fails exits with code **1** and, in `--json` mode, prints an object with exactly three fields:
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -61,8 +57,7 @@ loopspec version [--json]
 
 ## loopspec init
 
-Create a workflow home, copy the built-in schemas into it, and optionally scaffold skill and
-slash-command files for AI coding tools.
+Create a workflow home, copy the built-in schemas into it, and optionally scaffold skill and slash-command files for AI coding tools.
 
 ```bash
 loopspec init [PATH] [--no-builtin] [--tools all|none|<ids>] [--project-root <dir>] [--json]
@@ -76,23 +71,15 @@ loopspec init [PATH] [--no-builtin] [--tools all|none|<ids>] [--project-root <di
 | `--project-root` | path | parent of `PATH` | Where to write tool directories such as `.claude` and `.codex`. |
 | `--json` | flag | off | Emit machine-readable JSON and suppress all progress output and decoration. |
 
-`init` is idempotent: an existing `config.yaml` is left alone, and a schema directory that already
-exists is not overwritten. Re-running it refreshes tool scaffolding rather than duplicating it.
+`init` is idempotent: an existing `config.yaml` is left alone, and a schema directory that already exists is not overwritten. Re-running it refreshes tool scaffolding rather than duplicating it.
 
 ### How `--tools` resolves
 
 - Explicit value (`all`, `none`, or a list) is always honoured.
-- Omitted, in an interactive terminal, without `--json`: a welcome screen and a searchable
-  multi-select over all 31 registered tools. On a first-time setup the tools whose directories are
-  already present start checked; once anything is configured, later runs pre-select what is
-  *configured* instead. Confirming with nothing checked equals `none`, and Ctrl+C is treated as
-  "configure nothing this run" rather than an error.
+- Omitted, in an interactive terminal, without `--json`: a welcome screen and a searchable multi-select over all 31 registered tools. On a first-time setup the tools whose directories are already present start checked; once anything is configured, later runs pre-select what is *configured* instead. Confirming with nothing checked equals `none`, and Ctrl+C is treated as "configure nothing this run" rather than an error.
 - Omitted, non-interactively (pipes, redirects, CI) or with `--json`: equivalent to `none`.
 
-Skill files are written to `<project root>/<tool dir>/skills/loopspec-*/SKILL.md` for every selected
-tool. Slash commands are written only for tools that have a command adapter; 28 of the 31 registered
-tools do, and the three that do not (`forgecode`, `kimi`, `vibe`) are reported in
-`skippedCommandGeneration`.
+Skill files are written to `<project root>/<tool dir>/skills/loopspec-*/SKILL.md` for every selected tool. Slash commands are written only for tools that have a command adapter; 28 of the 31 registered tools do, and the three that do not (`forgecode`, `kimi`, `vibe`) are reported in `skippedCommandGeneration`.
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -128,11 +115,7 @@ tools do, and the three that do not (`forgecode`, `kimi`, `vibe`) are reported i
 }
 ```
 
-Without `--json`, `init` prints a sectioned summary: a `Created:` or `Refreshed:` tool list, an
-aggregate count line, the config path and its schema, any skipped command generation, a
-`Getting started:` command, and documentation links. Colour and the progress spinner drop out
-automatically when stdout is not a terminal or `NO_COLOR` is set, and the Unicode glyphs fall back to
-ASCII (`ok`, `x`, `!`, `-`, `|`) when the output encoding cannot represent them.
+Without `--json`, `init` prints a sectioned summary: a `Created:` or `Refreshed:` tool list, an aggregate count line, the config path and its schema, any skipped command generation, a `Getting started:` command, and documentation links. Colour and the progress spinner drop out automatically when stdout is not a terminal or `NO_COLOR` is set, and the Unicode glyphs fall back to ASCII (`ok`, `x`, `!`, `-`, `|`) when the output encoding cannot represent them.
 
 ## loopspec schemas list
 
@@ -147,8 +130,7 @@ loopspec schemas list [--home <dir>] [--json]
 | `--home` | path | `./loopspec` | Workflow home to scan. |
 | `--json` | flag | off | Emit machine-readable JSON. |
 
-A directory under `<home>/schemas/` without a `schema.yaml`, or with one that fails to load, is
-skipped silently rather than failing the whole listing.
+A directory under `<home>/schemas/` without a `schema.yaml`, or with one that fails to load, is skipped silently rather than failing the whole listing.
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -228,8 +210,7 @@ loopspec schemas show <name> [--home <dir>] [--json]
 }
 ```
 
-Fails with `schema_not_found` when no `schema.yaml` exists at that path, or `schema_invalid` when it
-exists but does not validate.
+Fails with `schema_not_found` when no `schema.yaml` exists at that path, or `schema_invalid` when it exists but does not validate.
 
 ## loopspec schemas validate
 
@@ -267,9 +248,7 @@ loopspec schemas validate <name> [--home <dir>] [--json]
 }
 ```
 
-This is the command to use while authoring a schema. See
-[Schema reference](schema-reference.md) for the full list of checks and the error code each one
-raises.
+This is the command to use while authoring a schema. See [Schema reference](schema-reference.md) for the full list of checks and the error code each one raises.
 
 ```json
 {
@@ -294,9 +273,7 @@ loopspec new <change-name> [--schema <name>] [--home <dir>] [--json]
 | `--home` | path | `./loopspec` | Workflow home to create the change in. |
 | `--json` | flag | off | Emit machine-readable JSON. |
 
-The chosen schema is written to the change's `.workflow.yaml`, so later commands operate on the same
-schema even if the project default changes. See
-[Configuration](configuration.md) for the full resolution order.
+The chosen schema is written to the change's `.workflow.yaml`, so later commands operate on the same schema even if the project default changes. See [Configuration](configuration.md) for the full resolution order.
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -333,9 +310,7 @@ schema even if the project default changes. See
 }
 ```
 
-When `config.yaml` lists several candidate schemas and `--schema` was not given, the command exits 1
-with `schema_selection_required` and, unusually for an error, includes the candidate list so a caller
-can present the choice:
+When `config.yaml` lists several candidate schemas and `--schema` was not given, the command exits 1 with `schema_selection_required` and, unusually for an error, includes the candidate list so a caller can present the choice:
 
 ```json
 {
@@ -362,13 +337,11 @@ can present the choice:
 }
 ```
 
-Other failures: `invalid_change_name` for a name that is not kebab-case, `change_exists` when the
-directory is already there.
+Other failures: `invalid_change_name` for a name that is not kebab-case, `change_exists` when the directory is already there.
 
 ## loopspec status
 
-Report every node's derived status and name the single next command to run. This is the command an
-agent calls on every turn of the loop.
+Report every node's derived status and name the single next command to run. This is the command an agent calls on every turn of the loop.
 
 ```bash
 loopspec status <change-name> [--home <dir>] [--json]
@@ -518,8 +491,7 @@ A change whose security gate has failed:
 
 ## loopspec instructions
 
-Return everything needed to produce one node's output: the instruction text, the template, where to
-write, which dependencies exist, and what previous attempts failed on.
+Return everything needed to produce one node's output: the instruction text, the template, where to write, which dependencies exist, and what previous attempts failed on.
 
 ```bash
 loopspec instructions <node-id> --change <change-name> [--home <dir>] [--json]
@@ -602,8 +574,7 @@ Fails with `node_not_found` for an unknown node id, `change_not_found` for an un
 
 ## loopspec rollback
 
-Roll back the change's currently failed gate: move every artifact in the reset closure into a fresh
-`.attempts/round-NNN/` directory, together with a `_meta.yaml` recording the verdict that caused it.
+Roll back the change's currently failed gate: move every artifact in the reset closure into a fresh `.attempts/round-NNN/` directory, together with a `_meta.yaml` recording the verdict that caused it.
 
 ```bash
 loopspec rollback <change-name> [--home <dir>] [--json]
@@ -615,9 +586,7 @@ loopspec rollback <change-name> [--home <dir>] [--json]
 | `--home` | path | `./loopspec` | Workflow home the change lives in. |
 | `--json` | flag | off | Emit machine-readable JSON. |
 
-Files are **moved, never deleted**. `state.md` and `.workflow.yaml` are never archived, so the
-change's memory survives every round. Rollback does not revert source code — only artifacts inside
-the change directory.
+Files are **moved, never deleted**. `state.md` and `.workflow.yaml` are never archived, so the change's memory survives every round. Rollback does not revert source code — only artifacts inside the change directory.
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -657,8 +626,7 @@ the change directory.
 }
 ```
 
-Fails with `no_failed_gate` when nothing is in a failed state, or `retries_exhausted` when the only
-actionable gate has already used up `max_retries`:
+Fails with `no_failed_gate` when nothing is in a failed state, or `retries_exhausted` when the only actionable gate has already used up `max_retries`:
 
 ```json
 {
@@ -725,8 +693,7 @@ loopspec history <change-name> [--home <dir>] [--json]
 
 ## loopspec archive
 
-Move one finished change into `<home>/archive/YYYY-MM/`, where `YYYY-MM` is the current year and
-month in UTC.
+Move one finished change into `<home>/archive/YYYY-MM/`, where `YYYY-MM` is the current year and month in UTC.
 
 ```bash
 loopspec archive <change-name> [--dry-run] [--exhausted] [--include-pending-failures] [--home <dir>] [--json]
@@ -741,8 +708,7 @@ loopspec archive <change-name> [--dry-run] [--exhausted] [--include-pending-fail
 | `--home` | path | `./loopspec` | Workflow home the change lives in. |
 | `--json` | flag | off | Emit machine-readable JSON. |
 
-Archiving **moves** the directory; nothing is deleted. It runs immediately by default — there is no
-confirmation flag — but refuses any change that does not qualify:
+Archiving **moves** the directory; nothing is deleted. It runs immediately by default — there is no confirmation flag — but refuses any change that does not qualify:
 
 - Complete changes always qualify.
 - An `exhausted` change qualifies only with `--exhausted`, and only when nothing is `failed`.
@@ -785,8 +751,7 @@ An unfinished change is refused:
 }
 ```
 
-`archive_conflict` is raised instead when the destination already exists, so an earlier archive of
-the same name is never overwritten.
+`archive_conflict` is raised instead when the destination already exists, so an earlier archive of the same name is never overwritten.
 
 ## loopspec bulk-archive
 
@@ -805,8 +770,7 @@ loopspec bulk-archive [--complete] [--exhausted] [--older-than <days>] [--dry-ru
 | `--home` | path | `./loopspec` | Workflow home to scan. |
 | `--json` | flag | off | Emit machine-readable JSON. |
 
-Changes that do not qualify are skipped silently rather than failing the run. Unlike single-change
-`archive`, bulk archiving never accepts pending failures — a `failed` gate always disqualifies.
+Changes that do not qualify are skipped silently rather than failing the run. Unlike single-change `archive`, bulk archiving never accepts pending failures — a `failed` gate always disqualifies.
 
 | Field | Type | Description |
 | --- | --- | --- |

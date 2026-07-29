@@ -4,9 +4,7 @@
 > Audience: humans and LLM agents; start here.
 > Language: **English** · [中文](../zh/README.md)
 
-LoopSpec is a CLI for gated artifact workflows: you declare a YAML graph of documents a change must
-produce, an agent generates them one at a time, and gate nodes can send the work back with a recorded
-reason.
+LoopSpec is a CLI for gated artifact workflows: you declare a YAML graph of documents a change must produce, an agent generates them one at a time, and gate nodes can send the work back with a recorded reason.
 
 ## Pages
 
@@ -29,10 +27,7 @@ loopspec new add-payment --json
 loopspec status add-payment --json
 ```
 
-`status` names the single next command on every turn. Follow it, write the artifact
-`loopspec instructions` describes, and come back to `status` — that is the whole loop. See
-[Agent protocol](agent-protocol.md) for the details and
-[CLI reference](cli-reference.md) for everything else.
+`status` names the single next command on every turn. Follow it, write the artifact `loopspec instructions` describes, and come back to `status` — that is the whole loop. See [Agent protocol](agent-protocol.md) for the details and [CLI reference](cli-reference.md) for everything else.
 
 Where to go for a specific question:
 
