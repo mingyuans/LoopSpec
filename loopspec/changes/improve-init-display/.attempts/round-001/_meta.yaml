@@ -1,0 +1,25 @@
+round: 1
+gate: security
+verdict: FAIL
+summary: 'Security Review: FAIL'
+blocking_issues:
+- 用户可控的路径字符串被直接送入 `rich` 渲染，而 design 与 tasks 全文未提及任何转义或禁用标记解析：`rich` 的 `Console.print()`
+  默认开启 console markup 解析（`markup=True`），会把方括号当格式指令。`--project-root` 与 `path` 均接受任意路径，而目录名在各主流文件系统上都允许包含
+  `[` 与 `]`。已实测确认两种失效模式：**（a）静默篡改**——`/tmp/[red]out/config.yaml` 被渲染成 `/tmp/out/config.yaml`、`/tmp/[oops]/config.yaml`
+  被渲染成 `/tmp//config.yaml`，即向用户展示一条并不存在的路径，且无任何报错；**（b）直接崩溃**——路径含 `[/]` 或 `[/bold]`
+  时抛 `rich.errors.MarkupError`（`closing tag ... has nothing to close`）使命令中断。其中 (a)
+  比崩溃更危险，因为用户会据此去找一个错误的路径。同理，路径中的裸 ANSI/控制字符会被回显进终端。修复方向：所有插值的用户可控字符串（路径、目录名、以及任何来自
+  `config.yaml` 的取值如 schema 名）必须经 `rich.markup.escape()` 处理或以 `markup=False` 渲染，并在
+  `presentation.py` 的接口层面强制这一点（而不是依赖各调用点自觉）；同时需要以含 `[red]`、含 `[/]`、含控制字符的目录名为输入的回归测试，分别覆盖上述
+  (a)(b) 两种失效模式。
+reset_declared:
+- design
+reset_closure:
+- design
+- tasks
+- security
+archived_files:
+- design.md
+- tasks.md
+- security/fail.md
+archived_at: '2026-07-28T21:06:57.528241+08:00'

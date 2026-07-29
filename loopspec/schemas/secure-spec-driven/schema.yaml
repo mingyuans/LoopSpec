@@ -1,0 +1,100 @@
+name: secure-spec-driven
+version: 1
+description: >-
+  Spec-driven workflow (proposal -> specs/design -> tasks) gated by a security
+  review, then human approval, then implementation
+
+nodes:
+  - id: proposal
+    generates: proposal.md
+    description: Initial proposal document outlining the change
+    template: proposal.md
+    requires: []
+    instruction:
+      file: proposal.md
+
+  - id: specs
+    generates: "specs/**/*.md"
+    description: Detailed specifications for the change
+    template: spec.md
+    requires: [proposal]
+    instruction:
+      file: specs.md
+
+  - id: design
+    generates: design.md
+    description: Technical design document with implementation details
+    template: design.md
+    requires: [proposal]
+    instruction:
+      file: design.md
+
+  - id: tasks
+    generates: tasks.md
+    description: Implementation checklist with trackable tasks
+    template: tasks.md
+    requires: [specs, design]
+    instruction:
+      file: tasks.md
+
+  - id: security
+    generates: null
+    description: Security review gate over the design and tasks
+    template: null
+    requires: [tasks]
+    instruction:
+      file: security.md
+    gate:
+      outputs:
+        pass: security/pass.md
+        fail: security/fail.md
+      templates:
+        pass: security-pass.md
+        fail: security-fail.md
+      on_fail:
+        reset: [design]
+        max_retries: 3
+        on_exhausted: escalate
+
+  - id: approval
+    generates: null
+    description: Human approval gate over the whole plan before implementation starts
+    template: null
+    requires: [security]
+    instruction:
+      file: approval.md
+    gate:
+      outputs:
+        pass: approval/approved.md
+        fail: approval/changes-requested.md
+      templates:
+        pass: approval-approved.md
+        fail: approval-changes-requested.md
+      on_fail:
+        # Human feedback at this point routinely touches *what* is being built
+        # (specs), not just *how* (design), so both are redone.
+        reset: [specs, design]
+        max_retries: 5
+        on_exhausted: escalate
+
+  - id: apply
+    generates: null
+    description: Implementation of the approved plan, tracked by the tasks.md checkboxes
+    template: null
+    requires: [approval]
+    tracks: tasks.md
+    instruction:
+      file: apply.md
+    gate:
+      outputs:
+        pass: apply/report.md
+        fail: apply/blocked.md
+      templates:
+        pass: apply-report.md
+        fail: apply-blocked.md
+      on_fail:
+        # An implementation blocker is almost always a "how" problem; a genuine
+        # "what" problem gets caught again by the approval gate downstream.
+        reset: [design]
+        max_retries: 2
+        on_exhausted: escalate
