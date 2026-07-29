@@ -30,14 +30,14 @@ from .errors import (
 from .instructions import build_instructions
 from .models import KEBAB_RE
 from .policy import build_next_steps
-from .presentation import Presenter, render_init_summary
+from .presentation import Presenter, render_init_summary, render_welcome
 from .rollback import compute_reset_closure, rollback_change
 from .scaffold import ScaffoldResult, scaffold_tools
 from .schema_loader import load_schema
 from .state import compute_states, is_complete
 from .task_tracking import progress_summary, read_task_progress
 from .tool_registry import AI_TOOLS
-from .tools_cli import is_interactive, prompt_tools_interactively, resolve_tools_arg
+from .tools_cli import is_interactive, pick_tools, resolve_tools_arg
 
 app = typer.Typer(help="loopspec: a gated artifact workflow CLI.")
 schemas_app = typer.Typer(help="Manage workflow schemas.")
@@ -177,6 +177,19 @@ def _scaffold_with_progress(
     return merged
 
 
+def _welcome_and_pick(presenter: Presenter, scaffold_root: Path) -> list[str]:
+    """The interactive tool-selection path: welcome screen, then the picker.
+
+    Deliberately one function rather than two calls at the call site, so no
+    future edit can render the welcome screen without the picker it promises
+    (design D3).
+    """
+
+    render_welcome(presenter)
+    input()  # honours the welcome screen's own "Press Enter to select tools..."
+    return pick_tools(scaffold_root)
+
+
 def _init_counts(result: ScaffoldResult) -> tuple[int, int]:
     written = [path for paths in result.written_files.values() for path in paths]
     skills = sum(1 for path in written if path.endswith("SKILL.md"))
@@ -242,8 +255,16 @@ def init(
     scaffold_root = (project_root or path.resolve().parent).resolve()
 
     try:
-        if tools is None:
-            tool_ids = prompt_tools_interactively(scaffold_root) if is_interactive() else []
+        # One condition decides the welcome screen *and* the picker together --
+        # `_welcome_and_pick` is the only caller of either, so they cannot come
+        # apart. The screen signs off with "Press Enter to select tools...", and
+        # showing that without a picker behind it tells the user to press Enter
+        # for nothing (design D3). `presenter is not None` is exactly `not
+        # as_json`; spelling it this way keeps the narrowing for free.
+        if tools is None and presenter is not None and is_interactive():
+            tool_ids = _welcome_and_pick(presenter, scaffold_root)
+        elif tools is None:
+            tool_ids = []
         else:
             tool_ids = resolve_tools_arg(tools)
     except LoopspecError as exc:

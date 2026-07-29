@@ -27,16 +27,16 @@ dev tools: `pytest`, `ruff`, `mypy`) into a local virtualenv.
 loopspec init ./loopspec
 
 # 1b. Optionally scaffold AI-tool skills/commands (/lpsx:new, /lpsx:continue,
-#     /lpsx:archive, /lpsx:bulk-archive) for the tools you use. Supported ids:
-#     claude, codex, opencode, cursor, windsurf.
+#     /lpsx:archive, /lpsx:bulk-archive) for the tools you use. 31 tools are
+#     supported — run `loopspec init` in a terminal to browse them.
 loopspec init ./loopspec --tools claude,codex
 #   -> writes .claude/skills/loopspec-*/SKILL.md + .claude/commands/lpsx/*.md
 #      and .codex/skills/loopspec-*/SKILL.md + a global ~/.codex/prompts/lpsx-*.md
 # These land in your *project root* (the parent of the workflow home), because
 # that's where AI tools look for .claude/.codex — override with --project-root.
 # Use --tools all for every supported tool, or omit --tools in an interactive
-# terminal to get a numbered prompt instead. Non-interactively, omitting
-# --tools is equivalent to --tools none (no tool scaffolding).
+# terminal to pick from a searchable list (see below). Non-interactively,
+# omitting --tools is equivalent to --tools none (no tool scaffolding).
 
 # 2. Create a change
 loopspec new add-payment --home ./loopspec --json
@@ -89,6 +89,56 @@ summary aggregates on purpose — the full list of written paths stays in `--jso
 under `scaffoldedFiles`. Colour and the spinner drop out automatically when the
 output isn't a terminal or `NO_COLOR` is set, and the glyphs fall back to ASCII
 (`ok`/`x`/`!`/`-`/`|`) when the output encoding can't represent them.
+
+### Picking tools interactively
+
+Run `loopspec init` in a terminal without `--tools` and it opens with a welcome
+screen, then a searchable multi-select over all 31 supported tools:
+
+```
+$ loopspec init ./loopspec
+
+█    ▄▀▀▄ ▄▀▀▄ █▀▀▄ ▄▀▀▀ █▀▀▄ █▀▀▀ ▄▀▀▀
+█    █  █ █  █ █▀▀  ▀▀▀▄ █▀▀  █▀▀  █
+▀▀▀▀ ▀▄▄▀ ▀▄▄▀ █    ▄▄▄▀ █    ▀▀▀▀ ▀▄▄▄
+
+Welcome to LoopSpec
+A gated artifact workflow for spec-driven development
+
+This setup will configure:
+  • Agent Skills for AI tools
+  • /lpsx:* slash commands
+
+Quick start after setup:
+  /lpsx:new       Create a change
+  /lpsx:continue  Advance to the next artifact
+  /lpsx:archive   Archive a finished change
+
+Press Enter to select tools...
+
+Detected tool directories: Claude Code (pre-selected for first-time setup)
+? Select tools to set up (31 available)
+  ↑↓ navigate • Space toggle • type to filter • Enter confirm
+❯ ◉ Claude Code (detected)
+  ○ Amazon Q Developer
+  ○ Antigravity
+  ...
+```
+
+Type to filter by display name, Space to toggle, Enter to confirm. Confirming
+with nothing checked is the same as `--tools none`, and Ctrl+C is treated as
+"configure nothing this run" rather than an error.
+
+On a **first-time** setup the tools whose directories are already on disk start
+checked. Once anything is configured, later runs pre-select what is *configured*
+instead — so re-running `init` defaults to refreshing the tools you already set
+up rather than quietly adding every editor you've installed since. (`.github/`
+is checked for specific Copilot files rather than mere existence, since nearly
+every repository has that directory.)
+
+**Three cases never show any of this:** `--json`, an explicit `--tools` (including
+`all`/`none`), and a non-interactive stdin/stdout (pipes, redirects, CI). In the
+last case, omitting `--tools` stays equivalent to `--tools none`.
 
 ## Two nodes that aren't just "write a file"
 

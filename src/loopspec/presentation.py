@@ -54,9 +54,29 @@ STYLES: dict[str, str] = {
     "heading": "bold",
     "dim": "dim",
     "link": "cyan",
+    "logo": "bright_cyan",
 }
 
 INDENT = "  "
+
+#: The welcome logo, as one static frame. Deliberately not a list of frames and
+#: deliberately not paired with any redraw helper: an animated logo was ruled
+#: out, and the cheapest way to keep it ruled out is to have nothing here that
+#: could drive one.
+#: Glyphs are a uniform 4 columns wide, separated by one space, so the rows line
+#: up: L O O P S P E C.
+LOGO_UNICODE: tuple[str, ...] = (
+    "█    ▄▀▀▄ ▄▀▀▄ █▀▀▄ ▄▀▀▀ █▀▀▄ █▀▀▀ ▄▀▀▀",
+    "█    █  █ █  █ █▀▀  ▀▀▀▄ █▀▀  █▀▀  █   ",
+    "▀▀▀▀ ▀▄▄▀ ▀▄▄▀ █    ▄▄▄▀ █    ▀▀▀▀ ▀▄▄▄",
+)
+
+#: Same word, in characters every code page can encode.
+LOGO_ASCII: tuple[str, ...] = (
+    "|     __   __   __   __   __   ___  __ ",
+    "|    |  | |  | |__| |__  |__| |__  |   ",
+    "|___ |__| |__| |     __| |    |___ |__ ",
+)
 
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
@@ -86,8 +106,10 @@ class Presenter:
         self.console = console if console is not None else Console()
         if ascii_only is None:
             encoding = getattr(self.console.file, "encoding", None)
-            ascii_only = not encoding_supports(encoding, "".join(GLYPHS_UNICODE.values()))
+            sample = "".join(GLYPHS_UNICODE.values()) + "".join(LOGO_UNICODE)
+            ascii_only = not encoding_supports(encoding, sample)
         self.glyphs = GLYPHS_ASCII if ascii_only else GLYPHS_UNICODE
+        self.logo = LOGO_ASCII if ascii_only else LOGO_UNICODE
 
     # -- formatting ------------------------------------------------------- #
 
@@ -129,6 +151,15 @@ class Presenter:
     def indented(self, text: str) -> Text:
         return Text(f"{INDENT}{sanitize(text)}")
 
+    def logo_lines(self) -> list[Text]:
+        """The static logo, one `Text` per row.
+
+        Returns rows rather than printing them so the caller controls spacing --
+        and so there is no redraw-in-place entry point to reach for later.
+        """
+
+        return [Text(row, style=STYLES["logo"]) for row in self.logo]
+
     # -- output ----------------------------------------------------------- #
 
     def line(self, item: Text | str = "") -> None:
@@ -154,6 +185,59 @@ class Presenter:
         else:
             yield
         self.line(self.success(done))
+
+
+WELCOME_TITLE = "Welcome to LoopSpec"
+WELCOME_SUBTITLE = "A gated artifact workflow for spec-driven development"
+
+WELCOME_CONFIGURES: tuple[str, ...] = (
+    "Agent Skills for AI tools",
+    "/lpsx:* slash commands",
+)
+
+#: Verb -> one-line purpose. Verbs must match the commands `init` actually
+#: writes (see `skill_templates.SKILL_TEMPLATES`) -- a quick start that lists a
+#: command the user cannot type is worse than no quick start. `test_presentation`
+#: pins the two together.
+WELCOME_QUICK_START: tuple[tuple[str, str], ...] = (
+    ("new", "Create a change"),
+    ("continue", "Advance to the next artifact"),
+    ("archive", "Archive a finished change"),
+)
+
+WELCOME_PROMPT = "Press Enter to select tools..."
+
+
+def render_welcome(presenter: Presenter) -> None:
+    """Render `init`'s opening screen, in a fixed section order.
+
+    Only ever called on the interactive path: it ends by telling the user to
+    press Enter for the tool picker, so rendering it without a picker to follow
+    would be lying to them. `init` computes that condition once and uses it for
+    both (design D3).
+    """
+
+    presenter.blank()
+    for row in presenter.logo_lines():
+        presenter.line(row)
+    presenter.blank()
+
+    presenter.line(presenter.heading(WELCOME_TITLE))
+    presenter.line(WELCOME_SUBTITLE)
+    presenter.blank()
+
+    presenter.line("This setup will configure:")
+    for item in WELCOME_CONFIGURES:
+        presenter.line(presenter.bullet(item))
+    presenter.blank()
+
+    presenter.line("Quick start after setup:")
+    width = max(len(verb) for verb, _ in WELCOME_QUICK_START) + len("/lpsx:")
+    for verb, purpose in WELCOME_QUICK_START:
+        presenter.line(presenter.indented(f"{f'/lpsx:{verb}':<{width}}  {purpose}"))
+    presenter.blank()
+
+    presenter.line(presenter.dim(WELCOME_PROMPT))
 
 
 def render_init_summary(

@@ -2,6 +2,7 @@ from pathlib import Path
 
 from loopspec.scaffold import scaffold_tools, tool_is_configured
 from loopspec.tool_registry import AI_TOOLS, ToolSpec
+from loopspec.tools_cli import tool_is_detected
 
 
 def test_single_tool_writes_four_skills_and_four_commands(tmp_path: Path):
@@ -80,6 +81,22 @@ def test_created_refreshed_state_captured_before_writing(tmp_path: Path):
     result = scaffold_tools(tmp_path, ["claude"])
     assert result.created == ["claude"]
     assert tool_is_configured(tmp_path, "claude") is True
+
+
+def test_detected_but_unconfigured_tool_is_created_not_refreshed(tmp_path: Path):
+    """Detection must not leak into the created/refreshed split (design D4).
+
+    A bare `.cursor/` makes the picker pre-select Cursor, but there are no skill
+    files yet -- so this run creates them.
+    """
+
+    (tmp_path / ".cursor").mkdir()
+    assert tool_is_detected(tmp_path, "cursor") is True
+    assert tool_is_configured(tmp_path, "cursor") is False
+
+    result = scaffold_tools(tmp_path, ["cursor"])
+    assert result.created == ["cursor"]
+    assert result.refreshed == []
 
 
 def test_created_refreshed_grouping_adds_no_state_file(tmp_path: Path):

@@ -5,6 +5,7 @@ import pytest
 from typer.testing import CliRunner
 
 from loopspec.cli import app
+from loopspec.tool_registry import AI_TOOLS
 
 runner = CliRunner()
 
@@ -394,9 +395,16 @@ def test_bulk_archive_dry_run_lists_candidates(tmp_path: Path):
     assert change_dir.exists()
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def isolated_codex_home(tmp_path: Path, monkeypatch) -> Path:
-    """Keep Codex's global prompt scaffolding out of the developer's real ~/.codex."""
+    """Keep Codex's global prompt scaffolding out of the developer's real ~/.codex.
+
+    `autouse` because `--tools all` now writes 31 tools including Codex, and
+    Codex is the one that writes outside the project. Relying on each test to
+    remember this fixture would eventually miss one, and the failure mode is
+    files appearing in the developer's home directory -- so it is on by default,
+    and tests that need the path just request it.
+    """
 
     codex_home = tmp_path / "codex-home"
     monkeypatch.setenv("CODEX_HOME", str(codex_home))
@@ -448,7 +456,7 @@ def test_init_tools_all_scaffolds_every_registered_tool(tmp_path: Path, isolated
 
     code, data = run("init", str(project_root / "wf"), "--tools", "all", "--json")
     assert code == 0
-    assert set(data["toolsConfigured"]) == {"claude", "codex", "opencode", "cursor", "windsurf"}
+    assert set(data["toolsConfigured"]) == set(AI_TOOLS)
     assert (project_root / ".claude" / "skills" / "loopspec-new" / "SKILL.md").is_file()
     assert (project_root / ".claude" / "commands" / "lpsx" / "new.md").is_file()
     assert (project_root / ".opencode" / "commands" / "lpsx-new.md").is_file()
@@ -587,3 +595,101 @@ def test_init_tools_rerun_overwrites_existing_scaffold(tmp_path: Path):
     code, _ = run("init", str(home), "--tools", "claude", "--json")
     assert code == 0
     assert "hand-edited" not in skill_file.read_text()
+
+
+# --------------------------------------------------------------------------- #
+# welcome screen / picker: the three non-interactive paths (tasks 6.1-6.3)
+#
+# The picker's dependency on a real terminal is exactly why these matter: if the
+# gate leaks, CI and piped output start failing on a missing tty.
+# --------------------------------------------------------------------------- #
+
+WELCOME_MARKERS = (
+    "Welcome to LoopSpec",
+    "This setup will configure:",
+    "Quick start after setup:",
+    "Press Enter to select tools",
+    "█",
+)
+
+PICKER_MARKERS = ("Select tools to set up", "navigate", "Space toggle")
+
+
+def assert_no_interaction(output: str) -> None:
+    for marker in WELCOME_MARKERS + PICKER_MARKERS:
+        assert marker not in output, marker
+
+
+def test_json_mode_carries_no_welcome_screen_or_picker(tmp_path: Path):
+    result = runner.invoke(app, ["init", str(tmp_path / "wf"), "--tools", "claude", "--json"])
+    assert result.exit_code == 0
+    json.loads(result.stdout)  # still parses as a whole
+    assert ANSI_ESCAPE not in result.stdout
+    assert_no_interaction(result.stdout)
+
+
+def test_json_mode_skips_interaction_even_with_a_terminal(tmp_path: Path, monkeypatch):
+    """`--json` wins over an available tty -- the JSON protocol must never carry
+    a prompt, and questionary would render one straight to the terminal."""
+
+    monkeypatch.setattr("loopspec.cli.is_interactive", lambda: True)
+    monkeypatch.setattr(
+        "loopspec.cli.pick_tools", lambda *a, **k: pytest.fail("picker ran on the JSON path")
+    )
+
+    result = runner.invoke(app, ["init", str(tmp_path / "wf"), "--json"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["toolsConfigured"] == []
+
+
+def test_explicit_tools_skips_the_welcome_screen(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr("loopspec.cli.is_interactive", lambda: True)
+    monkeypatch.setattr(
+        "loopspec.cli.pick_tools", lambda *a, **k: pytest.fail("picker ran despite --tools")
+    )
+
+    output = human_init("init", str(tmp_path / "wf"), "--tools", "claude")
+    assert_no_interaction(output)
+    assert "Created: Claude Code" in output
+
+
+@pytest.mark.parametrize("tools_arg", [["--tools", "all"], ["--tools", "none"]])
+def test_tools_all_and_none_also_skip_the_picker(
+    tmp_path: Path, monkeypatch, isolated_codex_home: Path, tools_arg: list[str]
+):
+    monkeypatch.setattr("loopspec.cli.is_interactive", lambda: True)
+    monkeypatch.setattr(
+        "loopspec.cli.pick_tools", lambda *a, **k: pytest.fail("picker ran despite an explicit arg")
+    )
+
+    output = human_init("init", str(tmp_path / "proj" / "wf"), *tools_arg)
+    assert_no_interaction(output)
+
+
+def test_non_interactive_without_tools_renders_nothing_and_succeeds(tmp_path: Path):
+    """Equivalent to `--tools none`: no welcome screen, no picker, no scaffolding,
+    and no error -- the behaviour redirected output and CI have always had."""
+
+    project_root = tmp_path / "proj"
+    project_root.mkdir()
+
+    output = human_init("init", str(project_root / "wf"))
+
+    assert_no_interaction(output)
+    assert not (project_root / ".claude").exists()
+    assert "Config:" in output  # the rest of init still ran
+
+
+def test_interactive_path_renders_welcome_and_runs_picker_together(tmp_path: Path, monkeypatch):
+    """design D3: one condition drives both, so neither appears without the other."""
+
+    monkeypatch.setattr("loopspec.cli.is_interactive", lambda: True)
+    calls: list[str] = []
+    monkeypatch.setattr("loopspec.cli.pick_tools", lambda *a, **k: calls.append("picked") or [])
+
+    result = runner.invoke(app, ["init", str(tmp_path / "proj" / "wf")], input="\n")
+
+    assert result.exit_code == 0, result.stdout
+    assert calls == ["picked"], "the welcome screen promised a picker"
+    for marker in WELCOME_MARKERS:
+        assert marker in result.stdout, marker
