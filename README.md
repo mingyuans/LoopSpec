@@ -67,18 +67,19 @@ If `loopspec` isn't found after installing, the tool directory (usually `~/.loca
 Publishing is driven by tags, not by commits. Pushing to `main` runs the checks and builds; it never creates a release. To publish:
 
 ```bash
-# 1. set the version in BOTH places, and merge that to main
-#      pyproject.toml        -> project.version
-#      src/loopspec/__init__.py -> __version__
-# 2. tag a commit on main
+# 1. tag a commit on main
 git tag v0.2.0
-# 3. push the tag -- this is what publishes
+# 2. push the tag -- this is what publishes
 git push origin v0.2.0
 ```
 
-The release version comes from the tag name. CI requires the tag to agree with both version declarations and fails before building if it doesn't — the wheel's filename comes from `pyproject.toml`, so a mismatch would otherwise produce a release whose assets are named after a different version. It also requires the tagged commit to be reachable from `main`, and refuses to overwrite an existing release for the same tag.
+The tag is the only place a version is declared. Nothing in the repository repeats it: `pyproject.toml` marks the version `dynamic`, and `hatch_version.py` resolves it at build time from `LOOPSPEC_BUILD_VERSION`, which the workflow sets from the tag it validated. So there is no second declaration for a tag to disagree with, and no version-bump commit to forget.
 
-`make release-dry-run TAG=v0.2.0` runs the checks that don't need CI, so you can catch a version mismatch before spending a tag on it.
+CI still requires the tagged commit to be reachable from `main`, refuses to overwrite an existing release for the same tag, and verifies after building that the assets are named after the tag.
+
+Building outside a release resolves the same way, in this order: `LOOPSPEC_BUILD_VERSION` if set, else the tag on the current commit (`make build` on a tagged commit produces exactly what CI would), else the `Version:` in `PKG-INFO` when building from a released sdist, else `0.0.0.dev0` for an untagged tree — deliberately not a guess at the next release number, so a local build can't be mistaken for a releasable one.
+
+`make release-dry-run TAG=v0.2.0` builds the artifacts that tag would publish and asserts their filenames, so you can check a release before spending a tag on it.
 
 Each release carries three assets:
 

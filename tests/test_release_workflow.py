@@ -21,6 +21,8 @@ import yaml
 
 WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "release.yml"
 VERSION_STEP = "Resolve and validate version from tag"
+# Same shape hatch_version.py and install.sh accept.
+VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+([._-]?(a|b|rc|alpha|beta|dev|post)[0-9]+)?$")
 PUBLISH_STEP = "Publish release"
 CHECKSUM_STEP = "Generate checksums"
 
@@ -167,16 +169,49 @@ def test_publisher_and_installer_agree_on_asset_names(workflow: dict):
 
 
 def test_built_artifacts_match_the_contract():
-    """What hatchling actually produces, not what we assume it produces."""
+    """What hatchling actually produces, not what we assume it produces.
+
+    Nothing in the tree declares the version any more, so the wheel's own name is
+    the reference: what matters is that the sdist agrees with it and that both are
+    named the way `install.sh` and the publish step expect.
+    """
     repo = WORKFLOW.parent.parent.parent
-    version = (repo / "src" / "loopspec" / "__init__.py").read_text(encoding="utf-8")
-    version = re.search(r'__version__ = "([^"]+)"', version).group(1)
     dist = repo / "dist"
     if not dist.is_dir():
         pytest.skip("no dist/ -- run `make build` first")
     names = {path.name for path in dist.iterdir()}
-    assert f"loopspec-{version}-py3-none-any.whl" in names
-    assert f"loopspec-{version}.tar.gz" in names
+    wheels = [
+        match.group(1)
+        for match in (re.fullmatch(r"loopspec-(.+)-py3-none-any\.whl", name) for name in names)
+        if match
+    ]
+    assert wheels, f"no loopspec wheel in dist/: {sorted(names)}"
+    for version in wheels:
+        assert VERSION_RE.match(version), f"wheel version {version!r} is not a valid version"
+        assert f"loopspec-{version}.tar.gz" in names, "the sdist does not match the wheel"
+
+
+def test_the_version_is_never_asserted_against_a_declaration(workflow: dict):
+    """The tag is the only source. A step that cross-checked it against a value in
+    the tree would mean that value exists again, which is what this design removed.
+    """
+    bodies = "\n".join(
+        step.get("run") or "" for job in workflow["jobs"] for step in steps(workflow, job)
+    )
+    assert "check_version" not in bodies
+    assert not (WORKFLOW.parent.parent.parent / "scripts" / "check_version.py").exists()
+
+
+def test_the_build_reads_the_version_from_the_validated_tag(workflow: dict):
+    """The export has to happen in the step that validates the tag: a later step
+    could otherwise put an unvalidated value in front of the build backend."""
+    assert 'LOOPSPEC_BUILD_VERSION=%s\\n' in version_snippet(workflow)
+    build_steps = [
+        step
+        for step in steps(workflow, "release")
+        if (step.get("run") or "").strip() == "make build"
+    ]
+    assert len(build_steps) == 1, "expected exactly one build step in the release job"
 
 
 def test_assets_are_not_globbed(workflow: dict):
@@ -206,7 +241,13 @@ def test_valid_tags_resolve_to_a_version(workflow: dict, tmp_path: Path, tag: st
     written = dict(
         line.split("=", 1) for line in env_file.read_text().splitlines() if "=" in line
     )
-    assert written == {"TAG": tag, "VERSION": tag[1:]}
+    # LOOPSPEC_BUILD_VERSION is what the build backend reads, so the tag decides
+    # the artifact filenames without anything in the tree declaring a version.
+    assert written == {
+        "TAG": tag,
+        "VERSION": tag[1:],
+        "LOOPSPEC_BUILD_VERSION": tag[1:],
+    }
 
 
 @pytest.mark.parametrize(

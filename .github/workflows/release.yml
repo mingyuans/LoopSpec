@@ -37,11 +37,6 @@ jobs:
         with:
           enable-cache: true
 
-      # Before `uv sync` on purpose: the check is stdlib-only and must work
-      # without the project's dependencies installed.
-      - name: Check version consistency
-        run: python3 scripts/check_version.py
-
       # --frozen is CI-specific; everything else goes through the Makefile so the
       # checks here cannot drift from the ones contributors run.
       - name: Install dependencies
@@ -84,6 +79,10 @@ jobs:
       # GITHUB_REF_NAME is read as an environment variable, not interpolated.
       # Validation happens before the value is written to GITHUB_ENV, so a
       # malformed tag can never reach a later step, a path, or an argument.
+      #
+      # LOOPSPEC_BUILD_VERSION is what makes the tag authoritative: the build
+      # backend reads it (hatch_version.py) and names the artifacts after it, so
+      # there is no declared version for the tag to disagree with.
       - name: Resolve and validate version from tag
         run: |
           tag="$GITHUB_REF_NAME"
@@ -94,6 +93,7 @@ jobs:
           fi
           printf 'TAG=%s\n' "$tag" >>"$GITHUB_ENV"
           printf 'VERSION=%s\n' "$version" >>"$GITHUB_ENV"
+          printf 'LOOPSPEC_BUILD_VERSION=%s\n' "$version" >>"$GITHUB_ENV"
 
       # git tags belong to no branch, so "tag a commit on the default branch"
       # can only be checked as reachability. Done over the API rather than with
@@ -114,12 +114,6 @@ jobs:
               exit 1
               ;;
           esac
-
-      # Before the build, not after: the artifact filenames come from
-      # pyproject.toml, so a mismatch reported here names all three versions
-      # instead of surfacing later as a missing asset.
-      - name: Require the tag to match the declared version
-        run: python3 scripts/check_version.py --expect "$VERSION"
 
       # A tag push is an explicit request to publish, so "already released" is a
       # failure, not something to skip quietly. Only a definite "not found"
@@ -144,6 +138,8 @@ jobs:
 
       # No token in this step: `uv build` executes the build backend declared in
       # pyproject.toml, which is third-party code resolved at build time.
+      # LOOPSPEC_BUILD_VERSION comes from the job environment, so the artifacts
+      # are named after the validated tag; the asset checks below catch it if not.
       - name: Build
         run: make build
 

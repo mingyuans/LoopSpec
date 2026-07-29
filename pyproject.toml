@@ -1,6 +1,8 @@
 [project]
 name = "loopspec"
-version = "0.1.0"
+# Resolved by hatch_version.py from the git tag being built, so the version is
+# declared in exactly one place: the tag. See [tool.hatch.version] below.
+dynamic = ["version"]
 description = "Gated artifact workflow CLI: LLM-driven artifact generation with quality gates and auditable rollback"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,6 +23,14 @@ loopspec = "loopspec.cli:app"
 # whatever the index serves. Not hash-pinning -- pyproject cannot express it.
 requires = ["hatchling>=1.31,<2"]
 build-backend = "hatchling.build"
+
+# A local module rather than a VCS plugin: the tag still decides the version, but
+# the build keeps executing only hatchling, and a wheel built from a released
+# sdist -- no tag, no git -- still resolves through PKG-INFO.
+[tool.hatch.version]
+source = "code"
+path = "hatch_version.py"
+expression = "resolve_version()"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/loopspec"]

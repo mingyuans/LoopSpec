@@ -49,7 +49,7 @@ loopspec version [--json]
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `version` | string | Installed package version. Falls back to the source tree's `__version__` when the package metadata is unavailable. |
+| `version` | string | Installed package version, stamped from the git tag it was built from. `0.0.0.dev0` in a source tree that was never installed, since there is no release version to report. |
 
 ```json
 {"version": "0.1.0"}

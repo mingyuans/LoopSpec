@@ -49,7 +49,7 @@ loopspec version [--json]
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `version` | string | 已安装的包版本。包元数据不可用时回退到源码树的 `__version__`。 |
+| `version` | string | 已安装的包版本，由构建时所在的 git tag 写入。未安装过的源码树返回 `0.0.0.dev0`，因为此时没有可报告的发布版本。 |
 
 ```json
 {"version": "0.1.0"}

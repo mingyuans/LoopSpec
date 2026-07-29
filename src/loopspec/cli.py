@@ -127,10 +127,9 @@ def _load_change_context(home: Path, change_name: str) -> ChangeContext:
 def version(as_json: bool = JsonOption) -> None:
     """Print the installed loopspec version."""
 
-    try:
-        installed_version = importlib.metadata.version("loopspec")
-    except importlib.metadata.PackageNotFoundError:
-        from . import __version__ as installed_version  # fallback for source checkouts
+    # The package already resolves this from the distribution metadata, with the
+    # dev-version fallback for a source tree that was never installed.
+    from . import __version__ as installed_version
 
     if as_json:
         typer.echo(json.dumps({"version": installed_version}))
