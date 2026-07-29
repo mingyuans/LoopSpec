@@ -1,4 +1,4 @@
-.PHONY: install dev test build lint clean release-dry-run
+.PHONY: install dev test docs-check build lint clean release-dry-run
 
 install:
 	uv sync
@@ -8,6 +8,9 @@ dev:
 
 test:
 	uv run pytest -v
+
+docs-check:
+	uv run pytest tests/test_docs_consistency.py -v
 
 lint:
 	uv run ruff check src tests scripts
