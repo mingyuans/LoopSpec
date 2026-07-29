@@ -16,7 +16,10 @@ dependencies = [
 loopspec = "loopspec.cli:app"
 
 [build-system]
-requires = ["hatchling"]
+# Bounded on purpose: the release workflow resolves and executes the build
+# backend on every run, so an unconstrained requirement would widen that to
+# whatever the index serves. Not hash-pinning -- pyproject cannot express it.
+requires = ["hatchling>=1.31,<2"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]

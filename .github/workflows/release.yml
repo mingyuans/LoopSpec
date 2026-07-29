@@ -1,0 +1,172 @@
+name: Release
+
+# Two paths through one workflow:
+#   - a push to the default branch runs `verify` only
+#   - pushing a v<version> tag runs `verify`, then publishes
+#
+# The tag pattern narrows what reaches this workflow, but it is NOT validation:
+# GitHub's ref globs cannot express "three numeric segments", and the trailing
+# wildcard admits any suffix. The real gate is the regex in the release job.
+on:
+  push:
+    branches: [main]
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+  workflow_dispatch:
+
+# Read-only by default; only the release job is raised to write.
+permissions:
+  contents: read
+
+# Values that come from outside (ref names, API responses) are passed into
+# scripts through step-level `env:` and referenced as quoted shell variables.
+# `${{ }}` never appears inside a `run:` body: expressions expand before the
+# shell sees the script, so an interpolated `v1.0.0$(...)` tag would execute
+# before any validation could reject it.
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Otherwise the token is written into .git/config as an http
+          # extraheader, where every later step in this job could read it.
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      # Before `uv sync` on purpose: the check is stdlib-only and must work
+      # without the project's dependencies installed.
+      - name: Check version consistency
+        run: python3 scripts/check_version.py
+
+      # --frozen is CI-specific; everything else goes through the Makefile so the
+      # checks here cannot drift from the ones contributors run.
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint
+        run: make lint
+
+      - name: Test
+        run: make test
+
+      # Explicit rather than via `make release-dry-run`, which tolerates a
+      # missing shellcheck locally. Here both checks are mandatory.
+      - name: Check install.sh
+        run: |
+          sh -n install.sh
+          shellcheck install.sh
+
+      - name: Build
+        run: make build
+
+  release:
+    needs: verify
+    # Skipped for branch pushes and for a manual run on a branch: without a tag
+    # there is no release version, and guessing one is exactly what this design
+    # rejects.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+
+      # GITHUB_REF_NAME is read as an environment variable, not interpolated.
+      # Validation happens before the value is written to GITHUB_ENV, so a
+      # malformed tag can never reach a later step, a path, or an argument.
+      - name: Resolve and validate version from tag
+        run: |
+          tag="$GITHUB_REF_NAME"
+          version="${tag#v}"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([._-]?(a|b|rc|alpha|beta|dev|post)[0-9]+)?$'; then
+            echo "::error::tag '$tag' does not name a valid version" >&2
+            exit 1
+          fi
+          printf 'TAG=%s\n' "$tag" >>"$GITHUB_ENV"
+          printf 'VERSION=%s\n' "$version" >>"$GITHUB_ENV"
+
+      # git tags belong to no branch, so "tag a commit on the default branch"
+      # can only be checked as reachability. Done over the API rather than with
+      # git, so checkout needs neither full history nor persisted credentials.
+      - name: Require the tagged commit to be on the default branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          default_branch=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
+          [ -n "$default_branch" ] || { echo "::error::could not resolve the default branch" >&2; exit 1; }
+          status=$(gh api "repos/$GITHUB_REPOSITORY/compare/$default_branch...$GITHUB_SHA" --jq .status)
+          case "$status" in
+            # identical: the tag is on the branch head.
+            # behind: the tag is an ancestor of it (releasing an older commit).
+            identical | behind) ;;
+            *)
+              echo "::error::tag '$TAG' is not reachable from '$default_branch' (compare status: $status)" >&2
+              exit 1
+              ;;
+          esac
+
+      # Before the build, not after: the artifact filenames come from
+      # pyproject.toml, so a mismatch reported here names all three versions
+      # instead of surfacing later as a missing asset.
+      - name: Require the tag to match the declared version
+        run: python3 scripts/check_version.py --expect "$VERSION"
+
+      # A tag push is an explicit request to publish, so "already released" is a
+      # failure, not something to skip quietly. Only a definite "not found"
+      # continues -- any other error stops the job.
+      - name: Require the release not to exist yet
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if response=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" 2>&1); then
+            echo "::error::release $TAG already exists. Either remove it (gh release delete $TAG --cleanup-tag) and push the tag again, or release a new version." >&2
+            exit 1
+          fi
+          # Only a definite 404 means "safe to publish". Any other failure is a
+          # query we could not answer, and must not be read as "does not exist".
+          case "$response" in
+            *"Not Found"*) ;;
+            *)
+              echo "::error::could not determine whether release $TAG exists: $response" >&2
+              exit 1
+              ;;
+          esac
+
+      # No token in this step: `uv build` executes the build backend declared in
+      # pyproject.toml, which is third-party code resolved at build time.
+      - name: Build
+        run: make build
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum "loopspec-$VERSION-py3-none-any.whl" "loopspec-$VERSION.tar.gz" \
+            >../checksums.txt
+          cat ../checksums.txt
+
+      # Assets are named explicitly rather than globbed: the contract is "these
+      # three files and nothing else", which `dist/*` cannot express -- it would
+      # publish whatever happens to be in the directory. The existence checks
+      # also catch a build whose output does not match the tag's version.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          wheel="dist/loopspec-$VERSION-py3-none-any.whl"
+          sdist="dist/loopspec-$VERSION.tar.gz"
+          for asset in "$wheel" "$sdist" checksums.txt; do
+            [ -f "$asset" ] || { echo "::error::missing release asset: $asset" >&2; exit 1; }
+          done
+          gh release create "$TAG" "$wheel" "$sdist" checksums.txt \
+            --title "$TAG" \
+            --generate-notes
