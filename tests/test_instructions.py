@@ -210,6 +210,147 @@ def test_prior_attempts_empty_for_fresh_node(tmp_path: Path):
     assert response["priorAttempts"] == []
 
 
+TRACKING_SCHEMA_YAML = """
+name: sample
+version: 1
+nodes:
+  - id: proposal
+    generates: proposal.md
+    description: Initial proposal
+    template: proposal.md
+    requires: []
+    instruction: "Write the proposal."
+  - id: specs
+    generates: "specs/**/*.md"
+    description: Specs
+    template: proposal.md
+    requires: [proposal]
+    instruction: "Write the specs."
+  - id: tasks
+    generates: tasks.md
+    description: Tasks
+    template: proposal.md
+    requires: [specs]
+    instruction: "Write the tasks."
+  - id: security
+    generates: null
+    description: Security review
+    template: null
+    requires: [tasks]
+    instruction: "Review."
+    gate:
+      outputs:
+        pass: security/pass.md
+        fail: security/fail.md
+      templates:
+        pass: security-pass.md
+        fail: security-fail.md
+      on_fail:
+        reset: [tasks]
+  - id: apply
+    generates: null
+    description: Implementation
+    template: null
+    requires: [security]
+    tracks: tasks.md
+    instruction: "Implement it."
+    gate:
+      outputs:
+        pass: apply/report.md
+        fail: apply/blocked.md
+      templates:
+        pass: security-pass.md
+        fail: security-fail.md
+      on_fail:
+        reset: [tasks]
+"""
+
+
+def build_tracking_change(tmp_path: Path, tasks_body: str | None) -> tuple[Path, Path]:
+    schema_dir = tmp_path / "schema"
+    schema_dir.mkdir(parents=True)
+    (schema_dir / "schema.yaml").write_text(TRACKING_SCHEMA_YAML, encoding="utf-8")
+    templates_dir = schema_dir / "templates"
+    templates_dir.mkdir()
+    for name, content in TEMPLATES.items():
+        (templates_dir / name).write_text(content, encoding="utf-8")
+
+    change_dir = tmp_path / "change"
+    change_dir.mkdir()
+    create_initial_state(change_dir)
+    (change_dir / "proposal.md").write_text("# p")
+    (change_dir / "specs" / "auth").mkdir(parents=True)
+    (change_dir / "specs" / "auth" / "spec.md").write_text("# auth")
+    (change_dir / "specs" / "billing").mkdir(parents=True)
+    (change_dir / "specs" / "billing" / "spec.md").write_text("# billing")
+    if tasks_body is not None:
+        (change_dir / "tasks.md").write_text(tasks_body)
+    (change_dir / "security").mkdir()
+    (change_dir / "security" / "pass.md").write_text("# ok")
+    return schema_dir, change_dir
+
+
+def test_context_files_cover_globs_and_gate_outputs(tmp_path: Path):
+    schema_dir, change_dir = build_tracking_change(tmp_path, "- [ ] 1.1 do it\n")
+    loaded = load_schema(schema_dir)
+    response = build_instructions(loaded, "apply", change_dir, change_dir)
+
+    context_files = response["contextFiles"]
+    assert context_files["proposal"] == [str((change_dir / "proposal.md").resolve())]
+    assert context_files["specs"] == [
+        str((change_dir / "specs" / "auth" / "spec.md").resolve()),
+        str((change_dir / "specs" / "billing" / "spec.md").resolve()),
+    ]
+    assert context_files["security"] == [str((change_dir / "security" / "pass.md").resolve())]
+    # `apply` has produced nothing yet, so it is omitted entirely.
+    assert "apply" not in context_files
+
+
+def test_context_files_omit_nodes_without_outputs(tmp_path: Path):
+    schema_dir = tmp_path / "schema"
+    build_schema_dir(schema_dir)
+    change_dir = tmp_path / "change"
+    change_dir.mkdir()
+    create_initial_state(change_dir)
+
+    loaded = load_schema(schema_dir)
+    response = build_instructions(loaded, "proposal", change_dir, change_dir)
+    assert response["contextFiles"] == {}
+
+
+def test_task_progress_lists_every_task(tmp_path: Path):
+    schema_dir, change_dir = build_tracking_change(
+        tmp_path, "- [x] 1.1 done\n- [ ] 1.2 pending\n"
+    )
+    loaded = load_schema(schema_dir)
+    response = build_instructions(loaded, "apply", change_dir, change_dir)
+
+    progress = response["taskProgress"]
+    assert progress["path"] == "tasks.md"
+    assert (progress["total"], progress["complete"], progress["remaining"]) == (2, 1, 1)
+    assert progress["tasks"] == [
+        {"id": 1, "description": "1.1 done", "done": True},
+        {"id": 2, "description": "1.2 pending", "done": False},
+    ]
+
+
+def test_missing_tracked_file_warns_instead_of_failing(tmp_path: Path):
+    schema_dir, change_dir = build_tracking_change(tmp_path, tasks_body=None)
+    loaded = load_schema(schema_dir)
+    response = build_instructions(loaded, "apply", change_dir, change_dir)
+
+    assert response["taskProgress"]["total"] == 0
+    assert response["taskProgress"]["tasks"] == []
+    assert any("tasks.md" in warning for warning in response["warnings"])
+
+
+def test_untracked_node_has_no_task_progress(tmp_path: Path):
+    schema_dir, change_dir = build_tracking_change(tmp_path, "- [ ] 1.1 do it\n")
+    loaded = load_schema(schema_dir)
+    response = build_instructions(loaded, "security", change_dir, change_dir)
+    assert "taskProgress" not in response
+
+
 def test_prior_attempts_present_after_rollback(tmp_path: Path):
     import yaml
 

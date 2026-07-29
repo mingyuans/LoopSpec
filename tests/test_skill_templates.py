@@ -23,6 +23,20 @@ def test_continue_template_references_status_and_nextsteps():
     assert "nextSteps" in template.body
 
 
+def test_continue_template_covers_human_decisions_and_code_changes():
+    body = next(t for t in SKILL_TEMPLATES if t.verb == "continue").body
+    assert "ask a human for a decision" in body
+    assert "change code in the repository" in body
+    assert "taskProgress" in body
+
+
+def test_continue_template_stays_schema_agnostic():
+    body = next(t for t in SKILL_TEMPLATES if t.verb == "continue").body
+    # The loop drives any schema, so it must not name built-in schema node ids.
+    assert "approval" not in body
+    assert "apply" not in body
+
+
 def test_to_hyphenated_rewrites_command_references():
     text = "Continue via `/lpsx:continue` after rollback."
     assert to_hyphenated(text) == "Continue via `/lpsx-continue` after rollback."

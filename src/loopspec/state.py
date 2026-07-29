@@ -9,7 +9,9 @@ import yaml
 
 from .gate_outcome import GateOutcome, read_gate_outcome
 from .graph import WorkflowGraph
+from .models import NodeSpec
 from .outputs import outputs_exist
+from .task_tracking import read_task_progress, tracked_work_complete
 
 
 @dataclass
@@ -39,6 +41,18 @@ def count_rollbacks(change_dir: Path, gate_id: str) -> int:
     return count
 
 
+def tracked_work_done(node: NodeSpec, artifact_dir: Path) -> bool:
+    """A node declaring `tracks` isn't finished until every tracked checkbox is ticked.
+
+    Without this, writing the node's output would be enough to call it done -- so an
+    implementation node could claim completion with its task list untouched.
+    """
+
+    if node.tracks is None:
+        return True
+    return tracked_work_complete(read_task_progress(artifact_dir, node.tracks))
+
+
 def compute_states(
     graph: WorkflowGraph, change_dir: Path, artifact_dir: Path
 ) -> dict[str, NodeState]:
@@ -51,15 +65,19 @@ def compute_states(
         node = graph.node(node_id)
         if node.gate is None:
             assert node.generates is not None
-            if outputs_exist(artifact_dir, node.generates):
+            if outputs_exist(artifact_dir, node.generates) and tracked_work_done(
+                node, artifact_dir
+            ):
                 completed.add(node_id)
             continue
 
         outcome = read_gate_outcome(artifact_dir, node.gate.outputs)
         if outcome is None:
             continue
+        # Recorded even when tracked work is unfinished, so a FAIL verdict still
+        # drives `failed`/`exhausted` below regardless of checkbox progress.
         outcomes[node_id] = outcome
-        if outcome.passed:
+        if outcome.passed and tracked_work_done(node, artifact_dir):
             completed.add(node_id)
 
     states: dict[str, NodeState] = {}

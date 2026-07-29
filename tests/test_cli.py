@@ -61,6 +61,28 @@ schema_selection:
     return home
 
 
+def write_planning_artifacts(change_dir: Path, tasks_body: str = "- [x] 1.1 ship it\n") -> None:
+    """Fake the built-in schema's planning artifacts through the security gate."""
+
+    (change_dir / "proposal.md").write_text("# p")
+    (change_dir / "design.md").write_text("# d")
+    (change_dir / "specs").mkdir(exist_ok=True)
+    (change_dir / "specs" / "spec.md").write_text("# s")
+    (change_dir / "tasks.md").write_text(tasks_body)
+    (change_dir / "security").mkdir(exist_ok=True)
+    (change_dir / "security" / "pass.md").write_text("# ok")
+
+
+def complete_builtin_change(change_dir: Path, tasks_body: str = "- [x] 1.1 ship it\n") -> None:
+    """Everything the built-in schema needs to reach `isComplete`, approval and apply included."""
+
+    write_planning_artifacts(change_dir, tasks_body)
+    (change_dir / "approval").mkdir(exist_ok=True)
+    (change_dir / "approval" / "approved.md").write_text("# Human Approval: APPROVED")
+    (change_dir / "apply").mkdir(exist_ok=True)
+    (change_dir / "apply" / "report.md").write_text("# Implementation Report")
+
+
 def test_version_json():
     code, data = run("version", "--json")
     assert code == 0
@@ -148,6 +170,92 @@ def test_status_reflects_ready_node(tmp_path: Path):
     assert "instructions proposal" in data["nextSteps"][0]
 
 
+TRACKING_SCHEMA_YAML = """
+name: tracked
+version: 1
+nodes:
+  - id: tasks
+    generates: tasks.md
+    description: tasks
+    template: tasks.md
+    requires: []
+    instruction: "write the tasks"
+  - id: apply
+    generates: null
+    description: implementation
+    template: null
+    requires: [tasks]
+    tracks: tasks.md
+    instruction: "implement it"
+    gate:
+      outputs:
+        pass: apply/report.md
+        fail: apply/blocked.md
+      templates:
+        pass: apply-report.md
+        fail: apply-blocked.md
+      on_fail:
+        reset: [tasks]
+"""
+
+
+def make_tracking_home(tmp_path: Path) -> Path:
+    home = tmp_path / "wf"
+    code, _ = run("init", str(home), "--no-builtin", "--json")
+    assert code == 0
+    schema_dir = home / "schemas" / "tracked"
+    templates_dir = schema_dir / "templates"
+    templates_dir.mkdir(parents=True)
+    for name in ("tasks.md", "apply-report.md", "apply-blocked.md"):
+        (templates_dir / name).write_text(f"# {name}")
+    (schema_dir / "schema.yaml").write_text(TRACKING_SCHEMA_YAML)
+    (home / "config.yaml").write_text("artifacts_dir: changes\nschema: tracked\n")
+    return home
+
+
+def test_status_reports_task_progress_for_tracked_node(tmp_path: Path):
+    home = make_tracking_home(tmp_path)
+    code, data = run("new", "add-payment", "--home", str(home), "--json")
+    assert code == 0
+    change_dir = Path(data["changeRoot"])
+    (change_dir / "tasks.md").write_text("- [x] 1.1 done\n- [ ] 1.2 pending\n- [ ] 1.3 pending\n")
+
+    code, data = run("status", "add-payment", "--home", str(home), "--json")
+    assert code == 0
+    apply_node = next(node for node in data["nodes"] if node["id"] == "apply")
+    assert apply_node["taskProgress"]["path"] == "tasks.md"
+    assert apply_node["taskProgress"]["total"] == 3
+    assert apply_node["taskProgress"]["complete"] == 1
+    assert apply_node["taskProgress"]["remaining"] == 2
+    # Per-task detail belongs to `instructions`, not to the hot-path `status` call.
+    assert "tasks" not in apply_node["taskProgress"]
+
+    tasks_node = next(node for node in data["nodes"] if node["id"] == "tasks")
+    assert "taskProgress" not in tasks_node
+
+
+def test_status_tracked_node_stays_ready_until_every_task_ticked(tmp_path: Path):
+    home = make_tracking_home(tmp_path)
+    code, data = run("new", "add-payment", "--home", str(home), "--json")
+    change_dir = Path(data["changeRoot"])
+    (change_dir / "tasks.md").write_text("- [x] 1.1 done\n- [ ] 1.2 pending\n")
+    (change_dir / "apply").mkdir()
+    (change_dir / "apply" / "report.md").write_text("# Implementation report")
+
+    code, data = run("status", "add-payment", "--home", str(home), "--json")
+    apply_node = next(node for node in data["nodes"] if node["id"] == "apply")
+    assert apply_node["status"] == "ready"
+    assert data["isComplete"] is False
+
+    code, data = run("archive", "add-payment", "--home", str(home), "--json")
+    assert code == 1
+    assert data["error"] == "archive_unsafe"
+
+    (change_dir / "tasks.md").write_text("- [x] 1.1 done\n- [x] 1.2 done\n")
+    code, data = run("status", "add-payment", "--home", str(home), "--json")
+    assert data["isComplete"] is True
+
+
 def test_status_change_not_found(tmp_path: Path):
     home = init_home(tmp_path)
     code, data = run("status", "nonexistent", "--home", str(home), "--json")
@@ -176,7 +284,7 @@ def test_full_lifecycle_with_rollback_and_completion(tmp_path: Path):
     (change_dir / "design.md").write_text("# design")
     (change_dir / "specs").mkdir()
     (change_dir / "specs" / "spec.md").write_text("# spec")
-    (change_dir / "tasks.md").write_text("# tasks")
+    (change_dir / "tasks.md").write_text("- [ ] 1.1 build it")
     (change_dir / "security").mkdir()
     (change_dir / "security" / "fail.md").write_text("# Blocked\n\n- injection risk")
 
@@ -197,9 +305,22 @@ def test_full_lifecycle_with_rollback_and_completion(tmp_path: Path):
     assert data["priorAttempts"][0]["blockingIssues"] == ["injection risk"]
 
     (change_dir / "design.md").write_text("# design v2")
-    (change_dir / "tasks.md").write_text("# tasks v2")
+    (change_dir / "tasks.md").write_text("- [x] 1.1 build it")
     (change_dir / "security").mkdir(exist_ok=True)
     (change_dir / "security" / "pass.md").write_text("# ok")
+
+    # Security PASS only unlocks human approval; implementation is still gated.
+    code, data = run("status", "add-payment", "--home", str(home), "--json")
+    assert code == 0
+    assert data["isComplete"] is False
+    statuses = {node["id"]: node["status"] for node in data["nodes"]}
+    assert statuses["approval"] == "ready"
+    assert statuses["apply"] == "blocked"
+
+    (change_dir / "approval").mkdir()
+    (change_dir / "approval" / "approved.md").write_text("# Human Approval: APPROVED")
+    (change_dir / "apply").mkdir()
+    (change_dir / "apply" / "report.md").write_text("# Implementation Report")
 
     code, data = run("status", "add-payment", "--home", str(home), "--json")
     assert code == 0
@@ -231,13 +352,7 @@ def test_archive_dry_run_then_apply(tmp_path: Path):
     home = init_home(tmp_path)
     code, data = run("new", "add-payment", "--home", str(home), "--json")
     change_dir = Path(data["changeRoot"])
-    (change_dir / "proposal.md").write_text("# p")
-    (change_dir / "design.md").write_text("# d")
-    (change_dir / "specs").mkdir()
-    (change_dir / "specs" / "spec.md").write_text("# s")
-    (change_dir / "tasks.md").write_text("# t")
-    (change_dir / "security").mkdir()
-    (change_dir / "security" / "pass.md").write_text("# ok")
+    complete_builtin_change(change_dir)
 
     code, data = run("archive", "add-payment", "--dry-run", "--home", str(home), "--json")
     assert code == 0
@@ -254,32 +369,12 @@ def test_archive_dry_run_then_apply(tmp_path: Path):
 def test_archive_conflict(tmp_path: Path):
     home = init_home(tmp_path)
     code, data = run("new", "add-payment", "--home", str(home), "--json")
-    change_dir = Path(data["changeRoot"])
-    for name, content in (
-        ("proposal.md", "# p"),
-        ("design.md", "# d"),
-        ("tasks.md", "# t"),
-    ):
-        (change_dir / name).write_text(content)
-    (change_dir / "specs").mkdir()
-    (change_dir / "specs" / "spec.md").write_text("# s")
-    (change_dir / "security").mkdir()
-    (change_dir / "security" / "pass.md").write_text("# ok")
+    complete_builtin_change(Path(data["changeRoot"]))
 
     run("archive", "add-payment", "--home", str(home), "--json")
 
     code, data = run("new", "add-payment", "--home", str(home), "--json")
-    change_dir2 = Path(data["changeRoot"])
-    for name, content in (
-        ("proposal.md", "# p"),
-        ("design.md", "# d"),
-        ("tasks.md", "# t"),
-    ):
-        (change_dir2 / name).write_text(content)
-    (change_dir2 / "specs").mkdir()
-    (change_dir2 / "specs" / "spec.md").write_text("# s")
-    (change_dir2 / "security").mkdir()
-    (change_dir2 / "security" / "pass.md").write_text("# ok")
+    complete_builtin_change(Path(data["changeRoot"]))
 
     code, data = run("archive", "add-payment", "--home", str(home), "--json")
     assert code == 1
@@ -290,13 +385,7 @@ def test_bulk_archive_dry_run_lists_candidates(tmp_path: Path):
     home = init_home(tmp_path)
     code, data = run("new", "add-payment", "--home", str(home), "--json")
     change_dir = Path(data["changeRoot"])
-    (change_dir / "proposal.md").write_text("# p")
-    (change_dir / "design.md").write_text("# d")
-    (change_dir / "specs").mkdir()
-    (change_dir / "specs" / "spec.md").write_text("# s")
-    (change_dir / "tasks.md").write_text("# t")
-    (change_dir / "security").mkdir()
-    (change_dir / "security" / "pass.md").write_text("# ok")
+    complete_builtin_change(change_dir)
 
     code, data = run("bulk-archive", "--dry-run", "--home", str(home), "--json")
     assert code == 0
@@ -385,6 +474,105 @@ def test_init_tools_unknown_id_rejected(tmp_path: Path):
     assert code == 1
     assert data["error"] == "config_invalid"
     assert "claude" in data["fix"]
+
+
+ANSI_ESCAPE = "\x1b["
+
+
+def human_init(*args: str) -> str:
+    """Run `init` without --json and return its human-readable stdout."""
+
+    result = runner.invoke(app, list(args))
+    assert result.exit_code == 0, result.stdout
+    return result.stdout
+
+
+def test_init_json_stdout_parses_whole_and_carries_no_decoration(tmp_path: Path):
+    result = runner.invoke(app, ["init", str(tmp_path / "wf"), "--tools", "claude", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)  # whole stdout, not a fragment
+    assert payload["toolsConfigured"] == ["claude"]
+    assert ANSI_ESCAPE not in result.stdout
+    for marker in ("Setup complete", "Workflow home ready", "LoopSpec Setup Complete", "✔", "▌"):
+        assert marker not in result.stdout
+
+
+def test_init_human_output_leaks_no_json_field_names_or_python_reprs(tmp_path: Path):
+    output = human_init("init", str(tmp_path / "wf"), "--tools", "claude")
+    for field in (
+        "scaffoldedFiles",
+        "skippedCommandGeneration",
+        "toolsConfigured",
+        "workflowHome",
+        "copiedSchemas",
+        "createdFiles",
+        "nextSteps",
+    ):
+        assert field not in output
+    assert "{'" not in output and "['" not in output
+
+
+def test_init_human_output_summarizes_instead_of_listing_paths(tmp_path: Path):
+    output = human_init("init", str(tmp_path / "wf"), "--tools", "claude")
+    assert "4 skills and 4 commands in .claude" in output
+    assert "SKILL.md" not in output
+    assert "commands/lpsx" not in output
+
+
+def test_init_human_output_has_created_then_refreshed(tmp_path: Path):
+    home = tmp_path / "proj" / "wf"
+    first = human_init("init", str(home), "--tools", "claude")
+    assert "Created: Claude Code" in first
+    assert "Refreshed:" not in first
+
+    second = human_init("init", str(home), "--tools", "claude")
+    assert "Refreshed: Claude Code" in second
+    assert "Created:" not in second
+
+
+def test_init_human_output_config_created_then_exists(tmp_path: Path):
+    home = tmp_path / "wf"
+    first = human_init("init", str(home), "--tools", "none")
+    assert "(schema: secure-spec-driven)" in first
+
+    second = human_init("init", str(home), "--tools", "none")
+    assert "(exists)" in second
+
+
+def test_init_human_output_ends_with_getting_started_and_links(tmp_path: Path):
+    output = human_init("init", str(tmp_path / "wf"), "--tools", "claude")
+    assert "Getting started:" in output
+    assert "https://github.com/mingyuans/LoopSpec" in output
+    assert "https://github.com/mingyuans/LoopSpec/issues" in output
+    assert "Restart your IDE for slash commands to take effect." in output
+
+
+def test_init_human_output_without_tools_omits_restart_hint(tmp_path: Path):
+    output = human_init("init", str(tmp_path / "wf"), "--tools", "none")
+    assert "Restart your IDE" not in output
+    assert "skills and" not in output
+
+
+def test_init_human_output_renders_markup_like_paths_verbatim(tmp_path: Path):
+    project_root = tmp_path / "[red]proj"
+    project_root.mkdir()
+    output = human_init(
+        "init", str(project_root / "wf"), "--tools", "claude"
+    )
+    # The path must appear as typed; rich markup parsing would have eaten `[red]`.
+    assert "[red]proj" in output
+
+
+def test_aggregated_path_details_remain_available_via_json(tmp_path: Path):
+    home = tmp_path / "proj" / "wf"
+    human_init("init", str(home), "--tools", "claude")
+
+    code, data = run("init", str(home), "--tools", "claude", "--json")
+    assert code == 0
+    claude_files = data["scaffoldedFiles"]["claude"]
+    assert len(claude_files) == 8
+    assert any(path.endswith("loopspec-new/SKILL.md") for path in claude_files)
+    assert data["refreshedTools"] == ["claude"]
 
 
 def test_init_tools_rerun_overwrites_existing_scaffold(tmp_path: Path):

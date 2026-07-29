@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
+from pathlib import Path
 
 from .errors import ConfigValidationError
+from .scaffold import tool_is_configured
 from .tool_registry import AI_TOOLS
 
 
@@ -44,7 +46,38 @@ def is_interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
+def tool_status_label(project_path: Path | None, tool_id: str) -> str:
+    """Suffix telling the user whether picking this tool creates or overwrites.
+
+    Reuses the same "are its skill files on disk" test as the scaffolder, so
+    there is only one notion of "configured" -- and still no state file.
+    """
+
+    if project_path is None:
+        return ""
+    if tool_is_configured(project_path, tool_id):
+        return " (configured)"
+    if (project_path / AI_TOOLS[tool_id].skills_dir).is_dir():
+        return " (detected)"
+    return ""
+
+
+def _echo_selection(
+    project_path: Path | None, selected: list[str], print_fn: Callable[[str], None]
+) -> None:
+    """Spell out which picks overwrite existing files before anything is written."""
+
+    if project_path is None or not selected:
+        return
+    parts = [
+        f"{tool_id} (refresh)" if tool_is_configured(project_path, tool_id) else tool_id
+        for tool_id in selected
+    ]
+    print_fn(f"Selected: {', '.join(parts)}")
+
+
 def prompt_tools_interactively(
+    project_path: Path | None = None,
     input_fn: Callable[[str], str] = input,
     print_fn: Callable[[str], None] = print,
 ) -> list[str]:
@@ -53,13 +86,14 @@ def prompt_tools_interactively(
     ids = sorted(AI_TOOLS)
     print_fn("Which AI tools should loopspec scaffold skills/commands for?")
     for index, tool_id in enumerate(ids, start=1):
-        print_fn(f"  {index}) {tool_id}")
+        print_fn(f"  {index}) {tool_id}{tool_status_label(project_path, tool_id)}")
     print_fn("Enter comma-separated numbers, 'all', or 'none':")
     reply = input_fn("> ").strip().lower()
 
     if reply in ("", "none"):
         return []
     if reply == "all":
+        _echo_selection(project_path, ids, print_fn)
         return ids
 
     selected: list[str] = []
@@ -75,4 +109,5 @@ def prompt_tools_interactively(
         tool_id = ids[int(token) - 1]
         if tool_id not in selected:
             selected.append(tool_id)
+    _echo_selection(project_path, selected, print_fn)
     return selected

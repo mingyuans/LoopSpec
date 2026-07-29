@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from loopspec.scaffold import scaffold_tools
+from loopspec.scaffold import scaffold_tools, tool_is_configured
 from loopspec.tool_registry import AI_TOOLS, ToolSpec
 
 
@@ -51,6 +51,43 @@ def test_tool_without_command_adapter_skips_commands_but_writes_skills(
     assert not (tmp_path / ".noadapter" / "commands").exists()
     assert result.skipped_command_generation == ["no-adapter-tool"]
     assert len(result.written_files["no-adapter-tool"]) == 4
+
+
+def test_first_run_reports_tool_as_created(tmp_path: Path):
+    result = scaffold_tools(tmp_path, ["claude"])
+    assert result.created == ["claude"]
+    assert result.refreshed == []
+
+
+def test_second_run_reports_tool_as_refreshed(tmp_path: Path):
+    scaffold_tools(tmp_path, ["claude"])
+    result = scaffold_tools(tmp_path, ["claude"])
+    assert result.created == []
+    assert result.refreshed == ["claude"]
+
+
+def test_mixed_run_reports_both_groups(tmp_path: Path):
+    scaffold_tools(tmp_path, ["claude"])
+    result = scaffold_tools(tmp_path, ["claude", "opencode"])
+    assert result.refreshed == ["claude"]
+    assert result.created == ["opencode"]
+
+
+def test_created_refreshed_state_captured_before_writing(tmp_path: Path):
+    # Writing overwrites unconditionally, so the very run that creates the files
+    # must still report them as created, not refreshed.
+    assert tool_is_configured(tmp_path, "claude") is False
+    result = scaffold_tools(tmp_path, ["claude"])
+    assert result.created == ["claude"]
+    assert tool_is_configured(tmp_path, "claude") is True
+
+
+def test_created_refreshed_grouping_adds_no_state_file(tmp_path: Path):
+    scaffold_tools(tmp_path, ["claude"])
+    before = {p for p in tmp_path.rglob("*") if p.is_file()}
+    scaffold_tools(tmp_path, ["claude"])
+    after = {p for p in tmp_path.rglob("*") if p.is_file()}
+    assert before == after
 
 
 def test_no_tool_selection_manifest_written(tmp_path: Path):

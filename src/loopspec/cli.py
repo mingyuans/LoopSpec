@@ -30,10 +30,13 @@ from .errors import (
 from .instructions import build_instructions
 from .models import KEBAB_RE
 from .policy import build_next_steps
+from .presentation import Presenter, render_init_summary
 from .rollback import compute_reset_closure, rollback_change
 from .scaffold import ScaffoldResult, scaffold_tools
 from .schema_loader import load_schema
 from .state import compute_states, is_complete
+from .task_tracking import progress_summary, read_task_progress
+from .tool_registry import AI_TOOLS
 from .tools_cli import is_interactive, prompt_tools_interactively, resolve_tools_arg
 
 app = typer.Typer(help="loopspec: a gated artifact workflow CLI.")
@@ -140,6 +143,46 @@ def version(as_json: bool = JsonOption) -> None:
 # --------------------------------------------------------------------------- #
 
 
+DEFAULT_SCHEMA_NAME = "secure-spec-driven"
+PROJECT_URL = "https://github.com/mingyuans/LoopSpec"
+ISSUES_URL = f"{PROJECT_URL}/issues"
+
+
+def _display_path(path: Path) -> str:
+    """Prefer a cwd-relative path; fall back to absolute when it isn't under cwd."""
+
+    try:
+        return str(path.resolve().relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
+
+
+def _scaffold_with_progress(
+    root: Path, tool_ids: list[str], presenter: Presenter | None
+) -> ScaffoldResult:
+    """Scaffold tool-by-tool so each one can report its own completion line."""
+
+    merged = ScaffoldResult()
+    for tool_id in tool_ids:
+        label = AI_TOOLS[tool_id].label
+        if presenter is None:
+            partial = scaffold_tools(root, [tool_id])
+        else:
+            with presenter.stage(f"Setting up {label}...", f"Setup complete for {label}"):
+                partial = scaffold_tools(root, [tool_id])
+        merged.written_files.update(partial.written_files)
+        merged.skipped_command_generation.extend(partial.skipped_command_generation)
+        merged.created.extend(partial.created)
+        merged.refreshed.extend(partial.refreshed)
+    return merged
+
+
+def _init_counts(result: ScaffoldResult) -> tuple[int, int]:
+    written = [path for paths in result.written_files.values() for path in paths]
+    skills = sum(1 for path in written if path.endswith("SKILL.md"))
+    return skills, len(written) - skills
+
+
 def _builtin_schemas_source() -> Path:
     """Locate the bundled built-in schemas.
 
@@ -165,6 +208,8 @@ def init(
 ) -> None:
     """Initialize a workflow home."""
 
+    presenter = None if as_json else Presenter()
+
     path.mkdir(parents=True, exist_ok=True)
     (path / "schemas").mkdir(exist_ok=True)
     (path / "changes").mkdir(exist_ok=True)
@@ -173,7 +218,7 @@ def init(
     created_files = []
     if not config_path.is_file():
         config_path.write_text(
-            "artifacts_dir: changes\nschema: secure-spec-driven\n", encoding="utf-8"
+            f"artifacts_dir: changes\nschema: {DEFAULT_SCHEMA_NAME}\n", encoding="utf-8"
         )
         created_files.append("config.yaml")
 
@@ -187,19 +232,24 @@ def init(
                     shutil.copytree(candidate, destination)
                     copied_schemas.append(candidate.name)
 
+    if presenter is not None:
+        presenter.line(presenter.ready(f"Workflow home ready at {_display_path(path)}"))
+
+    # AI tools look for `.claude/`, `.codex/`, ... at the *project* root, not
+    # inside the workflow home, so scaffold into the workflow home's parent
+    # unless the caller pointed us somewhere else explicitly. Resolved before the
+    # prompt so the tool list can report each tool's current state there.
+    scaffold_root = (project_root or path.resolve().parent).resolve()
+
     try:
         if tools is None:
-            tool_ids = prompt_tools_interactively() if is_interactive() else []
+            tool_ids = prompt_tools_interactively(scaffold_root) if is_interactive() else []
         else:
             tool_ids = resolve_tools_arg(tools)
     except LoopspecError as exc:
         _fail(exc, as_json)
 
-    # AI tools look for `.claude/`, `.codex/`, ... at the *project* root, not
-    # inside the workflow home, so scaffold into the workflow home's parent
-    # unless the caller pointed us somewhere else explicitly.
-    scaffold_root = (project_root or path.resolve().parent).resolve()
-    scaffold_result = scaffold_tools(scaffold_root, tool_ids) if tool_ids else ScaffoldResult()
+    scaffold_result = _scaffold_with_progress(scaffold_root, tool_ids, presenter)
 
     result = {
         "workflowHome": str(path.resolve()),
@@ -209,11 +259,33 @@ def init(
         "toolsConfigured": tool_ids,
         "scaffoldedFiles": scaffold_result.written_files,
         "skippedCommandGeneration": scaffold_result.skipped_command_generation,
+        "createdTools": scaffold_result.created,
+        "refreshedTools": scaffold_result.refreshed,
         "nextSteps": [
             f"Run `loopspec schemas list --home {path} --json` to see available schemas."
         ],
     }
-    _emit(result, as_json)
+
+    if presenter is None:
+        _emit(result, as_json)
+        return
+
+    skill_count, command_count = _init_counts(scaffold_result)
+    home_suffix = "" if path == DEFAULT_HOME else f" --home {path}"
+    render_init_summary(
+        presenter,
+        created=[AI_TOOLS[tool_id].label for tool_id in scaffold_result.created],
+        refreshed=[AI_TOOLS[tool_id].label for tool_id in scaffold_result.refreshed],
+        skill_count=skill_count,
+        command_count=command_count,
+        tool_dirs=list(dict.fromkeys(AI_TOOLS[tool_id].skills_dir for tool_id in tool_ids)),
+        skipped_command_generation=scaffold_result.skipped_command_generation,
+        config_path=_display_path(config_path),
+        schema_name=DEFAULT_SCHEMA_NAME if "config.yaml" in created_files else None,
+        getting_started=f"loopspec new <change-name>{home_suffix}",
+        project_url=PROJECT_URL,
+        issues_url=ISSUES_URL,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -367,25 +439,33 @@ def new(
 
 def _node_output_summary(loaded, node_id: str, artifact_dir: Path) -> dict[str, Any]:
     node = loaded.node(node_id)
+    summary: dict[str, Any]
     if node.gate is None:
         resolved = artifact_dir / node.generates
         existing = [str(resolved.resolve())] if resolved.is_file() else []
-        return {
+        summary = {
             "outputPath": node.generates,
             "resolvedOutputPath": str((artifact_dir / node.generates).resolve()),
             "existingOutputPaths": existing,
         }
-    pass_path = artifact_dir / node.gate.outputs.pass_
-    fail_path = artifact_dir / node.gate.outputs.fail
-    existing = [str(p.resolve()) for p in (pass_path, fail_path) if p.is_file()]
-    return {
-        "outputPath": {"pass": node.gate.outputs.pass_, "fail": node.gate.outputs.fail},
-        "resolvedOutputPath": {
-            "pass": str(pass_path.resolve()),
-            "fail": str(fail_path.resolve()),
-        },
-        "existingOutputPaths": existing,
-    }
+    else:
+        pass_path = artifact_dir / node.gate.outputs.pass_
+        fail_path = artifact_dir / node.gate.outputs.fail
+        existing = [str(p.resolve()) for p in (pass_path, fail_path) if p.is_file()]
+        summary = {
+            "outputPath": {"pass": node.gate.outputs.pass_, "fail": node.gate.outputs.fail},
+            "resolvedOutputPath": {
+                "pass": str(pass_path.resolve()),
+                "fail": str(fail_path.resolve()),
+            },
+            "existingOutputPaths": existing,
+        }
+
+    if node.tracks is not None:
+        # Counts only -- the per-task list stays in `loopspec instructions`, since
+        # `status` is called on every turn of the loop and must stay compact.
+        summary["taskProgress"] = progress_summary(read_task_progress(artifact_dir, node.tracks))
+    return summary
 
 
 @app.command()

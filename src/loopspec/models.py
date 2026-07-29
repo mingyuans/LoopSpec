@@ -60,6 +60,9 @@ class NodeSpec(BaseModel):
     requires: list[str] = Field(default_factory=list)
     instruction: str | InstructionRef | None = None
     gate: GateSpec | None = None
+    # Concrete path of a checkbox-bearing artifact whose completion gates this
+    # node: declaring it means "not done until every checkbox in there is ticked".
+    tracks: str | None = None
 
 
 class WorkflowSchema(BaseModel):

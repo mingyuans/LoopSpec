@@ -178,6 +178,97 @@ def test_state_md_contents_do_not_affect_status(tmp_path: Path):
     assert states["proposal"].status == "ready"
 
 
+def tracking_schema(max_retries: int = 3) -> WorkflowSchema:
+    apply_node = make_gate_node("apply", ["tasks"], max_retries=max_retries, reset=["tasks"])
+    return WorkflowSchema(
+        name="sample",
+        version=1,
+        nodes=[
+            make_plain_node("proposal"),
+            make_plain_node("tasks", ["proposal"]),
+            apply_node.model_copy(update={"tracks": "tasks.md"}),
+        ],
+    )
+
+
+def write_tracking_prereqs(root: Path, tasks_body: str | None = "- [x] one\n- [ ] two\n") -> None:
+    (root / "proposal.md").write_text("# p")
+    if tasks_body is not None:
+        (root / "tasks.md").write_text(tasks_body)
+
+
+def test_tracked_node_not_done_while_tasks_pending(tmp_path: Path):
+    write_tracking_prereqs(tmp_path)
+    (tmp_path / "apply").mkdir()
+    (tmp_path / "apply" / "pass.md").write_text("# report")
+
+    graph = WorkflowGraph(tracking_schema())
+    states = compute_states(graph, tmp_path, tmp_path)
+    assert states["apply"].status == "ready"
+    assert not is_complete(states)
+
+
+def test_tracked_node_done_when_all_tasks_ticked(tmp_path: Path):
+    write_tracking_prereqs(tmp_path, "- [x] one\n- [X] two\n")
+    (tmp_path / "apply").mkdir()
+    (tmp_path / "apply" / "pass.md").write_text("# report")
+
+    graph = WorkflowGraph(tracking_schema())
+    states = compute_states(graph, tmp_path, tmp_path)
+    assert states["apply"].status == "done"
+    assert is_complete(states)
+
+
+def test_tracked_node_not_done_when_tracked_file_has_no_tasks(tmp_path: Path):
+    write_tracking_prereqs(tmp_path, "## Nothing to do here\n")
+    (tmp_path / "apply").mkdir()
+    (tmp_path / "apply" / "pass.md").write_text("# report")
+
+    graph = WorkflowGraph(tracking_schema())
+    states = compute_states(graph, tmp_path, tmp_path)
+    assert states["apply"].status == "ready"
+
+
+def test_tracked_node_not_done_when_tracked_file_missing(tmp_path: Path):
+    # tasks.md absent: `tasks` itself is unfinished, so `apply` stays blocked
+    # rather than being declared done off the back of its pass output alone.
+    write_tracking_prereqs(tmp_path, tasks_body=None)
+    (tmp_path / "apply").mkdir()
+    (tmp_path / "apply" / "pass.md").write_text("# report")
+
+    graph = WorkflowGraph(tracking_schema())
+    states = compute_states(graph, tmp_path, tmp_path)
+    assert states["apply"].status == "blocked"
+    assert not is_complete(states)
+
+
+def test_tracked_node_fail_output_wins_over_task_progress(tmp_path: Path):
+    write_tracking_prereqs(tmp_path, "- [x] one\n- [x] two\n")
+    (tmp_path / "apply").mkdir()
+    (tmp_path / "apply" / "fail.md").write_text("# Blocked\n\n- design is wrong")
+
+    graph = WorkflowGraph(tracking_schema(max_retries=2))
+    states = compute_states(graph, tmp_path, tmp_path)
+    assert states["apply"].status == "failed"
+
+    write_meta(tmp_path / ".attempts" / "round-001", "apply")
+    write_meta(tmp_path / ".attempts" / "round-002", "apply")
+    states = compute_states(graph, tmp_path, tmp_path)
+    assert states["apply"].status == "exhausted"
+
+
+def test_untracked_node_done_from_output_alone(tmp_path: Path):
+    write_tracking_prereqs(tmp_path)
+    (tmp_path / "apply").mkdir()
+    (tmp_path / "apply" / "pass.md").write_text("# report")
+
+    # Same fixture, but without `tracks`: the pending checkbox is irrelevant.
+    schema = tracking_schema()
+    schema.nodes[-1] = schema.nodes[-1].model_copy(update={"tracks": None})
+    states = compute_states(WorkflowGraph(schema), tmp_path, tmp_path)
+    assert states["apply"].status == "done"
+
+
 def test_restart_recomputes_same_result(tmp_path: Path):
     for name in ("proposal", "design", "tasks"):
         (tmp_path / f"{name}.md").write_text("# x")

@@ -70,6 +70,7 @@ def load_schema(schema_dir: Path) -> LoadedSchema:
     for node in schema.nodes:
         if node.gate is not None:
             _validate_reset_ancestors(node, graph)
+        _validate_tracks(node, nodes, graph)
 
     instructions = {
         node.id: _resolve_instruction(node, schema_dir)
@@ -189,6 +190,44 @@ def _validate_reset_ancestors(node: NodeSpec, graph: WorkflowGraph) -> None:
                 fix=f"on_fail.reset must reference an ancestor of '{node.id}'. "
                 f"Valid choices: {sorted(ancestors)}",
             )
+
+
+def _validate_tracks(node: NodeSpec, nodes: dict[str, NodeSpec], graph: WorkflowGraph) -> None:
+    """`tracks` must name a concrete artifact produced by one of this node's ancestors."""
+
+    tracks = node.tracks
+    if tracks is None:
+        return
+
+    if not _is_safe_relative_path(tracks):
+        raise SchemaValidationError(
+            f"Node '{node.id}' tracks must be a relative path without '..': {tracks}",
+            fix="Use a path relative to the artifact root, e.g. 'tasks.md'.",
+        )
+    if is_glob(tracks):
+        raise SchemaValidationError(
+            f"Node '{node.id}' tracks must be a concrete file path, not a glob: {tracks}",
+            fix="Progress has to come from one definite file; point tracks at a single "
+            "checkbox file such as 'tasks.md'.",
+        )
+
+    producers = sorted(other.id for other in nodes.values() if other.generates == tracks)
+    if not producers:
+        raise SchemaValidationError(
+            f"Node '{node.id}' tracks '{tracks}', which no node declares in `generates`",
+            fix=f"Set '{node.id}'.tracks to a path some node generates, or add a node "
+            f"generating '{tracks}'.",
+        )
+
+    ancestors = graph.ancestors(node.id)
+    if not any(producer in ancestors for producer in producers):
+        raise SchemaValidationError(
+            f"Node '{node.id}' cannot track '{tracks}': it is produced by {producers}, "
+            f"which is not an ancestor of '{node.id}'",
+            fix=f"The tracked file must already exist when '{node.id}' runs. Add the "
+            f"producing node to '{node.id}'.requires (directly or transitively). "
+            f"Current ancestors: {sorted(ancestors)}",
+        )
 
 
 def _resolve_instruction(node: NodeSpec, schema_dir: Path) -> str:

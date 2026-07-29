@@ -25,14 +25,20 @@ from typing import ClassVar, Protocol
 class ToolSpec:
     id: str
     skills_dir: str
+    #: Human-readable name for summaries and progress lines; falls back to the id.
+    display_name: str | None = None
+
+    @property
+    def label(self) -> str:
+        return self.display_name or self.id
 
 
 AI_TOOLS: dict[str, ToolSpec] = {
-    "claude": ToolSpec(id="claude", skills_dir=".claude"),
-    "codex": ToolSpec(id="codex", skills_dir=".codex"),
-    "opencode": ToolSpec(id="opencode", skills_dir=".opencode"),
-    "cursor": ToolSpec(id="cursor", skills_dir=".cursor"),
-    "windsurf": ToolSpec(id="windsurf", skills_dir=".windsurf"),
+    "claude": ToolSpec(id="claude", skills_dir=".claude", display_name="Claude Code"),
+    "codex": ToolSpec(id="codex", skills_dir=".codex", display_name="Codex"),
+    "opencode": ToolSpec(id="opencode", skills_dir=".opencode", display_name="OpenCode"),
+    "cursor": ToolSpec(id="cursor", skills_dir=".cursor", display_name="Cursor"),
+    "windsurf": ToolSpec(id="windsurf", skills_dir=".windsurf", display_name="Windsurf"),
 }
 
 

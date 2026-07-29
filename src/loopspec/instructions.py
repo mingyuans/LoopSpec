@@ -8,8 +8,10 @@ from typing import Any
 from .attempts import prior_attempts_for_node
 from .change_state import read_state_for_instruction
 from .errors import NodeNotFoundError
+from .outputs import node_output_patterns, resolve_outputs
 from .schema_loader import LoadedSchema
 from .state import compute_states
+from .task_tracking import progress_detail, read_task_progress
 
 
 def build_instructions(
@@ -60,12 +62,19 @@ def build_instructions(
         "context": context,
         "rules": rules_by_node.get(node_id, []),
         "dependencies": dependencies,
+        "contextFiles": _context_files(loaded, artifact_dir),
         "unlocks": loaded.graph.dependents(node_id),
         "statePath": str((change_dir / "state.md").resolve()),
         "state": state_text,
         "warnings": warnings,
         "priorAttempts": prior_attempts_for_node(change_dir, node),
     }
+
+    if node.tracks is not None:
+        progress = read_task_progress(artifact_dir, node.tracks)
+        if not progress.resolved_path.is_file():
+            warnings.append(f"tracked file not found: {node.tracks}")
+        response["taskProgress"] = progress_detail(progress)
 
     if node.gate is None:
         assert node.generates is not None and node.template is not None
@@ -87,6 +96,25 @@ def build_instructions(
         }
 
     return response
+
+
+def _context_files(loaded: LoadedSchema, artifact_dir: Path) -> dict[str, list[str]]:
+    """Every node's currently existing outputs, so a node can read the whole change.
+
+    Nodes that only `requires` a gate would otherwise have to guess the upstream
+    filenames; this hands them the real paths. Nodes with nothing on disk yet are
+    omitted rather than mapped to an empty list.
+    """
+
+    context_files: dict[str, list[str]] = {}
+    for node_id in loaded.graph.node_ids():
+        node = loaded.node(node_id)
+        paths: list[str] = []
+        for pattern in node_output_patterns(node):
+            paths.extend(str(path) for path in resolve_outputs(artifact_dir, pattern))
+        if paths:
+            context_files[node_id] = paths
+    return context_files
 
 
 def _read_template(schema_dir: Path, template_name: str) -> str:
