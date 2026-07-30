@@ -701,6 +701,159 @@ loopspec history <change-name> [--home <dir>] [--json]
 }
 ```
 
+## loopspec artifacts
+
+List every artifact path a change name owns — across every schema that worked it and every location it lives in, the archive included.
+
+```bash
+loopspec artifacts <change-name> [--schemas <names>] [--home <dir>] [--json]
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `CHANGE_NAME` | string | required | Positional argument: which change to list artifacts for. |
+| `--schemas` | string | every known schema | Comma-separated schema names to report artifacts for (e.g. `secure-spec-driven,docs-only`). |
+| `--home` | path | `./loopspec` | Workflow home to search. |
+| `--json` | flag | off | Emit machine-readable JSON. |
+
+This command answers a question no other command can. `status` and `instructions` both resolve **one** schema — the one in `.workflow.yaml` — under a change directory that still exists. That breaks down in two situations:
+
+- **Schema relay.** Several schemas work one change in turn. `.workflow.yaml` holds a single `schema` field, so migrating a change to another workflow overwrites the previous schema's name, and each schema's artifacts may sit under a different `schemas[*].path` root that the current schema's patterns cannot match.
+- **Archiving.** `loopspec archive` *moves* the whole directory to `<home>/archive/YYYY-MM/<change>/`. Once a stretch of work is archived, `status` fails with `change_not_found` and the artifacts of that stretch are unreachable through it — even though "finish, archive, carry on under the same name" is the most common shape a relay takes.
+
+`artifacts` therefore spans three axes at once:
+
+| Axis | What is covered |
+| --- | --- |
+| Location | The active directory plus **every** archive month. `ArchiveConflictError` only prevents same-month collisions, so one name can have a copy under several months; each match comes back as its own location. |
+| Schema | Every schema in scope is *probed*: its `schemas[*].path` gives an artifact root, and its nodes' output patterns are matched against files that actually exist. Nothing is assumed from `.workflow.yaml`. |
+| Round | Each `.attempts/round-NNN/` directory in each location, reported separately from the current artifacts. |
+
+Three consequences worth knowing:
+
+- **Attribution is a projection of the schemas as they are defined right now, not a record of history.** Editing a schema's `generates` changes how an old change's files are grouped. Files are never lost to this — they move into `unclassifiedFiles` instead.
+- **`unclassifiedFiles` is the completeness backstop.** Any file that exists but matches no probed pattern is reported there: leftovers from a deleted schema, renamed artifacts, attachments someone dropped in by hand. Hidden files are not filtered out either, so `.DS_Store` will show up — visible noise is preferable to a listing that silently omits things.
+- **Paths that resolve outside the workflow home are skipped.** Resolution follows symlinks, so a link inside a change directory pointing elsewhere on the filesystem is dropped from every list and named in `warnings` by its relative name only. The rest of that location reports normally.
+
+`state.md` and `.workflow.yaml` are not artifacts (the same rule the rest of the CLI uses), but each location reports `statePath` and `stateExists` regardless: a relay needs the previous stretch's decisions as much as its files.
+
+The command is read-only. It never creates, moves or deletes anything, including in the archive.
+
+Locations come back oldest-first — archive months ascending, then the active directory. That order is part of the contract: a relay reads the earlier stretches before the current one, so the list can be walked as-is.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `changeName` | string | The change's name. |
+| `artifactsDir` | string | The value of `artifacts_dir` from `config.yaml`. |
+| `requestedSchemas` | array of string or null | The names passed to `--schemas`; `null` when the option was omitted, which is not the same as an empty list. |
+| `schemasSeen` | array of string | The schemas actually probed, sorted. |
+| `locations` | array of object | One entry per place this change's artifacts live, oldest first. |
+| `locations[].kind` | string | `active` or `archived`. |
+| `locations[].archiveMonth` | string or null | The archive month directory's name; `null` for the active location. |
+| `locations[].changeRoot` | string | Absolute path of this location's change directory. |
+| `locations[].declaredSchema` | string or null | The schema this location's `.workflow.yaml` names; `null` when that file is missing or unreadable. |
+| `locations[].created` | string or null | The `created` date from the same file. |
+| `locations[].statePath` | string | Absolute path of this location's `state.md`. |
+| `locations[].stateExists` | boolean | Whether that file is present. |
+| `locations[].schemas` | array of object | One entry per probed schema, sorted by name. |
+| `locations[].schemas[].name` | string | Schema name. |
+| `locations[].schemas[].declared` | boolean | Whether this location's `.workflow.yaml` names this schema. False is normal — that is what a relay looks like. |
+| `locations[].schemas[].schemaPath` | string or null | The `path` from this schema's config entry, if any. |
+| `locations[].schemas[].artifactRoot` | string | Absolute path the probe resolved against. |
+| `locations[].schemas[].nodes` | array of object | Nodes with at least one existing output, in build order. Nodes with nothing on disk are omitted. |
+| `locations[].schemas[].nodes[].id` | string | Node id. |
+| `locations[].schemas[].nodes[].isGate` | boolean | Whether the node declares a `gate` block. |
+| `locations[].schemas[].nodes[].outputPatterns` | array of string | The declared patterns this node was probed with — for a gate, its PASS and FAIL outputs. |
+| `locations[].schemas[].nodes[].files` | array of string | Existing files matched for this node. |
+| `locations[].schemas[].files` | array of string | Every file claimed by this schema in this location, de-duplicated. |
+| `locations[].attempts` | array of object | One entry per rollback round directory. |
+| `locations[].attempts[].round` | integer or null | Round number from the directory name; `null` when the name is not `round-<digits>`. Such a directory is still reported, so the files inside it are not lost. |
+| `locations[].attempts[].gate` | string or null | The gate recorded in that round's `_meta.yaml`; `null` when it is missing or unreadable. |
+| `locations[].attempts[].verdict` | string or null | The verdict from the same file. |
+| `locations[].attempts[].archiveDir` | string | Absolute path of the round directory. |
+| `locations[].attempts[].files` | array of string | Files archived in that round, excluding its `_meta.yaml`. |
+| `locations[].unclassifiedFiles` | array of string | Files in this location that no probed schema claimed. |
+| `locations[].files` | array of string | Every artifact path in this location, de-duplicated and sorted. |
+| `files` | array of string | Every artifact path across all locations, de-duplicated and sorted. |
+| `warnings` | array of string | Non-fatal problems: unreadable metadata, a schema that could not be loaded, a file claimed by more than one schema, a path that resolved outside the workflow home. |
+| `nextSteps` | array of string | The suggested follow-up command. |
+
+A change that has been archived once and restarted under the same name:
+
+```json
+{
+  "changeName": "add-payment",
+  "artifactsDir": "changes",
+  "requestedSchemas": null,
+  "schemasSeen": [
+    "docs-only",
+    "secure-spec-driven"
+  ],
+  "locations": [
+    {
+      "kind": "archived",
+      "archiveMonth": "2026-06",
+      "changeRoot": "/path/to/project/loopspec/archive/2026-06/add-payment",
+      "declaredSchema": "secure-spec-driven",
+      "created": "2026-06-11",
+      "statePath": "/path/to/project/loopspec/archive/2026-06/add-payment/state.md",
+      "stateExists": true,
+      "schemas": [
+        {
+          "name": "secure-spec-driven",
+          "declared": true,
+          "schemaPath": null,
+          "artifactRoot": "/path/to/project/loopspec/archive/2026-06/add-payment",
+          "nodes": [
+            {
+              "id": "proposal",
+              "isGate": false,
+              "outputPatterns": [
+                "proposal.md"
+              ],
+              "files": [
+                "/path/to/project/loopspec/archive/2026-06/add-payment/proposal.md"
+              ]
+            }
+          ],
+          "files": [
+            "/path/to/project/loopspec/archive/2026-06/add-payment/proposal.md"
+          ]
+        }
+      ],
+      "attempts": [
+        {
+          "round": 1,
+          "gate": "security",
+          "verdict": "FAIL",
+          "archiveDir": "/path/to/project/loopspec/archive/2026-06/add-payment/.attempts/round-001",
+          "files": [
+            "/path/to/project/loopspec/archive/2026-06/add-payment/.attempts/round-001/design.md"
+          ]
+        }
+      ],
+      "unclassifiedFiles": [],
+      "files": [
+        "/path/to/project/loopspec/archive/2026-06/add-payment/.attempts/round-001/design.md",
+        "/path/to/project/loopspec/archive/2026-06/add-payment/proposal.md"
+      ]
+    }
+  ],
+  "files": [
+    "/path/to/project/loopspec/archive/2026-06/add-payment/.attempts/round-001/design.md",
+    "/path/to/project/loopspec/archive/2026-06/add-payment/proposal.md"
+  ],
+  "warnings": [],
+  "nextSteps": [
+    "Every copy of this change is archived; read the listed paths directly, or run `loopspec new add-payment --schema <name>` to start a new stretch of work under this name."
+  ]
+}
+```
+
+Without `--json`, the command prints one section per location with counts rather than paths — schema names and how many files each claimed, unclaimed count, rollback rounds, whether `state.md` is present — then a total. The full path detail stays available through `--json`.
+
+Failures: a change name that no location matches reports `change_not_found`; a name that is not a safe relative path reports `invalid_change_name`; a `--schemas` value that strips to nothing, or contains a name that is not kebab-case, reports `config_invalid`. Naming a schema that cannot be loaded reports `schema_not_found` or `schema_invalid` rather than returning an empty result — otherwise "this schema produced nothing" and "you misspelled the name" would be indistinguishable. Schemas that were merely *inferred* (from `config.yaml` candidates or a location's own `.workflow.yaml`) degrade to a warning instead, so dropping a candidate from the config never makes old artifacts vanish.
+
 ## loopspec archive
 
 Move one finished change into `<home>/archive/YYYY-MM/`, where `YYYY-MM` is the current year and month in UTC.

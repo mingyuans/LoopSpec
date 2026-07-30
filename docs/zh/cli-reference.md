@@ -701,6 +701,159 @@ loopspec history <change-name> [--home <dir>] [--json]
 }
 ```
 
+## loopspec artifacts
+
+列出一个 change 名下的全部产物路径——跨越所有工作过它的 schema，以及它存在的所有位置，归档目录也包含在内。
+
+```bash
+loopspec artifacts <change-name> [--schemas <names>] [--home <dir>] [--json]
+```
+
+| 选项 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `CHANGE_NAME` | string | 必填 | 位置参数：列出哪个 change 的产物。 |
+| `--schemas` | string | 全部已知 schema | 逗号分隔的 schema 名列表，只报告这些 schema 的产物（例如 `secure-spec-driven,docs-only`）。 |
+| `--home` | path | `./loopspec` | 要搜索的 workflow home。 |
+| `--json` | flag | 关闭 | 输出机器可解析的 JSON。 |
+
+这条命令回答的问题是其他命令答不了的。`status` 与 `instructions` 都只解析**一个** schema——`.workflow.yaml` 里记的那个——且要求 change 目录仍然存在。这在两种情况下不成立：
+
+- **schema 接力**。多个 schema 依次工作同一个 change。`.workflow.yaml` 只有一个 `schema` 字段，把 change 迁到另一条工作流时前一个 schema 名被覆盖；而每个 schema 的产物可能落在不同的 `schemas[*].path` 根下，当前 schema 的节点模式根本匹配不到。
+- **归档**。`loopspec archive` 把整个目录**移动**到 `<home>/archive/YYYY-MM/<change>/`。一段工作被归档后，`status` 会以 `change_not_found` 失败，那一段的产物再也无法通过它触达——而「做完、归档、以同名继续下一段」恰恰是接力最常见的形态。
+
+因此 `artifacts` 同时跨越三个维度：
+
+| 维度 | 覆盖范围 |
+| --- | --- |
+| 位置 | 活跃目录，外加**全部**归档月份。`ArchiveConflictError` 只阻止同月重名，因此同一个名字可以在多个月份各有一份；每个命中都作为一条独立的 location 返回。 |
+| schema | 范围内的每个 schema 都被**探测**：它的 `schemas[*].path` 给出 artifact root，它各节点的产物模式去匹配磁盘上真实存在的文件。不从 `.workflow.yaml` 做任何假定。 |
+| 轮次 | 每个位置下的每个 `.attempts/round-NNN/` 目录，与当前产物分开报告。 |
+
+三点值得知道的后果：
+
+- **归属是「对 schema 当前定义的一次投影」，不是历史记录**。改动某个 schema 的 `generates` 会改变一个老 change 的文件分组方式。文件绝不会因此丢失——它们会转入 `unclassifiedFiles`。
+- **`unclassifiedFiles` 是完整性的兜底**。任何真实存在、却匹配不上任何被探测模式的文件都会出现在那里：被删掉的 schema 留下的残留、改名后的产物、有人手工放进来的附件。隐藏文件也不被过滤，因此 `.DS_Store` 会出现——可见的噪音优于一份静默漏项的清单。
+- **解析后逃出 workflow home 的路径会被跳过**。路径解析会跟随符号链接，因此 change 目录里指向文件系统别处的链接会被从所有清单中剔除，并在 `warnings` 中只以相对名指名。该位置的其余部分照常报告。
+
+`state.md` 与 `.workflow.yaml` 不算产物（与 CLI 其余部分同一条规则），但每个位置无论如何都会给出 `statePath` 与 `stateExists`：接力工作流对前一段的决策记录和对它的文件同样需要。
+
+本命令为只读。它不创建、不移动、不删除任何东西，归档目录内也一样。
+
+位置按「从早到晚」返回——归档月份升序在前，然后是活跃目录。这个顺序是契约的一部分：接力阅读的顺序是先读较早的几段再读当前那段，因此这个列表可以直接顺序遍历。
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `changeName` | string | change 的名称。 |
+| `artifactsDir` | string | `config.yaml` 中 `artifacts_dir` 的取值。 |
+| `requestedSchemas` | array of string or null | 传给 `--schemas` 的名称；省略该选项时为 `null`，这与空列表不是一回事。 |
+| `schemasSeen` | array of string | 实际被探测的 schema，已排序。 |
+| `locations` | array of object | 该 change 产物所在的每个位置一条，最早的在前。 |
+| `locations[].kind` | string | `active` 或 `archived`。 |
+| `locations[].archiveMonth` | string or null | 归档月份目录名；活跃位置为 `null`。 |
+| `locations[].changeRoot` | string | 该位置 change 目录的绝对路径。 |
+| `locations[].declaredSchema` | string or null | 该位置 `.workflow.yaml` 记录的 schema；该文件缺失或不可读时为 `null`。 |
+| `locations[].created` | string or null | 同一文件中的 `created` 日期。 |
+| `locations[].statePath` | string | 该位置 `state.md` 的绝对路径。 |
+| `locations[].stateExists` | boolean | 该文件是否存在。 |
+| `locations[].schemas` | array of object | 每个被探测的 schema 一条，按名称排序。 |
+| `locations[].schemas[].name` | string | schema 名称。 |
+| `locations[].schemas[].declared` | boolean | 该位置的 `.workflow.yaml` 是否记的就是这个 schema。为假是正常的——接力就是这个样子。 |
+| `locations[].schemas[].schemaPath` | string or null | 该 schema 配置条目中的 `path`，如果有。 |
+| `locations[].schemas[].artifactRoot` | string | 探测所基于的绝对路径。 |
+| `locations[].schemas[].nodes` | array of object | 至少有一个现存产物的节点，按构建序排列。磁盘上什么都没有的节点被省略。 |
+| `locations[].schemas[].nodes[].id` | string | 节点 id。 |
+| `locations[].schemas[].nodes[].isGate` | boolean | 该节点是否声明了 `gate` 块。 |
+| `locations[].schemas[].nodes[].outputPatterns` | array of string | 探测该节点所用的声明模式——门禁则为它的 PASS 与 FAIL 产物。 |
+| `locations[].schemas[].nodes[].files` | array of string | 为该节点匹配到的现存文件。 |
+| `locations[].schemas[].files` | array of string | 该 schema 在该位置认领的全部文件，已去重。 |
+| `locations[].attempts` | array of object | 每个回退轮次目录一条。 |
+| `locations[].attempts[].round` | integer or null | 从目录名得出的轮次号；目录名不是 `round-<digits>` 时为 `null`。这样的目录仍会被报告，因此其中的文件不会丢失。 |
+| `locations[].attempts[].gate` | string or null | 该轮 `_meta.yaml` 中记录的门禁；缺失或不可读时为 `null`。 |
+| `locations[].attempts[].verdict` | string or null | 同一文件中的裁决。 |
+| `locations[].attempts[].archiveDir` | string | 该轮次目录的绝对路径。 |
+| `locations[].attempts[].files` | array of string | 该轮归档的文件，不含它的 `_meta.yaml`。 |
+| `locations[].unclassifiedFiles` | array of string | 该位置中没有被任何被探测 schema 认领的文件。 |
+| `locations[].files` | array of string | 该位置的全部产物路径，已去重并排序。 |
+| `files` | array of string | 全部位置的全部产物路径，已去重并排序。 |
+| `warnings` | array of string | 非致命问题：元数据不可读、某个 schema 加载失败、某文件被多个 schema 认领、某路径解析后逃出 workflow home。 |
+| `nextSteps` | array of string | 建议的后续命令。 |
+
+一个曾被归档、又以同名重新开始的 change：
+
+```json
+{
+  "changeName": "add-payment",
+  "artifactsDir": "changes",
+  "requestedSchemas": null,
+  "schemasSeen": [
+    "docs-only",
+    "secure-spec-driven"
+  ],
+  "locations": [
+    {
+      "kind": "archived",
+      "archiveMonth": "2026-06",
+      "changeRoot": "/path/to/project/loopspec/archive/2026-06/add-payment",
+      "declaredSchema": "secure-spec-driven",
+      "created": "2026-06-11",
+      "statePath": "/path/to/project/loopspec/archive/2026-06/add-payment/state.md",
+      "stateExists": true,
+      "schemas": [
+        {
+          "name": "secure-spec-driven",
+          "declared": true,
+          "schemaPath": null,
+          "artifactRoot": "/path/to/project/loopspec/archive/2026-06/add-payment",
+          "nodes": [
+            {
+              "id": "proposal",
+              "isGate": false,
+              "outputPatterns": [
+                "proposal.md"
+              ],
+              "files": [
+                "/path/to/project/loopspec/archive/2026-06/add-payment/proposal.md"
+              ]
+            }
+          ],
+          "files": [
+            "/path/to/project/loopspec/archive/2026-06/add-payment/proposal.md"
+          ]
+        }
+      ],
+      "attempts": [
+        {
+          "round": 1,
+          "gate": "security",
+          "verdict": "FAIL",
+          "archiveDir": "/path/to/project/loopspec/archive/2026-06/add-payment/.attempts/round-001",
+          "files": [
+            "/path/to/project/loopspec/archive/2026-06/add-payment/.attempts/round-001/design.md"
+          ]
+        }
+      ],
+      "unclassifiedFiles": [],
+      "files": [
+        "/path/to/project/loopspec/archive/2026-06/add-payment/.attempts/round-001/design.md",
+        "/path/to/project/loopspec/archive/2026-06/add-payment/proposal.md"
+      ]
+    }
+  ],
+  "files": [
+    "/path/to/project/loopspec/archive/2026-06/add-payment/.attempts/round-001/design.md",
+    "/path/to/project/loopspec/archive/2026-06/add-payment/proposal.md"
+  ],
+  "warnings": [],
+  "nextSteps": [
+    "Every copy of this change is archived; read the listed paths directly, or run `loopspec new add-payment --schema <name>` to start a new stretch of work under this name."
+  ]
+}
+```
+
+不加 `--json` 时，命令按位置分节打印计数而不是路径——schema 名称与各自认领的文件数、未认领数、回退轮次、`state.md` 是否存在——最后给出总计。完整的路径明细仍可通过 `--json` 取得。
+
+失败情形：任何位置都匹配不上的 change 名报 `change_not_found`；不是安全相对路径的名字报 `invalid_change_name`；`--schemas` 的取值 strip 后一段不剩、或含有非 kebab-case 的名称，报 `config_invalid`。点名一个加载不出来的 schema 报 `schema_not_found` 或 `schema_invalid`，而不是返回空结果——否则「这个 schema 什么都没产出」与「你把名字拼错了」将无法区分。仅仅是被**推断**出来的 schema（来自 `config.yaml` 候选或某位置自己的 `.workflow.yaml`）则降级为一条 warning，因此从配置里删掉一条候选永远不会让老产物凭空消失。
+
 ## loopspec archive
 
 把一个已完成的 change 移动进 `<home>/archive/YYYY-MM/`，其中 `YYYY-MM` 取执行时刻的 UTC 年月。

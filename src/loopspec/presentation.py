@@ -24,6 +24,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 
 from rich.console import Console
 from rich.text import Text
@@ -303,3 +304,88 @@ def render_init_summary(
     if created or refreshed:
         presenter.blank()
         presenter.line("Restart your IDE for slash commands to take effect.")
+
+
+def _plural(count: int, singular: str) -> str:
+    return f"{count} {singular}" if count == 1 else f"{count} {singular}s"
+
+
+@dataclass(frozen=True)
+class ArtifactLocationSummary:
+    """One location's counts, already reduced to display vocabulary.
+
+    Deliberately not the discovery dataclasses themselves: those carry the JSON
+    field names, and the human view must not transcribe them (`loopspec-cli`
+    forbids it). The caller converts, so nothing here can reach for a raw payload.
+    """
+
+    title: str
+    path: str
+    schema_counts: tuple[tuple[str, int], ...]
+    round_count: int
+    round_file_count: int
+    unclassified_count: int
+    state_present: bool
+
+
+#: Label column width, so the counts line up under every location heading.
+_ARTIFACT_LABEL_WIDTH = 22
+
+
+def render_artifacts_summary(
+    presenter: Presenter,
+    *,
+    change_name: str,
+    locations: list[ArtifactLocationSummary],
+    total_files: int,
+    warning_count: int,
+) -> None:
+    """Render `loopspec artifacts` as per-location counts, oldest location first.
+
+    Counts rather than paths: a change with several schemas across several archive
+    months lists more paths than a terminal can usefully show, and the full detail
+    stays available through `--json`.
+
+    No `as_json` parameter by design -- see the module docstring.
+    """
+
+    presenter.blank()
+    presenter.line(presenter.heading(f"Artifacts for {change_name}"))
+
+    for location in locations:
+        presenter.blank()
+        presenter.line(f"{location.title}  {location.path}")
+        for name, count in location.schema_counts:
+            presenter.line(
+                presenter.indented(f"{name:<{_ARTIFACT_LABEL_WIDTH}}{_plural(count, 'file')}")
+            )
+        if location.unclassified_count:
+            presenter.line(
+                presenter.indented(
+                    f"{'unclaimed':<{_ARTIFACT_LABEL_WIDTH}}"
+                    f"{_plural(location.unclassified_count, 'file')}"
+                )
+            )
+        if location.round_count:
+            presenter.line(
+                presenter.indented(
+                    f"{'rollback history':<{_ARTIFACT_LABEL_WIDTH}}"
+                    f"{_plural(location.round_count, 'round')}, "
+                    f"{_plural(location.round_file_count, 'file')}"
+                )
+            )
+        presenter.line(
+            presenter.indented(
+                f"{'change memory':<{_ARTIFACT_LABEL_WIDTH}}"
+                f"{'state.md present' if location.state_present else 'state.md missing'}"
+            )
+        )
+
+    presenter.blank()
+    presenter.line(
+        f"{_plural(total_files, 'file')} across {_plural(len(locations), 'location')}"
+    )
+    if warning_count:
+        presenter.line(
+            presenter.warning(f"{_plural(warning_count, 'warning')} -- see --json for detail")
+        )

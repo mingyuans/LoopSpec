@@ -110,14 +110,28 @@ Rules that make it useful rather than decorative:
 
 ## Reading a change you did not create
 
-Two commands orient you without touching anything:
+Three commands orient you without touching anything:
 
 ```bash
+loopspec artifacts <change> --json
 loopspec status <change> --json
 loopspec history <change> --json
 ```
 
-`status` gives the current shape: what is done, what is next, whether a gate has failed. `history` gives the past: every attempts round, which gate failed, and where the archived artifacts went. Then `loopspec instructions <node>` for the `ready` node hands you `contextFiles` — the real paths of everything already produced — plus `state` for the decisions behind them.
+Start with `artifacts`. It is the only one that answers "what exists under this name at all", because it is the only one that is not scoped to a single schema in a single directory: it reports every location (the active directory **and** every archive month), every schema that left files behind, and every rollback round. Read its `locations` in order — oldest first — and you are reading the change chronologically.
+
+Then `status` gives the current shape: what is done, what is next, whether a gate has failed. `history` gives the past *within the current location*: every attempts round, which gate failed, and where the archived artifacts went. Then `loopspec instructions <node>` for the `ready` node hands you `contextFiles` — the real paths of everything the current schema produced — plus `state` for the decisions behind them.
+
+The division matters when a change has been worked by more than one schema in turn, which happens two ways: `.workflow.yaml` was migrated to another schema, or an earlier stretch was archived and a new one started under the same name. In both cases the earlier artifacts are invisible to `status` and `contextFiles` — the first because the previous schema's patterns no longer apply, the second because `status` fails with `change_not_found` once the directory has moved. So when you are continuing work someone (or some other schema) started:
+
+| Step | Command | What to read | Why |
+| --- | --- | --- | --- |
+| 1 | `loopspec artifacts <change> --json` | `locations[].files` | Every file that exists under this name, wherever it lives. |
+| 2 | `loopspec artifacts <change> --json` | `locations[].statePath` | Each location's `state.md`. The earlier stretch's decisions are here, not in the current one. |
+| 3 | `loopspec artifacts <change> --json` | `warnings` | Unreadable metadata, files claimed by two schemas, paths skipped for resolving outside the workflow home. |
+| 4 | `loopspec status <change> --json` | `nextSteps` | Back to the main loop for the active stretch. |
+
+Two things not to misread in that response. Attribution under `locations[].schemas[]` reflects how the schemas are defined **right now** — it is a projection, not a record of which schema historically wrote what. And `locations[].unclassifiedFiles` is not a leftovers bin to ignore: a file lands there whenever no probed schema claims it, which includes artifacts of a schema that has since been deleted. Read those paths too.
 
 ## Checklist
 

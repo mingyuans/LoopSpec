@@ -15,6 +15,7 @@ import typer
 
 from . import config as config_mod
 from . import paths as paths_mod
+from .artifacts import ArtifactReport, discover_artifacts, resolve_requested_schemas
 from .attempts import list_rounds
 from .change_state import create_initial_state
 from .errors import (
@@ -30,7 +31,13 @@ from .instructions import build_instructions
 from .models import KEBAB_RE
 from .outputs import resolve_outputs, resolved_output_path
 from .policy import build_next_steps
-from .presentation import Presenter, render_init_summary, render_welcome
+from .presentation import (
+    ArtifactLocationSummary,
+    Presenter,
+    render_artifacts_summary,
+    render_init_summary,
+    render_welcome,
+)
 from .rollback import compute_reset_closure, rollback_change
 from .scaffold import ScaffoldResult, scaffold_tools
 from .schema_loader import load_schema
@@ -644,6 +651,150 @@ def history(change_name: str, home: Path = HomeOption, as_json: bool = JsonOptio
             }
         )
     _emit({"changeName": change_name, "rounds": rounds}, as_json)
+
+
+# --------------------------------------------------------------------------- #
+# artifacts
+# --------------------------------------------------------------------------- #
+
+
+SchemasOption = typer.Option(
+    None,
+    "--schemas",
+    help=(
+        "Comma-separated schema names to report artifacts for (e.g. "
+        "secure-spec-driven,docs-only). Omit to report every known schema."
+    ),
+)
+
+
+def _artifacts_payload(report: ArtifactReport) -> dict[str, Any]:
+    """The `--json` view of a report. Field names are the published contract."""
+
+    return {
+        "changeName": report.change_name,
+        "artifactsDir": report.artifacts_dir,
+        "requestedSchemas": report.requested_schemas,
+        "schemasSeen": report.schemas_seen,
+        "locations": [
+            {
+                "kind": location.kind,
+                "archiveMonth": location.archive_month,
+                "changeRoot": str(location.change_root),
+                "declaredSchema": location.declared_schema,
+                "created": location.created,
+                "statePath": str(location.state_path),
+                "stateExists": location.state_exists,
+                "schemas": [
+                    {
+                        "name": schema.name,
+                        "declared": schema.declared,
+                        "schemaPath": schema.schema_path,
+                        "artifactRoot": str(schema.artifact_root.resolve()),
+                        "nodes": [
+                            {
+                                "id": node.id,
+                                "isGate": node.is_gate,
+                                "outputPatterns": node.output_patterns,
+                                "files": [str(path) for path in node.files],
+                            }
+                            for node in schema.nodes
+                        ],
+                        "files": [str(path) for path in schema.files],
+                    }
+                    for schema in location.schemas
+                ],
+                "attempts": [
+                    {
+                        "round": round_.round,
+                        "gate": round_.gate,
+                        "verdict": round_.verdict,
+                        "archiveDir": str(round_.archive_dir.resolve()),
+                        "files": [str(path) for path in round_.files],
+                    }
+                    for round_ in location.attempts
+                ],
+                "unclassifiedFiles": [str(path) for path in location.unclassified_files],
+                "files": [str(path) for path in location.files],
+            }
+            for location in report.locations
+        ],
+        "files": [str(path) for path in report.files],
+        "warnings": report.warnings,
+        "nextSteps": _artifacts_next_steps(report),
+    }
+
+
+def _artifacts_next_steps(report: ArtifactReport) -> list[str]:
+    """Point at the one command that follows, per the location mix found.
+
+    An archived-only change has nothing for `status` to report -- it fails with
+    `change_not_found` -- so suggesting it there would send the caller into a
+    dead end.
+    """
+
+    if any(location.kind == "active" for location in report.locations):
+        return [
+            f"Run `loopspec status {report.change_name} --json` to see where the "
+            "active workflow stands."
+        ]
+    return [
+        "Every copy of this change is archived; read the listed paths directly, or "
+        f"run `loopspec new {report.change_name} --schema <name>` to start a new "
+        "stretch of work under this name."
+    ]
+
+
+def _artifacts_summaries(report: ArtifactReport) -> list[ArtifactLocationSummary]:
+    return [
+        ArtifactLocationSummary(
+            title=(
+                f"{location.kind} {location.archive_month}"
+                if location.archive_month
+                else location.kind
+            ),
+            path=_display_path(location.change_root),
+            schema_counts=tuple(
+                (schema.name, len(schema.files))
+                for schema in location.schemas
+                if schema.files
+            ),
+            round_count=len(location.attempts),
+            round_file_count=sum(len(round_.files) for round_ in location.attempts),
+            unclassified_count=len(location.unclassified_files),
+            state_present=location.state_exists,
+        )
+        for location in report.locations
+    ]
+
+
+@app.command()
+def artifacts(
+    change_name: str,
+    schemas: str | None = SchemasOption,
+    home: Path = HomeOption,
+    as_json: bool = JsonOption,
+) -> None:
+    """List every artifact path a change owns, across schemas and archive months."""
+
+    try:
+        requested = resolve_requested_schemas(schemas)
+        config = config_mod.load_config(home)
+        report = discover_artifacts(home, config, change_name, requested)
+    except LoopspecError as exc:
+        _fail(exc, as_json)
+
+    if as_json:
+        _emit(_artifacts_payload(report), as_json)
+        return
+
+    render_artifacts_summary(
+        Presenter(),
+        change_name=report.change_name,
+        locations=_artifacts_summaries(report),
+        total_files=len(report.files),
+        warning_count=len(report.warnings),
+    )
 
 
 # --------------------------------------------------------------------------- #

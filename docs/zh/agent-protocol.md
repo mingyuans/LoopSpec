@@ -110,14 +110,28 @@ loopspec archive <change> --json
 
 ## 读一个不是你创建的 change
 
-两条命令能让你在不改动任何东西的前提下建立认知：
+三条命令能让你在不改动任何东西的前提下建立认知：
 
 ```bash
+loopspec artifacts <change> --json
 loopspec status <change> --json
 loopspec history <change> --json
 ```
 
-`status` 给出当前形态：什么已完成、下一步是什么、是否有门禁失败。`history` 给出过去：每一轮尝试、哪个门禁失败、被归档的产物去了哪里。然后对那个 `ready` 节点执行 `loopspec instructions <node>`，它会交给你 `contextFiles`——已产出的一切的真实路径——外加 `state`，即这些产物背后的决策。
+**从 `artifacts` 开始**。它是唯一能回答「这个名字下到底存在些什么」的命令，因为它是唯一不被限定在「单一 schema、单一目录」里的：它报告全部位置（活跃目录**以及**每个归档月份）、留下过文件的每个 schema、以及每一轮回退。按顺序读它的 `locations`——最早的在前——你读到的就是这个 change 的时间线。
+
+接着 `status` 给出当前形态：什么已完成、下一步是什么、是否有门禁失败。`history` 给出**当前位置内部**的过去：每一轮尝试、哪个门禁失败、被归档的产物去了哪里。然后对那个 `ready` 节点执行 `loopspec instructions <node>`，它会交给你 `contextFiles`——当前 schema 已产出的一切的真实路径——外加 `state`，即这些产物背后的决策。
+
+这个分工在「一个 change 被多个 schema 依次工作过」时才见真章，而这有两种发生方式：`.workflow.yaml` 被迁移到了另一个 schema，或者较早的一段已归档、新的一段以同名重新开始。两种情况下较早的产物对 `status` 与 `contextFiles` 都是不可见的——前者因为前一个 schema 的模式已不再适用，后者因为目录一旦移走 `status` 就以 `change_not_found` 失败。所以当你要接着别人（或另一个 schema）开的头继续做时：
+
+| 步骤 | 命令 | 该读什么 | 为什么 |
+| --- | --- | --- | --- |
+| 1 | `loopspec artifacts <change> --json` | `locations[].files` | 这个名字下存在的每一个文件，无论它在哪。 |
+| 2 | `loopspec artifacts <change> --json` | `locations[].statePath` | 每个位置各自的 `state.md`。较早那一段的决策在那里，不在当前这一段里。 |
+| 3 | `loopspec artifacts <change> --json` | `warnings` | 不可读的元数据、被两个 schema 同时认领的文件、因解析后逃出 workflow home 而被跳过的路径。 |
+| 4 | `loopspec status <change> --json` | `nextSteps` | 回到当前这一段的主循环。 |
+
+这份响应里有两点不要读错。`locations[].schemas[]` 下的归属反映的是 schema **当前**的定义——它是一次投影，不是「历史上哪个 schema 写了什么」的记录。还有 `locations[].unclassifiedFiles` 不是一个可以无视的残留箱：任何没有被探测 schema 认领的文件都会落到那里，其中包括某个此后已被删除的 schema 的产物。那些路径也要读。
 
 ## 检查清单
 

@@ -760,3 +760,222 @@ def test_interactive_path_renders_welcome_and_runs_picker_together(tmp_path: Pat
     assert calls == ["picked"], "the welcome screen promised a picker"
     for marker in WELCOME_MARKERS:
         assert marker in result.stdout, marker
+
+
+# --------------------------------------------------------------------------- #
+# artifacts
+# --------------------------------------------------------------------------- #
+
+
+def human_run(*args: str) -> str:
+    """Run a command without --json and return its human-readable stdout."""
+
+    result = runner.invoke(app, list(args))
+    assert result.exit_code == 0, result.stdout
+    return result.stdout
+
+
+def test_artifacts_lists_every_output_of_an_active_change(tmp_path: Path):
+    home = init_home(tmp_path)
+    _code, data = run("new", "add-payment", "--home", str(home), "--json")
+    change_dir = Path(data["changeRoot"])
+    complete_builtin_change(change_dir)
+
+    code, data = run("artifacts", "add-payment", "--home", str(home), "--json")
+    assert code == 0
+    assert data["requestedSchemas"] is None
+    assert data["schemasSeen"] == ["secure-spec-driven"]
+    assert len(data["locations"]) == 1
+
+    location = data["locations"][0]
+    assert location["kind"] == "active"
+    assert location["archiveMonth"] is None
+    assert location["declaredSchema"] == "secure-spec-driven"
+    assert location["stateExists"] is True
+
+    by_node = {node["id"]: node["files"] for node in location["schemas"][0]["nodes"]}
+    assert set(by_node) == {"proposal", "specs", "design", "tasks", "security", "approval", "apply"}
+    assert by_node["proposal"] == [str(change_dir / "proposal.md")]
+    assert by_node["specs"] == [str(change_dir / "specs" / "spec.md")]
+    assert by_node["approval"] == [str(change_dir / "approval" / "approved.md")]
+    assert all(Path(path).is_absolute() for path in data["files"])
+    assert data["warnings"] == []
+
+
+def test_artifacts_still_finds_the_change_after_archiving(tmp_path: Path):
+    home = init_home(tmp_path)
+    _code, data = run("new", "add-payment", "--home", str(home), "--json")
+    complete_builtin_change(Path(data["changeRoot"]))
+
+    code, archived = run("archive", "add-payment", "--home", str(home), "--json")
+    assert code == 0
+    destination = Path(archived["destination"])
+
+    code, data = run("artifacts", "add-payment", "--home", str(home), "--json")
+    assert code == 0
+    location = data["locations"][0]
+    assert location["kind"] == "archived"
+    assert location["archiveMonth"] == destination.parent.name
+    assert location["changeRoot"] == str(destination)
+    assert str(destination) in location["files"][0]
+    # `status` cannot answer here at all -- that is why this command exists.
+    code, status_data = run("status", "add-payment", "--home", str(home), "--json")
+    assert code == 1
+    assert status_data["error"] == "change_not_found"
+
+
+def test_artifacts_reports_active_and_archived_copies_oldest_first(tmp_path: Path):
+    home = init_home(tmp_path)
+    _code, data = run("new", "add-payment", "--home", str(home), "--json")
+    complete_builtin_change(Path(data["changeRoot"]))
+    run("archive", "add-payment", "--home", str(home), "--json")
+
+    _code, data = run("new", "add-payment", "--home", str(home), "--json")
+    (Path(data["changeRoot"]) / "proposal.md").write_text("# second stretch")
+
+    code, data = run("artifacts", "add-payment", "--home", str(home), "--json")
+    assert code == 0
+    assert [location["kind"] for location in data["locations"]] == ["archived", "active"]
+
+
+def test_artifacts_schemas_option_narrows_and_reports_the_rest_as_unclaimed(tmp_path: Path):
+    home = make_multi_schema_home(tmp_path)
+    _code, data = run(
+        "new", "add-payment", "--schema", "docs-only", "--home", str(home), "--json"
+    )
+    change_dir = Path(data["changeRoot"])
+    (change_dir / "proposal.md").write_text("# p")
+    (change_dir / "extra.md").write_text("# e")
+
+    code, data = run(
+        "artifacts", "add-payment", "--schemas", "docs-only", "--home", str(home), "--json"
+    )
+    assert code == 0
+    assert data["requestedSchemas"] == ["docs-only"]
+    assert data["schemasSeen"] == ["docs-only"]
+    assert data["locations"][0]["unclassifiedFiles"] == [str(change_dir / "extra.md")]
+
+
+def test_artifacts_schemas_option_accepts_several_names_with_whitespace(tmp_path: Path):
+    home = make_multi_schema_home(tmp_path)
+    _code, data = run(
+        "new", "add-payment", "--schema", "docs-only", "--home", str(home), "--json"
+    )
+    (Path(data["changeRoot"]) / "proposal.md").write_text("# p")
+
+    code, data = run(
+        "artifacts",
+        "add-payment",
+        "--schemas",
+        "docs-only, secure-spec-driven",
+        "--home",
+        str(home),
+        "--json",
+    )
+    assert code == 0
+    assert data["requestedSchemas"] == ["docs-only", "secure-spec-driven"]
+
+
+def test_artifacts_unknown_named_schema_fails(tmp_path: Path):
+    home = init_home(tmp_path)
+    run("new", "add-payment", "--home", str(home), "--json")
+
+    code, data = run(
+        "artifacts", "add-payment", "--schemas", "nope", "--home", str(home), "--json"
+    )
+    assert code == 1
+    assert data["error"] == "schema_not_found"
+
+
+@pytest.mark.parametrize("value", ["", ",", "../../etc", "Not-Kebab"])
+def test_artifacts_rejects_unusable_schemas_values(tmp_path: Path, value: str):
+    home = init_home(tmp_path)
+    run("new", "add-payment", "--home", str(home), "--json")
+
+    code, data = run(
+        "artifacts", "add-payment", "--schemas", value, "--home", str(home), "--json"
+    )
+    assert code == 1
+    assert data["error"] == "config_invalid"
+
+
+def test_artifacts_change_not_found(tmp_path: Path):
+    home = init_home(tmp_path)
+    code, data = run("artifacts", "nope", "--home", str(home), "--json")
+    assert code == 1
+    assert data["error"] == "change_not_found"
+
+
+def test_artifacts_rejects_a_traversing_change_name(tmp_path: Path):
+    home = init_home(tmp_path)
+    code, data = run("artifacts", "../../etc", "--home", str(home), "--json")
+    assert code == 1
+    assert data["error"] == "invalid_change_name"
+    assert str(home.parent.parent) not in json.dumps(data)
+
+
+def test_artifacts_human_output_leaks_no_json_field_names_or_python_reprs(tmp_path: Path):
+    home = init_home(tmp_path)
+    _code, data = run("new", "add-payment", "--home", str(home), "--json")
+    complete_builtin_change(Path(data["changeRoot"]))
+
+    output = human_run("artifacts", "add-payment", "--home", str(home))
+    for field in (
+        "unclassifiedFiles",
+        "archiveMonth",
+        "changeRoot",
+        "declaredSchema",
+        "statePath",
+        "stateExists",
+        "schemasSeen",
+        "outputPatterns",
+        "nextSteps",
+    ):
+        assert field not in output
+    assert "{'" not in output and "['" not in output
+
+
+def test_artifacts_human_output_aggregates_while_json_keeps_the_detail(tmp_path: Path):
+    home = init_home(tmp_path)
+    _code, data = run("new", "add-payment", "--home", str(home), "--json")
+    change_dir = Path(data["changeRoot"])
+    complete_builtin_change(change_dir)
+
+    output = human_run("artifacts", "add-payment", "--home", str(home))
+    assert "secure-spec-driven" in output
+    assert "7 files" in output
+    assert "proposal.md" not in output  # aggregated, not enumerated
+
+    _code, payload = run("artifacts", "add-payment", "--home", str(home), "--json")
+    assert str(change_dir / "proposal.md") in payload["files"]
+
+
+def test_artifacts_human_output_renders_markup_like_paths_verbatim(tmp_path: Path):
+    """A path containing rich markup must print literally, not be parsed as styling.
+
+    The location path is the one user-controlled string this summary prints, so
+    the home directory is the thing that has to carry the markup.
+    """
+
+    home = tmp_path / "[red]home"
+    code, _ = run("init", str(home), "--json")
+    assert code == 0
+    _code, data = run("new", "add-payment", "--home", str(home), "--json")
+    (Path(data["changeRoot"]) / "[bold]out.md").write_text("# x")
+
+    output = human_run("artifacts", "add-payment", "--home", str(home))
+    assert "[red]home" in output, "markup in the path was swallowed"
+    assert "1 file" in output
+    assert ANSI_ESCAPE not in output
+
+
+def test_artifacts_is_read_only_even_for_an_archived_change(tmp_path: Path):
+    home = init_home(tmp_path)
+    _code, data = run("new", "add-payment", "--home", str(home), "--json")
+    complete_builtin_change(Path(data["changeRoot"]))
+    run("archive", "add-payment", "--home", str(home), "--json")
+
+    before = {path.relative_to(home).as_posix() for path in home.rglob("*")}
+    code, _ = run("artifacts", "add-payment", "--home", str(home), "--json")
+    assert code == 0
+    assert {path.relative_to(home).as_posix() for path in home.rglob("*")} == before

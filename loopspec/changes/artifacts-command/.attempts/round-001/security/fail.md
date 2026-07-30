@@ -1,0 +1,32 @@
+# Security Review: FAIL
+
+## Blocking Issues
+
+- **符号链接可让本命令输出 workflow home 之外的路径，而 design 声称它不会。** `design.md` 的「安全面自查 / 输出面」写明「本命令输出的是文件路径，全部限定在 workflow home 之内（由 D8 第二道检查保证）」，但 D8 的第二道检查只作用于**位置目录**（`archive/*/<change>/` 与活跃目录），不作用于目录**内部**遍历出来的每个文件。D6 的未认领文件枚举要遍历整个位置目录，而 `outputs.resolve_outputs` 与遍历都会对结果调用 `.resolve()`；因此 change 目录里一个指向外部的符号链接（例如 `notes.md -> /etc/shadow`，或 `specs -> /var/log`）会被解析成 home 之外的绝对路径并原样打印出来。这既是文件系统结构的信息泄露，也让 design 声明的输出面保证不成立。同一缺口对 D4 的 schema 产物解析（glob 命中 symlink）与 tasks 2.7 的 `.attempts` 文件路径同样成立。修复必须落在**每一条被输出的路径**上，而不只是位置目录上。
+
+- **`_meta.yaml` 的损坏没有降级路径，会让命令以未捕获异常崩溃。** D9 只为 `.workflow.yaml` 定义了「捕获校验失败 → warning → 按缺失处理」，tasks 2.4 也只覆盖它。但 tasks 2.7 要复用 `attempts.list_rounds`，后者对每个 `_meta.yaml` 执行 `yaml.safe_load` 后直接 `meta.get(...)`：当该文件是合法 YAML 但顶层不是映射（例如内容为一个列表或裸字符串）时会抛 `AttributeError`，格式非法时会抛 `yaml.YAMLError`——两者都不是 `LoopspecError`，不会走 `_fail` 的统一错误契约，而是以 traceback 终止。对一条**专门用来读取旧的、可能已归档的数据**的命令，这是与 D9 同类且同等重要的缺口：最需要它的场景（几个月前归档、格式过时）恰好最容易触发。
+
+## Scope Reviewed
+
+- `design.md`：全部 D1–D10 与「安全面自查」小节。
+- `tasks.md`：全部 7 个任务组，重点为 1.1–1.3（路径安全）、2.2（`--schemas` 输入校验）、2.4/2.7/2.8（元数据读取、轮次收集、目录遍历）、3.9（只读断言）。
+- 被复用的既有实现：`paths.is_safe_relative_path` / `resolve_within`、`outputs.resolve_outputs` 与 `_is_artifact_candidate`、`config.read_metadata`、`attempts.list_rounds`、`presentation.Presenter`。
+
+## Checks Performed
+
+- **路径遍历**：change 名（D8 第一道）与 `--schemas` 每段（tasks 2.2）的校验点齐全，`archive/*/` 的 glob 不会产出 `..` 分量，位置目录经 `resolve_within` 收口——这部分成立。**未通过**的是被输出路径本身的收口（见第一条 blocking issue）。
+- **不受信输入的反序列化**：`.workflow.yaml` 与 `_meta.yaml` 均经 `yaml.safe_load`（无任意对象构造风险），但异常处理只覆盖前者（见第二条 blocking issue）。
+- **注入**：无外部命令执行、无 SQL/模板/LDAP/XPath；终端输出经 `Presenter` 转义（D7）并把控制字符改写为可见形式，tasks 4.4 有对应断言。此项通过。
+- **密钥与敏感数据**：命令只输出路径、从不读取产物内容，因此 change 目录内的敏感文件不会被泄露内容；`--json` 载荷中也无凭据类字段。此项通过（但见 Notes）。
+- **authn/authz**：不涉及，纯本地文件系统读取，权限由操作系统决定。此项通过。
+- **写入面**：D3 刻意绕开 `_load_change_context` 的 `artifact_dir.mkdir`，tasks 3.9 用前后目录快照对比断言只读。此项通过，且这一条尤其重要——若沿用既有 helper，查询一个已归档的 change 会在归档目录里创建目录。
+- **第三方依赖**：无新增依赖，全部复用仓库内既有模块。此项通过。
+- **资源消耗**：D6 的全目录遍历规模受归档月份数与文档级目录规模限制，不构成放大风险。此项通过。
+
+## Recommended Fix Direction
+
+在发现逻辑的**输出边界**上收口，而不是在各个调用点分别打补丁：让所有对外报告的路径都经过同一个「解析后必须仍在 workflow home 之内」的判定，逃出的路径不报告并计一条 warning（与 D9 的降级风格一致，而不是让整个查询失败——一个被 symlink 污染的 change 目录仍应能列出它其余的真实产物）。同时把 design 的输出面声明改写为与实际机制相符的表述。
+
+第二条按 D9 已确立的模式扩展即可：把「元数据不可读 → warning + 按缺失处理」的处理从 `.workflow.yaml` 推广到 `_meta.yaml`，并在 tasks 里为它补一条与 3.8 同形的降级测试。若选择在 `attempts.list_rounds` 内部加固，需注意它同时被 `history` 与 `instructions` 复用，届时应确认那两条路径的行为不发生退化。
+
+顺带建议（非阻塞）：`--schemas` 每段的校验从「安全相对路径」收紧为 `models.KEBAB_RE`。schema 名在 `config.yaml` 中本就受该正则约束，用同一条规则可以顺带排除 `a/b` 这类虽在 home 内、但绕过了候选命名约定的取值。

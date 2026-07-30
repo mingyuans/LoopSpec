@@ -23,19 +23,47 @@ def _is_artifact_candidate(path: Path, artifact_dir: Path) -> bool:
     return True
 
 
-def resolve_outputs(artifact_dir: Path, generates: str) -> list[Path]:
-    """Return the currently existing, resolved output file paths for `generates`."""
+def resolve_output_entries(artifact_dir: Path, generates: str) -> list[tuple[str, Path]]:
+    """`(path relative to artifact_dir, resolved path)` for each existing output.
+
+    The relative name is kept because resolving follows symlinks: a caller that
+    has to report a path it *rejected* (one that resolved outside the workflow
+    home) can name the file without printing where it actually pointed.
+    """
 
     if not is_glob(generates):
         target = artifact_dir / generates
         if target.is_file() and _is_artifact_candidate(target, artifact_dir):
-            return [target.resolve()]
+            return [(generates, target.resolve())]
         return []
-    return sorted(
-        path.resolve()
+    entries = [
+        (path.relative_to(artifact_dir).as_posix(), path.resolve())
         for path in artifact_dir.glob(generates)
         if path.is_file() and _is_artifact_candidate(path, artifact_dir)
-    )
+    ]
+    return sorted(entries, key=lambda entry: entry[1])
+
+
+def resolve_outputs(artifact_dir: Path, generates: str) -> list[Path]:
+    """Return the currently existing, resolved output file paths for `generates`."""
+
+    return [resolved for _relative, resolved in resolve_output_entries(artifact_dir, generates)]
+
+
+def iter_artifact_candidates(root: Path) -> list[tuple[str, Path]]:
+    """Every file under `root` that counts as an artifact candidate, name and all.
+
+    Same reserved-name and `.attempts` rules as `resolve_outputs`, so "what is an
+    artifact" stays decided in exactly one place. `rglob` does not descend into
+    symlinked directories, so a link cycle cannot make this recurse forever.
+    """
+
+    entries = [
+        (path.relative_to(root).as_posix(), path.resolve())
+        for path in root.rglob("*")
+        if path.is_file() and _is_artifact_candidate(path, root)
+    ]
+    return sorted(entries, key=lambda entry: entry[0])
 
 
 def outputs_exist(artifact_dir: Path, generates: str) -> bool:
