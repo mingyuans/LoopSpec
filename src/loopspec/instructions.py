@@ -8,7 +8,7 @@ from typing import Any
 from .attempts import prior_attempts_for_node
 from .change_state import read_state_for_instruction
 from .errors import NodeNotFoundError
-from .outputs import node_output_patterns, resolve_outputs
+from .outputs import node_output_patterns, resolve_outputs, resolved_output_path
 from .schema_loader import LoadedSchema
 from .state import compute_states
 from .task_tracking import progress_detail, read_task_progress
@@ -47,7 +47,9 @@ def build_instructions(
                 "id": dep_id,
                 "done": states[dep_id].status == "done",
                 "path": dep_path,
-                "resolvedPath": str((artifact_dir / dep_path).resolve()) if dep_path else None,
+                "resolvedPath": (
+                    resolved_output_path(artifact_dir, dep_path) if dep_path else None
+                ),
                 "description": dep_node.description,
             }
         )
@@ -79,7 +81,7 @@ def build_instructions(
     if node.gate is None:
         assert node.generates is not None and node.template is not None
         response["outputPath"] = node.generates
-        response["resolvedOutputPath"] = str((artifact_dir / node.generates).resolve())
+        response["resolvedOutputPath"] = resolved_output_path(artifact_dir, node.generates)
         response["template"] = _read_template(loaded.schema_dir, node.template)
     else:
         response["outputPath"] = {

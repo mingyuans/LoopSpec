@@ -368,8 +368,8 @@ loopspec status <change-name> [--home <dir>] [--json]
 | `nodes[].id` | string | 节点 id。 |
 | `nodes[].status` | string | `blocked`、`ready`、`done`、`failed` 或 `exhausted`。 |
 | `nodes[].outputPath` | string or object | 声明的产物。普通节点为字符串；门禁为 `{pass, fail}`。 |
-| `nodes[].resolvedOutputPath` | string or object | 同上，但解析为绝对路径。 |
-| `nodes[].existingOutputPaths` | array of string | 上述产物中当前实际存在于磁盘的那些。 |
+| `nodes[].resolvedOutputPath` | string, array, object or null | 绝对路径，且绝不是模式串：具体的 `generates` 解析为它的路径，无论文件是否已存在；glob 解析为它当前匹配到的文件数组，无匹配时为 `null`。门禁为 `{pass, fail}`。 |
+| `nodes[].existingOutputPaths` | array of string | 上述产物中当前实际存在于磁盘的那些，绝对路径并已排序。glob 会展开为它匹配到的文件。 |
 | `nodes[].missingDeps` | array of string | 仅在 `blocked` 时出现：尚未 `done` 的依赖节点。 |
 | `nodes[].taskProgress` | object | 仅对声明了 `tracks` 的节点出现。只给计数；逐条任务列表在 `instructions` 中。 |
 | `nodes[].taskProgress.path` | string | 被追踪文件相对 artifact root 的路径。 |
@@ -411,6 +411,16 @@ loopspec status <change-name> [--home <dir>] [--json]
       "outputPath": "proposal.md",
       "resolvedOutputPath": "/path/to/project/loopspec/changes/add-payment/proposal.md",
       "existingOutputPaths": []
+    },
+    {
+      "id": "specs",
+      "status": "blocked",
+      "outputPath": "specs/**/*.md",
+      "resolvedOutputPath": null,
+      "existingOutputPaths": [],
+      "missingDeps": [
+        "proposal"
+      ]
     },
     {
       "id": "design",
@@ -519,7 +529,7 @@ loopspec instructions <node-id> --change <change-name> [--home <dir>] [--json]
 | `dependencies[].id` | string | 依赖节点 id。 |
 | `dependencies[].done` | boolean | 该依赖是否已完成。 |
 | `dependencies[].path` | string or null | 它的产物路径——门禁取 PASS 路径。 |
-| `dependencies[].resolvedPath` | string or null | 同上，绝对路径。 |
+| `dependencies[].resolvedPath` | string, array or null | 绝对路径，且绝不是模式串：具体的 `generates` 解析为它的路径，无论文件是否已存在；glob 解析为它当前匹配到的文件数组，无匹配时为 `null`。 |
 | `dependencies[].description` | string | 该依赖的描述。 |
 | `contextFiles` | object | 节点 id 到该节点当前已存在的产物文件列表，使一个节点无需猜文件名即可读到整个 change。磁盘上什么都没有的节点会被省略。 |
 | `unlocks` | array of string | 本节点完成后会解除阻塞的节点 id。 |
@@ -534,7 +544,7 @@ loopspec instructions <node-id> --change <change-name> [--home <dir>] [--json]
 | `priorAttempts[].blockingIssues` | array of string | 下一次尝试必须解决的问题。 |
 | `priorAttempts[].archivedPath` | string | 该节点上一次的产物被移动到了哪里。 |
 | `outputPath` | string or object | 写到哪里。普通节点为字符串；门禁为 `{pass, fail}`。 |
-| `resolvedOutputPath` | string or object | 同上，绝对路径。 |
+| `resolvedOutputPath` | string, array, object or null | 绝对路径，且绝不是模式串：具体的 `generates` 解析为它的路径，无论文件是否已存在；glob 解析为它当前匹配到的文件数组，无匹配时为 `null`。门禁为 `{pass, fail}`。 |
 | `template` | string | 普通节点专有：模板文件的内容。 |
 | `templates` | object | 门禁专有：`{pass, fail}` 两份模板的内容。 |
 | `taskProgress` | object | 声明了 `tracks` 的节点专有：`status` 中的计数，外加一个 `{id, description, done}` 的 `tasks` 数组。 |

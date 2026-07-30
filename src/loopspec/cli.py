@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.metadata
 import importlib.resources
 import json
 import re
@@ -29,6 +28,7 @@ from .errors import (
 )
 from .instructions import build_instructions
 from .models import KEBAB_RE
+from .outputs import resolve_outputs, resolved_output_path
 from .policy import build_next_steps
 from .presentation import Presenter, render_init_summary, render_welcome
 from .rollback import compute_reset_closure, rollback_change
@@ -461,12 +461,15 @@ def _node_output_summary(loaded, node_id: str, artifact_dir: Path) -> dict[str, 
     node = loaded.node(node_id)
     summary: dict[str, Any]
     if node.gate is None:
-        resolved = artifact_dir / node.generates
-        existing = [str(resolved.resolve())] if resolved.is_file() else []
+        # Through resolve_outputs, so a glob reports the files it actually matched
+        # rather than a path with `**` in it, and so `.attempts/` and the reserved
+        # change files are filtered out here the same way they are everywhere else.
         summary = {
             "outputPath": node.generates,
-            "resolvedOutputPath": str((artifact_dir / node.generates).resolve()),
-            "existingOutputPaths": existing,
+            "resolvedOutputPath": resolved_output_path(artifact_dir, node.generates),
+            "existingOutputPaths": [
+                str(path) for path in resolve_outputs(artifact_dir, node.generates)
+            ],
         }
     else:
         pass_path = artifact_dir / node.gate.outputs.pass_

@@ -1,7 +1,13 @@
 from pathlib import Path
 
 from loopspec.models import NodeSpec
-from loopspec.outputs import is_glob, node_output_patterns, outputs_exist, resolve_outputs
+from loopspec.outputs import (
+    is_glob,
+    node_output_patterns,
+    outputs_exist,
+    resolve_outputs,
+    resolved_output_path,
+)
 
 
 def test_is_glob_detects_wildcard_characters():
@@ -51,6 +57,46 @@ def test_non_glob_output_exists(tmp_path: Path):
     (tmp_path / "proposal.md").write_text("x")
     assert outputs_exist(tmp_path, "proposal.md")
     assert not outputs_exist(tmp_path, "design.md")
+
+
+def test_resolved_output_path_of_a_concrete_path_is_that_path(tmp_path: Path):
+    """Answered before the file exists: it is where the artifact goes."""
+
+    assert resolved_output_path(tmp_path, "proposal.md") == str(tmp_path / "proposal.md")
+    (tmp_path / "proposal.md").write_text("x")
+    assert resolved_output_path(tmp_path, "proposal.md") == str(tmp_path / "proposal.md")
+
+
+def test_resolved_output_path_of_a_glob_lists_the_matches(tmp_path: Path):
+    """Never a path with a wildcard in it -- those are not paths."""
+
+    (tmp_path / "specs").mkdir()
+    (tmp_path / "specs" / "b.md").write_text("b")
+    (tmp_path / "specs" / "a.md").write_text("a")
+
+    resolved = resolved_output_path(tmp_path, "specs/**/*.md")
+    assert resolved == [str(tmp_path / "specs" / "a.md"), str(tmp_path / "specs" / "b.md")]
+    assert all("*" not in path for path in resolved)
+
+
+def test_resolved_output_path_of_an_unmatched_glob_is_none(tmp_path: Path):
+    """No file yet means there is no path to name, so say so rather than invent one."""
+
+    (tmp_path / "specs").mkdir()
+    assert resolved_output_path(tmp_path, "specs/**/*.md") is None
+
+
+def test_resolved_output_path_of_a_glob_excludes_attempts_and_reserved_files(tmp_path: Path):
+    """The same filtering resolve_outputs applies, so an archived attempt cannot
+    surface as a current artifact."""
+
+    (tmp_path / ".attempts" / "round-001").mkdir(parents=True)
+    (tmp_path / ".attempts" / "round-001" / "old.md").write_text("old")
+    (tmp_path / "state.md").write_text("state")
+    assert resolved_output_path(tmp_path, "**/*.md") is None
+
+    (tmp_path / "current.md").write_text("now")
+    assert resolved_output_path(tmp_path, "**/*.md") == [str(tmp_path / "current.md")]
 
 
 def test_node_output_patterns_for_plain_node():

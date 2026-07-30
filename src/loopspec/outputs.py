@@ -42,6 +42,22 @@ def outputs_exist(artifact_dir: Path, generates: str) -> bool:
     return len(resolve_outputs(artifact_dir, generates)) > 0
 
 
+def resolved_output_path(artifact_dir: Path, generates: str) -> str | list[str] | None:
+    """The wildcard-free absolute path(s) a `generates` pattern points at.
+
+    A concrete path resolves to itself whether or not it exists yet: that is where
+    the artifact goes, which is exactly what a node about to be written needs. A
+    glob has no such answer up front and can only be resolved from what is on disk
+    -- the matches when there are any, and None when there are none, since there
+    is no single path to name and a pattern with `*` in it is not one.
+    """
+
+    if not is_glob(generates):
+        return str((artifact_dir / generates).resolve())
+    matches = [str(path) for path in resolve_outputs(artifact_dir, generates)]
+    return matches or None
+
+
 def node_output_patterns(node: NodeSpec) -> list[str]:
     if node.gate is not None:
         patterns = [node.gate.outputs.pass_, node.gate.outputs.fail]

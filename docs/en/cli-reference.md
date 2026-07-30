@@ -368,8 +368,8 @@ loopspec status <change-name> [--home <dir>] [--json]
 | `nodes[].id` | string | Node id. |
 | `nodes[].status` | string | `blocked`, `ready`, `done`, `failed` or `exhausted`. |
 | `nodes[].outputPath` | string or object | Declared output. A string for plain nodes; `{pass, fail}` for gates. |
-| `nodes[].resolvedOutputPath` | string or object | The same, resolved to absolute paths. |
-| `nodes[].existingOutputPaths` | array of string | Which of those outputs currently exist on disk. |
+| `nodes[].resolvedOutputPath` | string, array, object or null | Absolute, and never a pattern: a concrete `generates` resolves to its path whether or not the file exists yet; a glob resolves to the array of files it currently matches, or `null` when it matches nothing. `{pass, fail}` for gates. |
+| `nodes[].existingOutputPaths` | array of string | Which of those outputs currently exist on disk, absolute and sorted. Globs are expanded to the files they match. |
 | `nodes[].missingDeps` | array of string | Present only when `blocked`: the required nodes that are not `done`. |
 | `nodes[].taskProgress` | object | Present only for nodes declaring `tracks`. Counts only; the per-task list is in `instructions`. |
 | `nodes[].taskProgress.path` | string | The tracked file, relative to the artifact root. |
@@ -411,6 +411,16 @@ A freshly created change:
       "outputPath": "proposal.md",
       "resolvedOutputPath": "/path/to/project/loopspec/changes/add-payment/proposal.md",
       "existingOutputPaths": []
+    },
+    {
+      "id": "specs",
+      "status": "blocked",
+      "outputPath": "specs/**/*.md",
+      "resolvedOutputPath": null,
+      "existingOutputPaths": [],
+      "missingDeps": [
+        "proposal"
+      ]
     },
     {
       "id": "design",
@@ -519,7 +529,7 @@ loopspec instructions <node-id> --change <change-name> [--home <dir>] [--json]
 | `dependencies[].id` | string | Dependency node id. |
 | `dependencies[].done` | boolean | Whether that dependency is complete. |
 | `dependencies[].path` | string or null | Its artifact path — the PASS path for a gate. |
-| `dependencies[].resolvedPath` | string or null | The same, absolute. |
+| `dependencies[].resolvedPath` | string, array or null | Absolute, and never a pattern: a concrete `generates` resolves to its path whether or not the file exists yet; a glob resolves to the array of files it currently matches, or `null` when it matches nothing. |
 | `dependencies[].description` | string | The dependency's description. |
 | `contextFiles` | object | Node id to the list of that node's currently existing output files, so a node can read the whole change without guessing filenames. Nodes with nothing on disk are omitted. |
 | `unlocks` | array of string | Node ids that become unblocked once this node is done. |
@@ -534,7 +544,7 @@ loopspec instructions <node-id> --change <change-name> [--home <dir>] [--json]
 | `priorAttempts[].blockingIssues` | array of string | The issues the next attempt must resolve. |
 | `priorAttempts[].archivedPath` | string | Where this node's previous output was moved to. |
 | `outputPath` | string or object | Where to write. A string for plain nodes; `{pass, fail}` for gates. |
-| `resolvedOutputPath` | string or object | The same, absolute. |
+| `resolvedOutputPath` | string, array, object or null | Absolute, and never a pattern: a concrete `generates` resolves to its path whether or not the file exists yet; a glob resolves to the array of files it currently matches, or `null` when it matches nothing. `{pass, fail}` for gates. |
 | `template` | string | Present for plain nodes: the template file's contents. |
 | `templates` | object | Present for gates: `{pass, fail}` template contents. |
 | `taskProgress` | object | Present for nodes declaring `tracks`: the `status` counts plus a `tasks` array of `{id, description, done}`. |

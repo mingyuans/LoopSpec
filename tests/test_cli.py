@@ -171,6 +171,73 @@ def test_status_reflects_ready_node(tmp_path: Path):
     assert "instructions proposal" in data["nextSteps"][0]
 
 
+def test_status_reports_the_matched_files_of_a_glob_node(tmp_path: Path):
+    """The built-in `specs` node is a glob, so this is the default path, not a corner.
+
+    `status` used to hand back `.../specs/**/*.md` -- a string with a wildcard in it,
+    which is not a path -- and an empty existingOutputPaths, while `instructions`
+    reported the real files for the same node.
+    """
+
+    home = init_home(tmp_path)
+    code, data = run("new", "add-payment", "--home", str(home), "--json")
+    assert code == 0
+    change_dir = Path(data["changeRoot"])
+    (change_dir / "proposal.md").write_text("# p")
+
+    def specs_node() -> dict:
+        code, data = run("status", "add-payment", "--home", str(home), "--json")
+        assert code == 0
+        return next(node for node in data["nodes"] if node["id"] == "specs")
+
+    # Nothing written yet: no path to name, rather than a fabricated one.
+    node = specs_node()
+    assert node["outputPath"] == "specs/**/*.md"
+    assert node["resolvedOutputPath"] is None
+    assert node["existingOutputPaths"] == []
+
+    (change_dir / "specs").mkdir()
+    (change_dir / "specs" / "b.md").write_text("# b")
+    (change_dir / "specs" / "a.md").write_text("# a")
+
+    node = specs_node()
+    expected = [
+        str(change_dir / "specs" / "a.md"),
+        str(change_dir / "specs" / "b.md"),
+    ]
+    assert node["existingOutputPaths"] == expected
+    assert node["resolvedOutputPath"] == expected
+    assert node["status"] == "done"
+
+
+def test_status_and_instructions_agree_on_a_glob_node(tmp_path: Path):
+    """The two commands resolve outputs through the same helper now; they used to
+    disagree, and `status` is the one an agent calls every turn."""
+
+    home = init_home(tmp_path)
+    code, data = run("new", "add-payment", "--home", str(home), "--json")
+    assert code == 0
+    change_dir = Path(data["changeRoot"])
+    (change_dir / "proposal.md").write_text("# p")
+    (change_dir / "design.md").write_text("# d")
+    (change_dir / "specs").mkdir()
+    (change_dir / "specs" / "api.md").write_text("# api")
+
+    code, status = run("status", "add-payment", "--home", str(home), "--json")
+    assert code == 0
+    specs_node = next(node for node in status["nodes"] if node["id"] == "specs")
+
+    code, instructions = run(
+        "instructions", "tasks", "--change", "add-payment", "--home", str(home), "--json"
+    )
+    assert code == 0
+    specs_dep = next(dep for dep in instructions["dependencies"] if dep["id"] == "specs")
+
+    assert specs_node["existingOutputPaths"] == instructions["contextFiles"]["specs"]
+    assert specs_dep["resolvedPath"] == specs_node["resolvedOutputPath"]
+    assert specs_dep["resolvedPath"] == [str(change_dir / "specs" / "api.md")]
+
+
 TRACKING_SCHEMA_YAML = """
 name: tracked
 version: 1
