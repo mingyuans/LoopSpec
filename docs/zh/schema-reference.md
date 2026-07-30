@@ -34,7 +34,7 @@
 | --- | --- | --- | --- | --- |
 | `id` | string | 是 | 无 | 节点 id，kebab-case，在 schema 内唯一。被 `requires`、`on_fail.reset` 以及每条指名节点的 CLI 命令使用。 |
 | `description` | string | 是 | 无 | 节点的一行描述，由 `loopspec instructions` 返回，也作为上游依赖的描述展示。 |
-| `generates` | string or null | 普通节点必填 | 无 | 相对 artifact root 的产物路径。可以是 glob，例如 `specs/**/*.md`。门禁必须为 `null` 或省略。 |
+| `generates` | string or null | 普通节点必填 | 无 | 相对 artifact root 的产物路径，且不得越出其外：非绝对路径，不含 `..`。可以是 glob，例如 `specs/**/*.md`。门禁必须为 `null` 或省略。 |
 | `template` | string or null | 普通节点必填 | 无 | `templates/` 下的模板文件名。其内容作为 `loopspec instructions` 的 `template` 字段返回。门禁必须为 `null` 或省略。 |
 | `requires` | array of string | 否 | 空 | 本节点变为 `ready` 之前必须 `done` 的节点 id。每个 id 都必须存在，且构成的图必须无环。 |
 | `instruction` | string or object | 否 | 无 | 指令文本。要么是内联字符串，要么是 `{file: <name>}` 指向 `instructions/` 下的一个文件。没有 `instruction` 的节点返回空字符串。 |
@@ -162,6 +162,7 @@ checkbox 解析识别 `- [ ]`、`- [x]`、`- [X]` 以及以 `*` 开头的等价�
 | 门禁的 `pass` 与 `fail` 产物是具体路径（非 glob）且互不相同。 | `schema_invalid` |
 | 每个 `template` 路径都留在 `templates/` 内且是安全相对路径。 | `schema_invalid` |
 | 每个被引用的模板文件都存在。 | `template_not_found` |
+| 每个产物路径 —— `generates` 与门禁的两个裁决路径 —— 都是安全相对路径：非绝对路径，不含 `..`。产物必须留在自己的 change 目录内，因为 `rollback` 会**移动**它解析出的产物。 | `schema_invalid` |
 | 没有任何产物路径使用保留名（`state.md`、`.workflow.yaml`）。 | `schema_invalid` |
 | 每个 `on_fail.reset` 条目都指向存在的节点。 | `schema_invalid` |
 | 每个 `on_fail.reset` 条目都是其门禁的祖先。消息会列出合法选项。 | `schema_invalid` |

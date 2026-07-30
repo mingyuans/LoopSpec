@@ -34,7 +34,7 @@ Both directories are sandboxes: a `template` or `instruction.file` value that re
 | --- | --- | --- | --- | --- |
 | `id` | string | yes | none | Node id, kebab-case, unique within the schema. Used by `requires`, `on_fail.reset`, and every CLI command that names a node. |
 | `description` | string | yes | none | One-line description of the node, returned by `loopspec instructions` and shown as the dependency description upstream. |
-| `generates` | string or null | for plain nodes | none | Artifact path relative to the artifact root. May be a glob such as `specs/**/*.md`. Must be `null` or omitted for a gate. |
+| `generates` | string or null | for plain nodes | none | Artifact path relative to the artifact root, which it may not leave: not absolute, no `..`. May be a glob such as `specs/**/*.md`. Must be `null` or omitted for a gate. |
 | `template` | string or null | for plain nodes | none | Template filename under `templates/`. Its contents are returned as the `template` field of `loopspec instructions`. Must be `null` or omitted for a gate. |
 | `requires` | array of string | no | empty | Node ids that must be `done` before this node becomes `ready`. Every id must exist, and the resulting graph must be acyclic. |
 | `instruction` | string or object | no | none | The instruction text. Either an inline string, or `{file: <name>}` naming a file under `instructions/`. A node with no `instruction` returns an empty string. |
@@ -162,6 +162,7 @@ Loading happens in two phases: structural validation with Pydantic (unknown fiel
 | A gate's `pass` and `fail` outputs are concrete (non-glob) and distinct. | `schema_invalid` |
 | Every `template` path stays inside `templates/` and is a safe relative path. | `schema_invalid` |
 | Every referenced template file exists. | `template_not_found` |
+| Every output path — `generates` and both gate verdict paths — is a safe relative path: not absolute, no `..`. An output has to stay inside its own change, since `rollback` *moves* the outputs it resolves. | `schema_invalid` |
 | No output path is a reserved name (`state.md`, `.workflow.yaml`). | `schema_invalid` |
 | Every `on_fail.reset` entry names an existing node. | `schema_invalid` |
 | Every `on_fail.reset` entry is an ancestor of its gate. The message lists the valid choices. | `schema_invalid` |

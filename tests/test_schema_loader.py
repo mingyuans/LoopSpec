@@ -535,6 +535,66 @@ nodes:
         load_schema(tmp_path)
 
 
+GENERATES_SCHEMA = """
+name: sample
+version: 1
+nodes:
+  - id: proposal
+    generates: {generates}
+    description: proposal
+    template: proposal.md
+    requires: []
+"""
+
+
+@pytest.mark.parametrize("generates", ["proposal.md", "docs/proposal.md", '"specs/**/*.md"'])
+def test_safe_generates_paths_load(tmp_path: Path, generates: str):
+    """Globs and subdirectories stay legal; only escaping the change is not."""
+
+    _write(tmp_path, GENERATES_SCHEMA.format(generates=generates), {"proposal.md": "# p"})
+    assert load_schema(tmp_path).node("proposal").generates == generates.strip('"')
+
+
+@pytest.mark.parametrize(
+    "generates",
+    [
+        '"../other-change/proposal.md"',
+        '"../../proposal.md"',
+        '"specs/../../proposal.md"',
+        '"/etc/passwd"',
+    ],
+)
+def test_generates_escaping_the_change_directory_rejected(tmp_path: Path, generates: str):
+    """A node may not claim a path outside its own change as its output: rollback
+    *moves* resolved outputs, so this would carry off another change's artifacts."""
+
+    _write(tmp_path, GENERATES_SCHEMA.format(generates=generates), {"proposal.md": "# p"})
+    with pytest.raises(SchemaValidationError, match="stay inside the change directory"):
+        load_schema(tmp_path)
+
+
+@pytest.mark.parametrize("output", ["../other-change/pass.md", "/tmp/pass.md"])
+def test_gate_output_escaping_the_change_directory_rejected(tmp_path: Path, output: str):
+    """The same rule for gate verdict paths, which are outputs just as much."""
+
+    gate_body = f"""      outputs:
+        pass: "{output}"
+        fail: security/fail.md
+      templates:
+        pass: security-pass.md
+        fail: security-fail.md
+      on_fail:
+        reset: [design]
+"""
+    _write(
+        tmp_path,
+        GATE_BASE.format(gate_body=gate_body),
+        {"design.md": "# d", "security-pass.md": "# p", "security-fail.md": "# f"},
+    )
+    with pytest.raises(SchemaValidationError, match="stay inside the change directory"):
+        load_schema(tmp_path)
+
+
 TRACKS_SCHEMA = """
 name: sample
 version: 1

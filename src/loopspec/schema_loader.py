@@ -65,7 +65,7 @@ def load_schema(schema_dir: Path) -> LoadedSchema:
             _validate_plain_node(node, schema_dir)
         else:
             _validate_gate_node(node, schema_dir)
-        _validate_reserved_outputs(node)
+        _validate_output_paths(node)
 
     for node in schema.nodes:
         if node.gate is not None:
@@ -157,7 +157,16 @@ def _validate_gate_node(node: NodeSpec, schema_dir: Path) -> None:
     _check_template_exists(f"Gate '{node.id}'", gate.templates.fail, templates_dir)
 
 
-def _validate_reserved_outputs(node: NodeSpec) -> None:
+def _validate_output_paths(node: NodeSpec) -> None:
+    """Every path a node writes must be a safe relative path, and not a reserved name.
+
+    Containment is not merely tidiness. An output path is also what `rollback`
+    resolves and *moves* into `.attempts/`, so `../other-change/proposal.md` would
+    let one change's gate failure carry off another change's artifacts -- and since
+    all state is derived from the filesystem, that silently un-completes work
+    nobody touched.
+    """
+
     candidates: list[str] = []
     if isinstance(node.generates, str):
         candidates.append(node.generates)
@@ -165,6 +174,13 @@ def _validate_reserved_outputs(node: NodeSpec) -> None:
         candidates.append(node.gate.outputs.pass_)
         candidates.append(node.gate.outputs.fail)
     for candidate in candidates:
+        if not _is_safe_relative_path(candidate):
+            raise SchemaValidationError(
+                f"Node '{node.id}' output path must be relative and stay inside the "
+                f"change directory: {candidate}",
+                fix="Use a path relative to the artifact root, e.g. 'proposal.md'. "
+                "A node cannot declare an output outside its own change.",
+            )
         if candidate in _RESERVED_OUTPUT_NAMES:
             raise SchemaValidationError(
                 f"Output path '{candidate}' is reserved",
