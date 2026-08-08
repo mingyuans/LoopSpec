@@ -1,0 +1,44 @@
+round: 4
+gate: security
+verdict: FAIL
+summary: 'Security Review: FAIL'
+blocking_issues:
+- '**`status_report_prompts` 未知键的告警没有出口，三条可能的出口各自撞上一条已冻结的约束或一片未定义行为。** D13 与 `specs/workflow-schema/spec.md`
+  都要求"未知节名告警但不中断，复用 `rules` 引用未知节点 ID 的既有告警通道"，但那条通道在 `status` 上并不存在——核实代码：`rules`
+  的未知节点告警在 `instructions.py:33-35` 构造，只进入 `loopspec instructions` 响应的 `warnings` 数组；`cli.status`
+  构造的 payload（`cli.py:539-552`）没有 `warnings` 字段，`cli.py:723` 那个 `warnings` 属于 `artifacts`
+  命令。'
+- '`loopspec/changes/cli-status-markdown-output/design.md`（D1–D14、Risks、Migration
+  Plan、Rendered Examples、内置说明一览表）'
+- '`loopspec/changes/cli-status-markdown-output/tasks.md`（7 组 51 条）'
+- '`loopspec/changes/cli-status-markdown-output/proposal.md`（第 4 轮就地补充的 Capabilities
+  与 Impact）'
+- '`specs/status-report/spec.md`（14 条 ADDED requirement）、`specs/loopspec-cli/spec.md`、`specs/lpsx-skills/spec.md`、`specs/workflow-schema/spec.md`（本轮新增）'
+- '`.attempts/round-001/security/fail.md`、`.attempts/round-003/`（`approval` 第 2 轮裁决与被归档的产物），用于核验既有约束在本轮扩充后没有被稀释'
+- 受影响的既有代码：`src/loopspec/instructions.py`（`rules` 告警的实际构造点）、`src/loopspec/cli.py`（`status`/`_fail`/`artifacts`
+  各自的 payload）、`src/loopspec/models.py`（`WorkflowConfig`、`NodeSpec.id` 的 `KEBAB_RE`）、`src/loopspec/presentation.py`
+- '**前三轮的既有防线在本轮扩充后完好**：D10 的统一消毒规则、`summary`/`blockingIssues` 不得豁免、`_fail` 三项经同一消毒入口、不内联产物正文、glob
+  压成计数、D2 的单一数据通路——逐条比对第 3 轮文本，均原样保留。第 1 轮阻塞项的四个落点仍在。'
+- '**D14 的多行处理在正常路径上是正确的**：按 `\n` 拆行 → 逐行消毒 → 逐行固定缩进，换行由渲染器产生而非从内插值穿透。缩进使任何一行都不顶格，因而无法伪造分隔行。spec
+  明写"固定缩进 SHALL NOT 被省略"，把这一点钉成了需求而不是实现习惯。'
+- '**内置说明不经消毒是正确的**，且 D12 与任务 1.6/1.7 把它与用户说明分成了两条路径，而不是"反正都过一遍"——后者会让实现看不出哪一条才是防线所在。'
+- '**`config.yaml` 作为指令通道未构成扩权**：能改 `config.yaml` 的人也能改 schema 的 `instruction`（那已是直接指挥
+  LLM 的通道），因此本项没有给攻击者新的能力。见 Notes 第 1 条的补充建议。'
+- '**新增配置字段的解析面**：`dict[str, str]`，类型不符（如写成列表）由 Pydantic 拒为 `config_invalid`；`WorkflowConfig`
+  的 `extra: "forbid"` 保证字段名拼错会被拒绝而非静默忽略。无反序列化风险。'
+- '**注入（SQL / shell / LDAP / XPath / 模板）**：不适用，改动不构造查询、不启动子进程、不做模板求值。'
+- '**认证 / 授权、密钥处理、路径遍历**：均不适用或未被触碰；`status` 与本次改动只读不写。'
+- '**第三方依赖**：无新增。'
+reset_declared:
+- design
+reset_closure:
+- design
+- tasks
+- security
+- approval
+- apply
+archived_files:
+- design.md
+- tasks.md
+- security/fail.md
+archived_at: '2026-08-01T18:28:43.406076+08:00'

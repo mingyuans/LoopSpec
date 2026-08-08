@@ -1,0 +1,38 @@
+round: 1
+gate: security
+verdict: FAIL
+summary: 'Security Review: FAIL'
+blocking_issues:
+- '**错误输出的 Markdown 化（D7 / task 3.2）没有消毒要求，可被换行伪造节标题。** `design.md` 的 D7 与 `tasks.md`
+  的 3.2 规定 `_fail()` 的非 JSON 分支渲染 `# Error` + `error`/`message`/`fix` 三项 Markdown，但既没有要求内插值经
+  `sanitize()`，`specs/loopspec-cli/spec.md` 的「统一错误输出格式」MODIFIED 块也没有写这条约束——而 `status-report`
+  能力却为报告写了完整的消毒要求。实现者照 spec 办事就会留下这个不一致。'
+- '`loopspec/changes/cli-status-markdown-output/design.md`（D1–D9 全部决策、Risks、Migration
+  Plan）'
+- '`loopspec/changes/cli-status-markdown-output/tasks.md`（7 组 30 条）'
+- '`loopspec/changes/cli-status-markdown-output/specs/status-report/spec.md`、`specs/loopspec-cli/spec.md`、`specs/lpsx-skills/spec.md`'
+- 受影响的既有代码：`src/loopspec/cli.py`（`_emit`/`_fail`/`status`/`new`）、`src/loopspec/presentation.py`（`sanitize`
+  与模块契约）、`src/loopspec/errors.py`（`LoopspecError.to_dict`）、`src/loopspec/paths.py`（`change_root`）
+- '**注入（终端 / Markdown 结构）**：报告路径已被 `status-report` 的消毒与 `|` 转义要求覆盖；因 `sanitize()`
+  消灭换行，任何内插值都无法开启新行，也就无法伪造 `## Section` 标题——这条推理链成立且是报告侧的核心防线。错误输出路径缺同一条防线，见阻塞项。'
+- '**注入（SQL / shell / LDAP / XPath / 模板）**：不适用。本次改动不构造查询、不启动子进程、不做模板求值，只做字符串拼接后 `typer.echo`。'
+- '**认证 / 授权**：不适用。`loopspec` 是本地 CLI，无认证授权面，改动未新增。'
+- '**密钥处理**：无硬编码凭据，改动不读取环境变量、不写日志。'
+- '**路径遍历**：`status` 与本次改动**只读不写**，不新增任何由外部输入决定的写入路径。既有的产物路径逃逸防护（`paths.resolve_within`）未被触碰。'
+- '**反序列化 / 解析不可信输入**：改动不新增解析器；报告渲染只消费 `status` 已构造的 dict（D2 明确禁止渲染器重新访问文件系统）。'
+- '**第三方依赖**：无新增。D1 明确新模块不经 rich `Console`，因此连既有依赖的使用面都在收窄。'
+- '**数据暴露 / prompt injection**：`design.md` 的 Risks 已把报告进入 LLM 上下文这一面展开成三层缓解（不内联产物正文、全值消毒、glob
+  压成计数），`tasks.md` 5.7 有对应测试。核验为真实约束而非表态。'
+reset_declared:
+- design
+reset_closure:
+- design
+- tasks
+- security
+- approval
+- apply
+archived_files:
+- design.md
+- tasks.md
+- security/fail.md
+archived_at: '2026-07-31T15:38:05.869113+08:00'

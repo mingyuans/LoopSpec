@@ -1,0 +1,60 @@
+round: 2
+gate: approval
+verdict: FAIL
+summary: 'Human Approval: CHANGES REQUESTED'
+blocking_issues:
+- '**报告的分节标记从 Markdown 二级标题改为 `=== SECTION ===` 形式的纯文本分隔符。** 影响 `specs/status-report/spec.md`
+  的「报告的固定节序与恒在/条件节」需求与 `design.md` 的 D3：`## Overview` / `## Nodes` / `## Gate Failures`
+  / `## Pending Rollback` / `## Next Steps` 全部改写为 `=== ... ===` 形态，节序与"三节恒在、两节条件出现"的划分保持不变。'
+- '**整份报告不使用 Markdown 语法，只用纯文本。** 连带取消 `design.md` D5 的 Markdown 四列表格：`=== NODES ===`
+  节内的节点清单改为纯文本行（固定列序、以空白对齐），不再使用 `| Node | Status | Output | Notes |` 表头。`specs/status-report/spec.md`
+  中「Nodes 节为四列 Markdown 表格」需求需整条改写，其中「单元格内 `|` 转义为 `\|`」的要求随表格取消而失效，SHALL 从规格中移除，不得保留为无主约束。'
+- '**`_fail()` 的非 JSON 错误输出同步改用同一套分隔符形式**（`=== ERROR ===` 而非 `# Error`），使错误输出与状态报告的版式保持一致。影响
+  `design.md` D7 与 `specs/loopspec-cli/spec.md`「统一错误输出格式」中"以一个错误标题开头"的表述。'
+- '**`design.md` 必须内置一份完整的报告输出 example 供人核对版式**：至少两个样例，一个是无 gate 失败的正常态（含 `blocked`
+  节点、glob 节点、声明 `tracks` 的节点），一个是含 `failed` gate 的失败态（含 `=== GATE FAILURES ===` 与
+  `=== PENDING ROLLBACK ===` 两个条件节）。example 需为字面输出文本，不是描述。'
+- '**消毒规则的表述需随分隔符形态更新**：`specs/status-report/spec.md` 与 `design.md` D10 中"无法伪造 `##
+  Section` 标题"的论证需改写为"无法伪造 `=== SECTION ===` 分隔行"。该防线的实质不变（消毒消灭换行 ⇒ 内插值无法开启新行 ⇒ 无法伪造分节行），SHALL
+  NOT 因措辞改写而被削弱或删除。'
+- '**问题**：`loopspec status` 的默认输出走 `_emit()` 的 `key: value` 分支，`nodes` 被 `str()` 成一行
+  Python repr；而真正的调用方是每轮循环执行它的 LLM，因此 skills 只能一律加 `--json` 去解析一份含大量绝对路径的 JSON。'
+- '**能力变化**：新增 `status-report`（9 条 requirement）；修改 `loopspec-cli`（`status` 默认输出、统一错误输出格式、JSON
+  主协议定位，并新增「`nextSteps` 中指向 `status` 的命令不带 `--json`」）；修改 `lpsx-skills`（skill 模板去掉
+  `--json`）。'
+- '**关键决策与代价**：D1 新建 `status_report.py` 以保住 `presentation.py` 的防注入不变量；D2 单一 payload
+  两种编码、字段覆盖由测试锁死；D3 固定节序、三节恒在两节条件；D4 根目录给一次绝对路径、节点行相对路径、glob 压成计数（代价是报告不与 `--json`
+  逐字段等价）；D5 四列表格（代价是需转义 `|`）；D7+D10 错误输出与报告共用同一条消毒规则；D11 `schema_selection_required`
+  维持现状并如实记为已知缺口。`--json` 字段契约一字未改，默认输出格式变更标为 BREAKING。'
+- '**任务清单**：7 组 33 条，顺序为渲染模块骨架 → 各节渲染 → CLI 接线 → skill 模板 → 测试（11 条，含 4 条安全测试）→ 双语文档
+  → 收尾。'
+- '**安全结论**：第 1 轮 FAIL（错误输出 Markdown 化缺消毒要求，实测含换行的 change 名可伪造 `## Next Steps` 行），回退重做后第
+  2 轮 PASS；接受的残余风险为路径名进入 LLM 上下文（靠不内联产物正文 + 全值消毒 + glob 计数三层限制）与绝对路径含用户目录名（`--json`
+  既有行为）。'
+- '**两个交由人裁定的 open question**：节标题记法（`## Section` vs `--- xxx ---`）、glob 节点详略（计数 vs
+  列全部文件）。'
+- 'Decision Log: round 1 - changes requested'
+- 'Rejected Options: Markdown 二级标题作为分节标记；Markdown 四列表格作为节点清单'
+- 'Open Questions: `=== NODES ===` 节内含空格的路径如何在纯文本列中呈现（design 需明确"不声称可机械解析"的立场）'
+- 'Current Focus: redo design/tasks per round 1 approval feedback（`specs` 不在 reset
+  closure 内，就地改写）'
+- 'Artifact Notes: approval/changes-requested.md - changes requested'
+reset_declared:
+- specs
+- design
+reset_closure:
+- design
+- specs
+- tasks
+- security
+- approval
+- apply
+archived_files:
+- design.md
+- specs/loopspec-cli/spec.md
+- specs/lpsx-skills/spec.md
+- specs/status-report/spec.md
+- tasks.md
+- security/pass.md
+- approval/changes-requested.md
+archived_at: '2026-07-31T16:22:01.374852+08:00'
