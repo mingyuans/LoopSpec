@@ -132,6 +132,7 @@ make test             # uv run pytest -v
 make lint             # ruff check + mypy
 make docs-check       # docs/code consistency only
 make build            # uv build
+make install-local    # build, then uv tool install the wheel as the global `loopspec`
 make release-dry-run  # version check + install.sh checks + build
 make clean            # remove build/test caches
 ```

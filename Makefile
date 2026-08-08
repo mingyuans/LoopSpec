@@ -1,4 +1,4 @@
-.PHONY: install dev test docs-check build lint clean release-dry-run
+.PHONY: install install-local dev test docs-check build lint clean release-dry-run
 
 install:
 	uv sync
@@ -18,6 +18,16 @@ lint:
 
 build:
 	uv build
+
+# Build the working tree and install the resulting wheel as the global `loopspec`
+# command -- what install.sh does to a released wheel, done to local sources. It
+# replaces whatever `uv tool` currently has installed, and an untagged tree
+# installs as 0.0.0.dev0; set LOOPSPEC_BUILD_VERSION to stamp a real version.
+# dist is cleared first so the wheel glob below can only resolve to this build.
+install-local:
+	rm -rf dist
+	$(MAKE) build
+	uv tool install --force dist/loopspec-*.whl
 
 # Run the release checks that do not need CI. Pass TAG to build the artifacts that
 # tag would publish and assert their filenames, before spending a real tag on it:
