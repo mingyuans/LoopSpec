@@ -3,7 +3,7 @@
 ### Requirement: 全命令支持结构化 JSON 输出
 `loopspec` 的每个子命令 SHALL 支持 `--json` 标志，输出机器可解析的结构化结果；`--json` 是需要精确字段的程序化调用方的主协议。
 
-不带 `--json` 时的默认输出，其目标读者 SHALL 按命令区分：`loopspec status` 的默认输出以 **LLM/Agent 消费**为目标，输出面向 LLM 的分段纯文本报告（见 `status-report` 能力）；其余命令的默认输出为人类可读形式。无论何种形式，同一命令的默认输出与 `--json` 输出所承载的信息 SHALL 保持一致，差别仅在**编码形式**——例如路径以相对形式呈现（其绝对根在同一份报告中给出）、gate 的双产物以紧凑写法呈现——而 SHALL NOT 遗漏任何一类信息。
+不带 `--json` 时的默认输出，其目标读者 SHALL 按命令区分：`loopspec status` 的默认输出以 **LLM/Agent 消费**为目标，输出面向 LLM 的分段纯文本报告（见 `status-report` 能力）；其余命令的默认输出为人类可读形式。无论何种形式，同一命令的默认输出与 `--json` 输出所承载的信息 SHALL 保持一致，差别仅在编码形式与详略呈现（默认输出可对列表类字段做计数式压缩，但 SHALL NOT 遗漏任何一类信息）。
 
 #### Scenario: 任意命令附加 --json
 - **WHEN** 对任意 `loopspec` 子命令附加 `--json`
@@ -12,10 +12,6 @@
 #### Scenario: status 的默认输出面向 LLM
 - **WHEN** 执行 `loopspec status <change>` 而不带 `--json`
 - **THEN** 输出为面向 LLM 的分段纯文本报告，而非逐字段的 `key: value` 列表
-
-#### Scenario: 默认输出不遗漏 JSON 中的信息
-- **WHEN** 对同一个 change 分别取默认输出与 `--json` 输出
-- **THEN** 默认输出中呈现了 `--json` 里每一类信息，包括 glob 节点当前匹配到的每一个文件
 
 ### Requirement: 统一错误输出格式
 任何命令执行失败 SHALL 以退出码 `1` 结束，并在结构化模式下输出包含 `error`（机器可读错误码）、`message`（人类可读说明）、`fix`（可直接执行的修复建议）三个字段的 JSON。不带 `--json` 时，失败输出 SHALL 以 `=== ERROR ===` 分隔行开头，其后 SHALL 跟一段内置说明文字（交代命令已失败且未做任何改动、`error` 是稳定的机器可读码、`fix` 是建议的下一条命令），再逐项给出错误码、说明与修复建议三项内容——分隔行与说明文字的形式均与 `status` 报告的分节一致（见 `status-report` 能力），使两类输出在版式上同构。此约定对**全部**子命令生效，而不仅是 `status`。

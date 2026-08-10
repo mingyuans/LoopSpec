@@ -1,0 +1,78 @@
+# Human Approval: CHANGES REQUESTED
+
+## Changes Requested
+
+- **`=== NODES ===` 中的 glob 节点改为逐条列出全部匹配文件，不再压成 `(3 files)` 计数。** 取值来源仍是 `existingOutputPaths`。人裁定的呈现形态是：该节点的第一行与其他节点行同构（节点 ID、状态、第一个匹配文件的相对路径），其余匹配文件各占一行、缩进对齐到产物列。人选中的字面样例是：
+
+  ```
+  specs     done     specs/loopspec-cli/spec.md
+                     specs/lpsx-skills/spec.md
+                     specs/status-report/spec.md
+  ```
+
+- **`specs/status-report/spec.md` 的「NODES 节为对齐的纯文本行清单」需改写两处**：删除「glob 节点 SHALL NOT 逐一列出匹配到的文件路径；完整清单仍可通过 `--json` 或 `loopspec instructions` 取得」整句；备注取值列表中「glob 形式 `generates` 的节点给出**已匹配文件数**」这一项随之失效，SHALL 从该 requirement 中移除，不得保留为无主约束。同时新增覆盖多行呈现的 scenario（行数等于匹配文件数、续行缩进至产物列、续行不携带备注）。
+
+- **`design.md` 的 D4 需重新表述"信息压缩"这一节。** 原文称 `existingOutputPaths` 压成计数是"本设计唯一一处信息在报告中被压缩的地方"，并据此声明报告不与 `--json` 逐字段等价。压缩取消后该论断的依据变了：报告与 `--json` 在节点产物这一项上恢复等价，但 D5 的「不声称可机械解析」（含空白的路径使列边界含糊）**SHALL NOT** 被一并放宽——它的理由与详略压缩无关，是空白分隔本身的性质。
+
+- **`design.md` 的 D5 需裁定并写明多行节点行的版式细节**：续行的缩进列位如何计算（与产物列起始列位一致）、多行节点的备注放在哪一行（`tracks`/`blocked`/gate 备注与 glob 列全可能同时出现在同一节点上，原设计"备注恰好取一种"的互斥前提在 glob 不再是备注取值之后需要重新裁定）、以及 glob 匹配 0 个文件时该节点行如何呈现（原设计由计数 `(0 files)` 覆盖，列全之后没有任何行可列）。三点均须落到 Rendered Examples 的字面样例中，不能只写描述。
+
+- **续行 SHALL NOT 顶格，必须以空白开头。** 这是安全约束而非排版偏好：`security` 第 3 轮确认的深度防御是"分隔行必须独占一行且顶格才生效，而唯一处于行首的内插值是节点 ID，`NodeSpec.id` 由 Pydantic 以 `KEBAB_RE` 钉住"。glob 的匹配文件路径来自文件系统、不受 `KEBAB_RE` 约束，一旦续行顶格，行首就第一次出现了攻击者可影响的内插值。该约束须写进 `specs/status-report/spec.md` 并配一条可测 scenario，不能只留在 design 的说明里。
+
+- **`design.md` 的 Risks 一节须如实重写 prompt injection 那条。** 原文的三层缓解中，第 ③ 层是"D4 把 `existingOutputPaths` 压成计数，缩小了攻击者可控文本进入报告的面"——列全之后这一层消失：攻击者若能在 change 目录下建文件，文件名会逐条进入 LLM 上下文。须写明剩下两层（绝不内联产物正文、全部内插值经 `sanitize()`）仍然完好，并如实接受这项被扩大的残余风险，**SHALL NOT** 以"路径本来就会出现"含混带过。
+
+- **`tasks.md` 需同步改写**：2.3（备注互斥取值中的 glob → 计数一项）、2.2（节点行渲染需支持一个节点多行）、1.5（列对齐辅助需算出续行缩进）、2.9 与 7.2（逐字对照 Rendered Examples）、5.4（节点清单测试中「glob 行以计数呈现且不出现逐条路径」这条断言须反转为列全，并新增续行缩进与行首非顶格的断言）。
+
+- **`security` gate 须重新判定。** 本次改动直接触及它前三轮反复确认的两处结论（glob 计数作为 prompt injection 第三层缓解、行首内插值只有节点 ID），不属于"范围收窄不产生新攻击面"那类改动。提示：`security` 的回退已用 2/3，再一次 FAIL 即 `exhausted`。
+
+## Human's Words
+
+第一轮提问（审批判定 + glob 详略）的答复：
+
+> approval gate：按现在这份计划（proposal + design D1–D12 + 三份 spec + 42 条任务）开始实现吗？
+> **批准，开始实现**
+>
+> glob 节点（如 specs 的 `specs/**/*.md`）在 === NODES === 里怎么呢？前三轮都未答复。
+> **列出全部匹配文件**
+
+选中该选项时人看到并选定的 preview（即上文 Changes Requested 第一条引用的样例）：
+
+```
+specs     done     specs/loopspec-cli/spec.md
+                   specs/lpsx-skills/spec.md
+                   specs/status-report/spec.md
+```
+
+这两个答复彼此冲突：`specs/status-report/spec.md` 明文写着 glob 节点 SHALL NOT 逐一列出匹配文件，`design.md` 的 D4/D5、Rendered Examples 与任务 2.3/5.4/2.9 全部按压成计数写死；而这三份产物都在 `approval` gate 的 reset closure（`design`/`specs`/`tasks`/`security`/`approval`/`apply`）内，无法在批准后就地修改。据此向人说明冲突、连带代价（D4 的等价性论断需重写、`security` 的第三层缓解失效、`security` 回退已用 2/3）后二次提问：
+
+> 两个答案不能同时成立，选一个：
+> **回退重做，纳入 glob 列全**
+
+选项全文为「写 approval/changes-requested.md（本次唯一阻塞项：glob 节点改为列出全部匹配文件）。design/specs/tasks 重做，再过一次 security（回退已用 2/3），然后回到 approval 第 5 轮」。被否的另一项是「批准现状，glob 保持计数——按现有 spec 开始实现，glob 列全记入 state.md 留给后续 change」。
+
+## Summary Presented to the Human
+
+向人呈现的审阅摘要涵盖：
+
+- **问题**：`loopspec status` 不带 `--json` 时走 `cli._emit()` 的 `key: value` 分支，`nodes` 被 `str()` 成一行 Python repr；真正调用方是每轮循环执行它的 LLM，因此 `/lpsx:*` skills 只能一律加 `--json`，解析一份塞满绝对路径的 JSON。
+- **能力变化**：新增 `status-report`（11 条 requirement）；修改 `loopspec-cli`（MODIFIED 3 条 + ADDED 1 条）与 `lpsx-skills`（MODIFIED 1 条）。
+- **关键决策与代价**：逐条给出 D1（新建 `status_report.py` 以保住 `presentation.py` 的防注入不变量）、D2（单一 payload 两种编码、字段覆盖由并集断言锁死）、D3（`=== SECTION ===` 分节、三节恒在两节条件、每节结构为分隔行→内置说明→空行→数据）、D4（根目录一次绝对路径、节点行相对路径、glob 压成计数，代价是报告不与 `--json` 逐字段等价）、D5（纯文本对齐行、备注圆括号不参与对齐、gate 产物 `<dir>/{pass,fail}.<ext>` 紧凑显示形式、不声称可机械解析）、D7（`_fail()` 改 `=== ERROR ===` 且全命令生效）、D10（消毒是唯一结构防线）、D11（`schema_selection_required` 维持现状、如实记为已知缺口）、D12（每节内置说明、字面文本定在 Rendered Examples）。
+- **本轮相对上轮的唯一变化**：执行第 3 轮撤销——删除 D13/D14/D15、`specs/workflow-schema/spec.md` 与 13 条任务，`proposal.md` 就地移除 `workflow-schema`，D12 内置说明按裁定保留。
+- **任务清单**：7 组 42 条，顺序为渲染模块骨架(6) → 各节渲染(9) → CLI 接线(5) → skill 模板(2) → 测试(14) → 双语文档(4) → 收尾(2)；标注安全的 6 条为 1.2、2.4、3.3、5.8、5.9、5.13。
+- **安全结论**：第 6 轮 PASS，核验重点是"撤销有没有误删"（D10 核心防线、D7 共用消毒入口、六条安全任务、无悬空引用）；历史上第 1 轮与第 4 轮 FAIL 过。接受的残余风险为路径名进入 LLM 上下文（三层缓解）、绝对路径含用户目录名、含空白路径的列边界含糊。并提示默认输出格式变更是 BREAKING、`security` 回退已用 2/3。
+- **交由人裁定的 open question**：glob 节点详略（计数 vs 列全），前三轮均未答复。
+- **一条无关本变更的工具缺陷**：`gate_outcome` 解析裁决文件时把 `## Blocking Issues` 之外各节的 `-` 列表项也收进 `blockingIssues`，留给后续 change。
+
+## Suggested Direction
+
+- 重做时把 glob 列全当作 D4 的**局部推翻**，而不是整份重写：D1/D2/D3/D6/D7/D8/D9/D10/D11/D12 与三份 spec 的其余条款均未被本轮裁决触及，逐条保留即可，改动应集中在 D4、D5 与 `status-report` 的 NODES 那条 requirement。
+- 「不声称可机械解析」与「续行必须缩进」两条须同时保留，且理由要写清它们互相独立：前者防的是含空白路径导致的列边界含糊（解析歧义），后者防的是行首内插值伪造分隔行（结构注入）。把后者写成 spec 条款而非实现注意事项，是因为 `security` 第 3 轮已指出"当前无任何东西阻止后续改动把字段挪到行首"。
+- glob 匹配 0 个文件的呈现建议一并裁定为可测行为（例如保留一行、产物列给 schema 声明的 glob 模式本身），避免留给实现自由发挥——`specs` 节点在 change 刚创建时正是 0 匹配，这是默认路径而非边角。
+- 多行节点与备注共存的情形（如一个 glob 节点同时是 `blocked`）需要一条明确规则；D5 原来的"备注恰好取一种"依赖 glob 是备注取值之一，该前提已不再成立。
+
+## state.md Write-Back
+
+- Decision Log: round 4 - changes requested
+- Rejected Options: 「glob 节点的 `existingOutputPaths` 在 `=== NODES ===` 中压成文件计数 `(3 files)`」（原 D4），人裁定改为逐条列出全部匹配文件；「批准现状、把 glob 列全留给后续 change」这条出路亦被否。
+- Open Questions: glob 节点多行呈现的三处未定细节——续行缩进的列位计算、多行节点与 `blocked`/`tracks`/gate 备注共存时备注放在哪一行、glob 匹配 0 个文件时该节点行如何呈现。
+- Current Focus: redo design/specs/tasks per round 4 approval feedback（glob 节点改为列出全部匹配文件，续行缩进不得顶格），再过一次 `security`
+- Artifact Notes: approval/changes-requested.md - changes requested

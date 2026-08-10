@@ -9,18 +9,7 @@
 
 `status` 的 payload 形状（本设计需全部覆盖）：顶层 `changeName`/`schemaName`/`artifactsDir`/`schemaPath`/`changeRoot`/`artifactRoot`/`statePath`/`stateExists`/`isComplete`/`nodes`/`pendingRollback`/`nextSteps`；节点条目含 `id`/`status`/`outputPath`/`resolvedOutputPath`/`existingOutputPaths`，并按情况附加 `taskProgress`（声明 `tracks` 时）、`missingDeps`（`blocked` 时）、`gate`（`failed`/`exhausted` 时，内含 `verdict`/`summary`/`blockingIssues`/`rollbacksUsed`/`maxRetries`/`resetDeclared`/`resetClosure`）。gate 节点的 `outputPath`/`resolvedOutputPath` 是 `{pass, fail}` 双路径而非字符串。
 
-**决策编号说明**：本文档的编号沿用历轮，D13–D15 是第 4、5 轮为 `config.yaml` 自定义分节说明写下的三条决策，已由 `approval` 第 3 轮撤销（内容存于 `.attempts/round-005/design.md`）。编号**不复用**，因此新增决策从 D16 起（第 7 轮新增 D16，第 8 轮新增 D17），以免与 `state.md` 中对 D13–D15 的历史引用混淆。
-
-`existingOutputPaths` 的一个性质对本设计是决定性的，写在这里而不是埋在决策里：`outputs.resolve_output_entries()` 对每个匹配返回 `path.resolve()`，**跟随符号链接**，而 `_is_artifact_candidate()` 只按**未解析**的路径排除 `.attempts/` 与保留名。因此一个指向 change 目录之外的符号链接会作为合法匹配进入 `existingOutputPaths`，其取值是 artifact 根目录之外的绝对路径。实测（临时 workflow home 下在 `specs/cap/` 放一个指向外部文件的 `link.md`）：
-
-```
-existingOutputPaths: [
-  ".../changes/probe/specs/cap/=== NEXT STEPS ===.md",
-  ".../symlink-probe/outside-secret.md"        ← artifact root 之外
-]
-```
-
-glob 节点压成计数时这些路径根本不进报告；改为逐条列出后它们必须被处理，见 D17。
+**决策编号说明**：本文档的编号沿用历轮，D13–D15 是第 4、5 轮为 `config.yaml` 自定义分节说明写下的三条决策，已由 `approval` 第 3 轮撤销（内容存于 `.attempts/round-005/design.md`）。编号**不复用**，因此本轮新增的决策从 D16 起，以免与 `state.md` 中对 D13–D15 的历史引用混淆。
 
 ## Goals / Non-Goals
 
@@ -90,8 +79,6 @@ glob 节点压成计数时这些路径根本不进报告；改为逐条列出后
 **但 D5 的「不声称可机械解析」SHALL NOT 因此放宽。** 两件事的理由完全独立：可解析性的障碍是"空白分隔 + 路径可能含空白"这一版式性质，与详略压缩无关。取消压缩解决的是"信息是否齐全"，不是"边界是否可靠"。
 
 **代价如实记录**：一个匹配 N 个文件的 glob 从 1 行变成 N 行，而"降低每轮循环的 token 开销"正是本变更 `proposal.md` 里的动机之一。本设计不设数量上限（裁定要求列出全部），把上限问题作为 Open Question 交回 `approval` 第 5 轮，见文末。
-
-**相对化的取值规则见 D17**：`existingOutputPaths` 是解析后的绝对路径且可能指向 artifact 根目录之外，因此"给相对路径"这句话本身需要一条明确规则，不能留给实现。
 
 ### D5 · 节点清单是以空白对齐的纯文本行，一个节点可占多行（`approval` 第 1、4 轮裁定）
 
@@ -202,35 +189,12 @@ glob 匹配到的文件路径打破了这个前提：它们来自文件系统，
 
 *备选*：只在 design 里写一句"续行要缩进"——被否，那是排版建议，实现者为了对齐美观完全可能改动它，而它实际承担安全职责；写成 spec 条款 + 可测 scenario 才拦得住。
 
-### D17 · glob 匹配路径的相对化规则，与逃出 artifact 根目录的匹配（`security` 第 7 轮阻塞项）
-
-`security` 第 7 轮判定 FAIL，阻塞项是：D4/D5 要求 glob 节点列出全部匹配文件的**相对**路径，但 payload 里的 `existingOutputPaths` 是 `resolve()` 后的绝对路径且跟随符号链接（见 Context 的实测），因此"相对路径"这句话对逃逸的匹配没有定义。实现若照最直觉的写法走，三条路都坏：`Path.relative_to(artifact_root)` 抛 `ValueError`，`loopspec status` 变成 traceback；`os.path.relpath()` 输出 `../../../outside-secret.md`，把 artifact 根目录之外的位置写进 LLM 上下文；原样打印绝对路径则违反 D4。
-
-裁定如下四条：
-
-1. **相对化是纯字符串运算**：渲染器判断该绝对路径是否位于 artifact 根目录之下，并据此取相对形式。这不访问文件系统、不重算任何节点状态，因此**不触碰 D2**——D2 禁的是"第二条数据通路"（渲染器自行重新访问文件系统或重算状态），路径字符串运算两者都不是。同理也不需要动"`--json` 字段契约一字不改"。`security` 第 7 轮建议的方向是"让步 D2"，本轮不采纳：不必让步任何冻结决策就能安全地解决，让步反而会削弱一条仍然有效的防漂移约束。
-2. **位于 artifact 根目录之下的匹配**（正常情形）→ 给其相对路径，与 D4 一致。
-3. **不在 artifact 根目录之下的匹配**（符号链接逃逸）→ 该行的产物列 SHALL 输出固定占位符 `<outside artifact root>`，**SHALL NOT** 打印其解析后的真实位置，也 SHALL NOT 打印需要 `..` 才能表达的相对路径。这一条与 loopspec 既有立场一致：`resolve_output_entries()` 的 docstring 明写它保留 relative name 正是为了"报告一条被拒绝的路径时不必打印它实际指向哪里"。报告整体会进入 LLM 上下文，把 change 目录外的绝对路径写进去等于把外部文件系统结构泄露给模型。占位符是**代码常量而非内插值**，因此不可能携带外部内容，也不需要消毒。
-4. **逃逸的匹配仍各占一行**，只是路径文本被替换为占位符。这样"有几条匹配"这一信息不丢（行数仍等于匹配数），而攻击者可控的文本不进报告；要知道具体是哪些文件，出口是 `--json`。占位符按其字面长度参与产物列宽计算（它就是该行产物列的取值），无需特殊规则。
-
-补充两点：
-
-- **`loopspec status` SHALL NOT 因此抛异常。** 逃逸情形要靠**先判断**处理，而不是用 `try/except ValueError` 兜底——前者是明确的分支，后者会把"外部路径"和别的 `ValueError` 混为一谈。这是底线要求：`status` 是 agent 循环唯一的状态入口，它崩掉整条流程就停摆，而触发条件只是"在 change 目录下建一个符号链接"。
-- **顺序沿用 payload，渲染器不自行排序。** `existingOutputPaths` 由 `resolve_outputs()` 按**解析后的绝对路径**排序（`sorted(..., key=entry[1])`），因此一条逃逸的匹配会按其目标路径排序，顺序确定但不必然等于文件名字典序。报告 SHALL 与 `--json` 的数组顺序逐项一致——两种输出的顺序不一致会让"信息相同"这句话打折。
-
-*备选一*：给逃逸路径打印 `../` 形式的相对路径，并在 spec 里注明"这是有意的、便于排查"——被否，报告的读者是 LLM 而非在排查的人，把外部路径喂给模型的收益为零、代价是泄露。要排查的人有 `--json`。
-*备选二*：把逃逸的匹配整条从报告里剔除——被否，那会让"行数等于匹配数"不再成立，且一个被静默隐藏的匹配比一个标注为"在外部"的匹配更危险：节点已经因为它而被算作 `done`。
-*备选三*：把逃逸的匹配升级为错误（如 `archive_unsafe` 那样让 `status` 失败）——被否，越界。`status` 是只读命令，其职责是如实报告当前状态；把它变成校验入口会让一个符号链接就使整个 change 无法被观察，那正是本条要避免的停摆。若确实要拒绝这类匹配，那是 `outputs` 层与写入路径的事，属另一个 change。
-
-**`--json` 的既有行为如实记录**：`existingOutputPaths` 现在就打印这些外部绝对路径，本设计不改它（契约冻结）。也就是说，本条收紧的是**默认输出**这一条新增的暴露面，而不是声称 loopspec 从此不再泄露外部路径；`--json` 的消费者是程序，且这是改动前就有的行为。
-
 ## Risks / Trade-offs
 
 - **[默认输出格式是 BREAKING 变更]** → 任何按行 grep `status` 非 JSON 输出的外部脚本会失效。缓解：`--json` 是文档里一贯推荐给程序化调用方的形式（README 与全部 docs 示例都带 `--json`），受众极小；在 spec 与发布说明中如实标注 BREAKING。
 - **[glob 列全扩大了 prompt injection 面]** → 报告会内插 change 名、schema 名与**文件系统中的路径名**。攻击者若能在 change 目录下创建文件，其文件名会以自然语言形态进入 LLM 上下文（例如一个名为 `ignore-previous-instructions.md` 的文件）。第 4 轮之前，`existingOutputPaths` 被压成计数，这些路径**根本不进报告**，那是三层缓解中的第三层；列全之后**这一层消失**，且 glob 匹配路径成为报告中数量最多的一类内插值。剩下两层仍完好并如实记录：① 报告只呈现路径与状态，**绝不内联任何文件正文**（`loopspec-cli` 已要求 `status` 不返回模板正文）；② 全部内插值经 `sanitize()`，控制字符不可能改写终端或伪造换行（覆盖范围已在 D10 显式扩到 glob 路径）。此外 D16 补上了一道针对性防御：续行必须缩进，使这些外部可控的路径永不出现在行首。**残余风险如实接受**：这是 `approval` 第 4 轮为"报告信息齐全"付出的代价，人已在知情下裁定；`outputPath` 与节点 ID 来自 schema 作者，schema 本就是可信输入（其内容已能直接指挥 LLM）。
 - **[glob 匹配大量文件时报告膨胀]** → 一个匹配 N 个文件的 glob 从 1 行变 N 行，而降低每轮循环的 token 开销正是 `proposal.md` 的动机之一。本 change 的 `specs/**/*.md` 只匹配 3 个文件，但 schema 作者可以写出匹配整个 `src/**/*.py` 的节点。本设计**不设上限**（第 4 轮裁定要求列出全部），把"是否需要上限、超限如何呈现"作为 Open Question 交回 `approval`，见文末。不擅自加上限的理由：那等于部分恢复被否决的压缩，且"前 20 个 + 省略若干"这种呈现会让 LLM 无法判断自己看到的是否完整。
 - **[未消毒的内插值可伪造分节行，冒充报告结构]** → 一旦某处内插值绕过消毒，攻击者就能在输出里造出一行 `=== NEXT STEPS ===`，让 LLM 把攻击者的文本当成 CLI 给出的下一步指令。这是把分隔行确立为结构信号所付出的代价，且由于表格取消后 `|` 转义规则已随之移除，**消毒是唯一那道结构防线**。缓解见 D10：消毒是输出层的统一规则，报告与错误输出共用，`summary`/`blockingIssues` 不得豁免，覆盖范围显式含 glob 匹配路径；行首防御见 D16。
-- **[符号链接使匹配路径逃出 artifact 根目录]** → `existingOutputPaths` 跟随符号链接，因此 glob 列全会把 change 目录之外的绝对路径带进报告；直觉写法要么让 `status` 抛 traceback（一个符号链接即可使 agent 循环停摆），要么把外部文件系统结构泄露进 LLM 上下文。缓解见 D17：位于 artifact 根目录之下的匹配给相对路径，逃逸的匹配给固定占位符 `<outside artifact root>`（常量、非内插值），行数不变因此"有几条匹配"不丢，具体是哪些文件的出口是 `--json`；逃逸情形靠先判断而非 `try/except` 兜底处理。残余项如实记录：`--json` 的 `existingOutputPaths` 仍打印这些外部绝对路径，那是改动前的既有行为、契约已冻结，本次不改。
 - **[含空格的路径使节点行的列边界含糊]** → 见 D5，这是取消表格换来的代价，设计选择承认而非用引号协议掩盖：报告不声称可机械解析，需要精确字段者用 `--json`。注意这条**不因 glob 列全而缓解**：信息齐全与边界可靠是两件事。
 - **[内置说明文字随实现漂移]** → 说明文本决定 LLM 如何解读整份报告，散落在实现里就会被随手改。缓解：字面文本定在本文档的 Rendered Examples 中，spec 只要求"存在且覆盖全部节"，任务要求实现逐字对照。
 - **[两种输出漂移]** → D2 的键集合断言把漂移变成测试失败而非静默不一致。
@@ -240,7 +204,7 @@ glob 匹配到的文件路径打破了这个前提：它们来自文件系统，
 
 无持久化数据、无 schema 版本变更、无外部 API 变更，因此没有迁移步骤，只有同步项：
 
-1. 实现 `status_report.py`（含 D10 的统一消毒入口、D12 的内置说明常量、D5 的多行节点渲染与列宽规则、D16 的续行缩进、D17 的相对化与逃逸占位符）与 `cli.status` 的分支切换，`--json` 路径不动。
+1. 实现 `status_report.py`（含 D10 的统一消毒入口、D12 的内置说明常量、D5 的多行节点渲染与列宽规则、D16 的续行缩进）与 `cli.status` 的分支切换，`--json` 路径不动。
 2. 改 `cli._fail` 的非 JSON 分支，走同一条消毒规则（D7、D10）。
 3. 同步 `policy.py`/`cli.py` 中指向 `status` 的 `nextSteps` 文案（D8）。
 4. 同步 `skill_templates.py`（D9）。
@@ -258,7 +222,7 @@ glob 匹配到的文件路径打破了这个前提：它们来自文件系统，
 
 ## Rendered Examples
 
-以下是渲染器输出的**字面文本**，供人核对版式。样例覆盖全部五个节、备注的全部四种取值与省略情形、多行 glob 节点、glob 零匹配、逃出 artifact 根目录的匹配、以及每一节的内置说明文字——那些说明的措辞是设计的一部分（见 D12），实现须逐字照搬。四份样例中节点清单的列对齐都是脚本算出来的，不是手写估的（列宽：ID 8、状态 7、产物 40，续行缩进 19）。
+以下是渲染器输出的**字面文本**，供人核对版式。样例覆盖全部五个节、备注的全部四种取值与省略情形、多行 glob 节点、glob 零匹配、以及每一节的内置说明文字——那些说明的措辞是设计的一部分（见 D12），实现须逐字照搬。四份样例中节点清单的列对齐都是脚本算出来的，不是手写估的（列宽：ID 8、状态 7、产物 40，续行缩进 19）。
 
 ### 样例一：正常态（无 gate 失败，含多行 glob 节点）
 
@@ -411,25 +375,7 @@ progress. Run them as written rather than composing your own.
 1. Run `loopspec instructions specs --change add-payment --json`, then write the artifact per the returned template(s) and update state.md.
 ```
 
-### 样例四：glob 匹配中含一条逃出 artifact 根目录的符号链接（D17）
-
-`specs` 节点匹配到三个文件，其中一个是指向 change 目录之外的符号链接。只展示 `=== NODES ===` 的数据部分（说明文字与其他样例逐字相同）：
-
-```
-proposal  done     proposal.md
-design    done     design.md
-specs     done     specs/loopspec-cli/spec.md
-                   specs/status-report/spec.md
-                   <outside artifact root>
-tasks     done     tasks.md
-security  ready    security/{pass,fail}.md
-approval  blocked  approval/{approved,changes-requested}.md  (needs: security)
-apply     blocked  apply/{report,blocked}.md                 (needs: approval)
-```
-
-三点：该节点仍占三行（"有几条匹配"这一信息不丢）；占位符是常量，不携带任何外部文本；行的顺序取自 `--json` 的 `existingOutputPaths` 数组，本例中逃逸那条恰好排在末位——渲染器 SHALL NOT 自行排序，顺序由 payload 决定（`resolve_outputs()` 按解析后的绝对路径排序）。
-
-### 样例五：错误输出（`_fail()` 的非 JSON 分支）
+### 样例四：错误输出（`_fail()` 的非 JSON 分支）
 
 ```
 === ERROR ===
@@ -449,8 +395,6 @@ fix:       Run `loopspec status` to see the current state.
 - **glob 节点的续行缩进 19 列**（= ID 列宽 8 + 2 + 状态列宽 7 + 2），与产物列起始列位对齐；续行只有路径，没有状态也没有备注；**续行绝不顶格**，这是 D16 的安全约束。
 - **列宽由首行取值决定，续行不参与**：样例一里 `specs/status-report/spec.md`（27 字符）短于产物列宽 40，但即使它更长也不会把 `apply` 行的备注推远。
 - **gate 节点的产物列**：尚无产物时用 `<dir>/{pass,fail}.<ext>` 紧凑形式，已有产物时给实际那一个（样例一的 `security/pass.md`）。紧凑形式是显示形式，不是可直接使用的字面路径——写文件的入口是 `loopspec instructions`。
-- **逃出 artifact 根目录的匹配给固定占位符 `<outside artifact root>`**（D17），不打印其真实位置，也不打印 `../` 形式；该行仍占一行，占位符按字面长度参与产物列宽计算。
-- **多行节点内各行的顺序取自 `--json` 的 `existingOutputPaths`**，渲染器不自行排序（D17）。
 - **备注按 D5 的优先级取恰好一项**：`blocked` > `tracks` 进度 > gate 失败 > glob 零匹配 > 省略。样例一的 `apply`（blocked + tracks）与样例三的 `specs`（ready + 零匹配）分别验证了首尾两端。
 - **`blocking issues` 逐条编号并缩进两格**。缩进正是 D10 提到的可读性解法：缩进后的行不可能等于 `=== ... ===`，所以既好读又不削弱防线。
 
