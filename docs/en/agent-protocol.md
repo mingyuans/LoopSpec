@@ -4,12 +4,12 @@
 > Audience: LLM agents driving LoopSpec, and humans writing the prompts that drive them.
 > Language: **English** · [中文](../zh/agent-protocol.md)
 
-Always pass `--json`. Always read `nextSteps`. Never infer the next step from filenames or from memory of an earlier turn — the filesystem is the source of truth and it may have changed.
+Always pass `--json` — with one exception: `loopspec status`, whose default output is already the report an agent should read (add `--json` there only when you need exact field values). Always read `nextSteps`. Never infer the next step from filenames or from memory of an earlier turn — the filesystem is the source of truth and it may have changed.
 
 ## The main loop
 
 ```text
-loopspec status <change> --json
+loopspec status <change>
         |
         v
 read nextSteps  ---> names exactly one command to run
@@ -25,7 +25,7 @@ do what `instruction` says, write to `resolvedOutputPath`, update state.md
 
 | Step | Command | Field to read | What to do with it |
 | --- | --- | --- | --- |
-| 1 | `loopspec status <change> --json` | `nextSteps` | Names exactly one command. Run it. Do not pick a node yourself. |
+| 1 | `loopspec status <change>` | `nextSteps` | Names exactly one command. Run it. Do not pick a node yourself. |
 | 2 | *(same response)* | `isComplete` | `true` means every node is done; stop looping and archive. |
 | 3 | *(same response)* | `pendingRollback` | Non-null means a gate failed. Take the [rollback branch](#the-rollback-branch) instead of continuing. |
 | 4 | `loopspec instructions <node> --change <change> --json` | `instruction` | The task. It is not always "write a file" — see [Nodes that are not documents](#nodes-that-are-not-documents). |
@@ -39,6 +39,20 @@ do what `instruction` says, write to `resolvedOutputPath`, update state.md
 | 12 | *(same response)* | `state` and `statePath` | The change's memory. Read before writing, then append your decisions. |
 | 13 | — | — | Go back to step 1. |
 
+### Reading `status` without `--json`
+
+The default output is a plain-text report whose sections carry the same information the JSON does:
+
+| Section | JSON it corresponds to |
+| --- | --- |
+| `=== OVERVIEW ===` | `changeName`, `schemaName`, `changeRoot`, `artifactRoot`, `stateExists`, `isComplete` |
+| `=== NODES ===` | `nodes[]` — one first line per node, plus an indented continuation line per extra glob match |
+| `=== GATE FAILURES ===` | `nodes[].gate`, present only when a gate is `failed` or `exhausted` |
+| `=== PENDING ROLLBACK ===` | `pendingRollback`, present only when it is non-null |
+| `=== NEXT STEPS ===` | `nextSteps` |
+
+Each section opens with a paragraph explaining how to read it, so the report is self-describing. Two things it does not give you: absolute paths for individual outputs (it prints them relative to the artifact root, whose absolute form is in `=== OVERVIEW ===`), and a parseable node list (output paths may contain spaces). When you need either, pass `--json`. Full layout and an example are in the [CLI reference](cli-reference.md#loopspec-status).
+
 Repeat until `isComplete` is `true`, then archive:
 
 ```bash
@@ -51,11 +65,11 @@ When a gate's verdict is FAIL, `status` reports that node as `failed` and fills 
 
 | Step | Command | Field to read | What to do with it |
 | --- | --- | --- | --- |
-| 1 | `loopspec status <change> --json` | `pendingRollback.command` | The exact rollback command. Run it verbatim. |
+| 1 | `loopspec status <change>` | `pendingRollback.command` | The exact rollback command. Run it verbatim. |
 | 2 | *(same response)* | `pendingRollback.closure` | Which nodes are about to be reset, so you know how much work is coming. |
 | 3 | `loopspec rollback <change> --json` | `archivedFiles`, `archiveDir` | What was moved aside, and where to find it. Nothing was deleted. |
 | 4 | *(same response)* | `rollbacksUsed`, `maxRetries` | How much budget is left before the gate becomes `exhausted`. |
-| 5 | `loopspec status <change> --json` | `nextSteps` | Resume the main loop; the reset nodes are `ready` again. |
+| 5 | `loopspec status <change>` | `nextSteps` | Resume the main loop; the reset nodes are `ready` again. |
 | 6 | `loopspec instructions <node> ...` | `priorAttempts[].blockingIssues` | The reason the previous attempt was rejected. Resolve each issue concretely — a rewording that leaves the same problem in place will fail the gate again. |
 
 A gate reported as `exhausted` cannot be rolled back again; `loopspec rollback` refuses with `retries_exhausted`. Read `loopspec history <change> --json` for the full record of past rounds and escalate to a human.
@@ -114,7 +128,7 @@ Three commands orient you without touching anything:
 
 ```bash
 loopspec artifacts <change> --json
-loopspec status <change> --json
+loopspec status <change>
 loopspec history <change> --json
 ```
 
@@ -129,7 +143,7 @@ The division matters when a change has been worked by more than one schema in tu
 | 1 | `loopspec artifacts <change> --json` | `locations[].files` | Every file that exists under this name, wherever it lives. |
 | 2 | `loopspec artifacts <change> --json` | `locations[].statePath` | Each location's `state.md`. The earlier stretch's decisions are here, not in the current one. |
 | 3 | `loopspec artifacts <change> --json` | `warnings` | Unreadable metadata, files claimed by two schemas, paths skipped for resolving outside the workflow home. |
-| 4 | `loopspec status <change> --json` | `nextSteps` | Back to the main loop for the active stretch. |
+| 4 | `loopspec status <change>` | `nextSteps` | Back to the main loop for the active stretch. |
 
 Two things not to misread in that response. Attribution under `locations[].schemas[]` reflects how the schemas are defined **right now** — it is a projection, not a record of which schema historically wrote what. And `locations[].unclassifiedFiles` is not a leftovers bin to ignore: a file lands there whenever no probed schema claims it, which includes artifacts of a schema that has since been deleted. Read those paths too.
 

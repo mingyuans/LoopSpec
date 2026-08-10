@@ -353,6 +353,71 @@ loopspec status <change-name> [--home <dir>] [--json]
 | `--home` | path | `./loopspec` | change 所在的 workflow home。 |
 | `--json` | flag | 关闭 | 输出机器可解析的 JSON。 |
 
+不带 `--json` 时，本命令输出一份版式固定的纯文本报告，而不再是逐字段的 `key: value` 列表。这份默认输出是为驱动循环的 LLM 写的，因此 skill 不必再为了知道下一步而附加 `--json` 去解析 JSON；`--json` 仍是需要精确字段的调用方的取值来源。**破坏性变更：** 原先按行 grep 非 JSON 输出的脚本现在必须改用 `--json`。
+
+<!-- loopspec:example=status-report -->
+```text
+=== OVERVIEW ===
+Where this change lives and whether it is finished. Paths here are absolute;
+paths in every other section are relative to the artifact root.
+
+change:        add-payment
+schema:        secure-spec-driven
+change root:   /Users/<you>/proj/loopspec/changes/add-payment
+state.md:      present
+complete:      no
+
+=== NODES ===
+Every node of the workflow, in dependency order. Columns: node id, status,
+output path, then notes in parentheses. Statuses: done (output exists),
+ready (dependencies met, output not written yet), blocked (waiting on the
+nodes named in its notes), failed / exhausted (a gate rejected the work).
+Do not pick a node yourself -- act on the one named in NEXT STEPS. A path
+like dir/{a,b}.md means the node is a gate that writes exactly one of the
+two; get the real paths from `loopspec instructions`. A node whose output
+is a glob lists every file it currently matches, one per line, indented
+under its first line; a path still containing * means that glob has no
+matches yet. Notes describe the node, so they stay on its first line.
+
+proposal  done     proposal.md
+design    done     design.md
+specs     done     specs/loopspec-cli/spec.md
+                   specs/lpsx-skills/spec.md
+                   specs/status-report/spec.md
+tasks     done     tasks.md
+security  done     security/pass.md
+approval  ready    approval/{approved,changes-requested}.md
+apply     blocked  apply/{report,blocked}.md                 (needs: approval)
+
+=== NEXT STEPS ===
+What to do next. Run these in order; the first one is enough to make
+progress. Run them as written rather than composing your own.
+
+1. Run `loopspec instructions approval --change add-payment --json`, then write the artifact per the returned template(s) and update state.md.
+```
+
+报告的分节固定为以下顺序：
+
+| 分节 | 是否恒在 | 渲染的内容 |
+| --- | --- | --- |
+| `=== OVERVIEW ===` | 是 | `changeName`、`schemaName`、`changeRoot`、`artifactRoot`（仅当它与 `changeRoot` 不同时）、`stateExists`、`isComplete` |
+| `=== NODES ===` | 是 | 每个 `nodes[]` 条目一条首行，glob 的其余匹配各占一条续行 |
+| `=== GATE FAILURES ===` | 仅当某个 gate 为 `failed` 或 `exhausted` | `nodes[].gate` |
+| `=== PENDING ROLLBACK ===` | 仅当 `pendingRollback` 非 null | `pendingRollback` |
+| `=== NEXT STEPS ===` | 是 | `nextSteps`，逐条编号；为空时输出一行占位 |
+
+每一节的分隔行之后都有一段内置说明，交代该节是什么、怎么读，因此报告不假定读者事先了解 loopspec 的节点、gate、回退等概念。
+
+读节点清单时注意：
+
+- 路径相对 artifact 根目录，其绝对形式由 `=== OVERVIEW ===` 给出一次。
+- glob 节点列出它当前匹配到的**全部**文件：第一个与节点同行，其余各占一条缩进的续行。产物列中仍含 `*` 的路径表示该 glob 尚无匹配。
+- gate 在写出判定之前显示 `dir/{pass,fail}.ext`，写出之后显示实际那一个文件的路径。花括号形式是显示形式，不是可直接写入的路径——真实路径由 `loopspec instructions` 返回。
+- 圆括号里的备注属于节点而非某个文件，且恰好取以下之一：缺失依赖、任务进度、指向 `=== GATE FAILURES ===` 的提示、或"尚无匹配"。
+- 解析后位于 artifact 根目录之外的匹配（指向 change 目录之外的符号链接）显示 `<outside artifact root>`，而不是它实际指向哪里。需要解析后的路径请用 `--json`。
+- 这份清单**不是**可解析的格式：产物路径可能含空格，列边界因此不可靠。需要精确字段时请用 `--json`。
+- 任何内插值中的控制字符都会被改写为 `\xNN`，因此路径、判定摘要或 change 名都无法开启新行、伪造出 `=== SECTION ===` 分隔行。
+
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `changeName` | string | change 的名称。 |

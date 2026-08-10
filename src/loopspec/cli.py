@@ -42,6 +42,7 @@ from .rollback import compute_reset_closure, rollback_change
 from .scaffold import ScaffoldResult, scaffold_tools
 from .schema_loader import load_schema
 from .state import compute_states, is_complete
+from .status_report import render_error_report, render_status_report
 from .task_tracking import progress_summary, read_task_progress
 from .tool_registry import AI_TOOLS
 from .tools_cli import is_interactive, pick_tools, resolve_tools_arg
@@ -87,7 +88,16 @@ def _fail(exc: LoopspecError, as_json: bool, extra: dict[str, Any] | None = None
     payload = exc.to_dict()
     if extra:
         payload.update(extra)
-    _emit(payload, as_json)
+    if as_json:
+        _emit(payload, as_json)
+    else:
+        # Same separator form and the same sanitisation entry point as the status
+        # report, for every command rather than just `status`: the two outputs
+        # share an origin (unvalidated change names, filesystem paths) and a
+        # destination (an LLM's context), so they must not have two standards.
+        typer.echo(
+            render_error_report(payload.get("error"), payload.get("message"), payload.get("fix"))
+        )
     raise typer.Exit(code=1)
 
 
@@ -454,7 +464,7 @@ def new(
         "metadataPath": str(metadata_path.resolve()),
         "created": created,
         "createdFiles": [".workflow.yaml", "state.md"],
-        "nextSteps": [f'Run `loopspec status {change_name} --json` to see the first node.'],
+        "nextSteps": [f'Run `loopspec status {change_name}` to see the first node.'],
     }
     _emit(result, as_json)
 
@@ -550,7 +560,13 @@ def status(change_name: str, home: Path = HomeOption, as_json: bool = JsonOption
         "pendingRollback": pending_rollback,
         "nextSteps": build_next_steps(change_name, ctx.loaded.graph, states),
     }
-    _emit(result, as_json)
+    if as_json:
+        _emit(result, as_json)
+    else:
+        # Not `_emit`'s `key: value` branch: it `str()`s `nodes` into a single
+        # line of Python repr. The caller here is the LLM running the loop, so
+        # the default output is the plain-text report instead.
+        typer.echo(render_status_report(result))
 
 
 # --------------------------------------------------------------------------- #
@@ -618,7 +634,7 @@ def rollback(change_name: str, home: Path = HomeOption, as_json: bool = JsonOpti
         "archiveDir": str(result.archive_dir.resolve()),
         "rollbacksUsed": result.rollbacks_used,
         "maxRetries": result.max_retries,
-        "nextSteps": [f"Run `loopspec status {change_name} --json` to see the next node."],
+        "nextSteps": [f"Run `loopspec status {change_name}` to see the next node."],
     }
     _emit(payload, as_json)
 
@@ -735,7 +751,7 @@ def _artifacts_next_steps(report: ArtifactReport) -> list[str]:
 
     if any(location.kind == "active" for location in report.locations):
         return [
-            f"Run `loopspec status {report.change_name} --json` to see where the "
+            f"Run `loopspec status {report.change_name}` to see where the "
             "active workflow stands."
         ]
     return [

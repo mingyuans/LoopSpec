@@ -118,7 +118,7 @@ Because of `tracks: tasks.md`, writing the report early does not finish the node
 
 ```bash
 loopspec new add-payment --json
-loopspec status add-payment --json
+loopspec status add-payment
 loopspec instructions proposal --change add-payment --json
 # write proposal.md, update state.md, then loop back to status
 ```

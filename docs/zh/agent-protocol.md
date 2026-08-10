@@ -4,12 +4,12 @@
 > 适用读者：驱动 LoopSpec 的 LLM agent，以及编写驱动提示词的人类。
 > 语言：[English](../en/agent-protocol.md) · **中文**
 
-始终传 `--json`。始终读 `nextSteps`。永远不要从文件名或对前一轮的记忆去推断下一步——文件系统才是事实来源，而且它可能已经变了。
+始终传 `--json`——只有一个例外：`loopspec status`，它的默认输出已经是给 agent 读的报告（只有需要精确字段取值时才加 `--json`）。始终读 `nextSteps`。永远不要从文件名或对前一轮的记忆去推断下一步——文件系统才是事实来源，而且它可能已经变了。
 
 ## 主循环
 
 ```text
-loopspec status <change> --json
+loopspec status <change>
         |
         v
 read nextSteps  ---> names exactly one command to run
@@ -25,7 +25,7 @@ do what `instruction` says, write to `resolvedOutputPath`, update state.md
 
 | 步骤 | 命令 | 要读的字段 | 拿它做什么 |
 | --- | --- | --- | --- |
-| 1 | `loopspec status <change> --json` | `nextSteps` | 指名恰好一条命令。执行它。不要自己挑节点。 |
+| 1 | `loopspec status <change>` | `nextSteps` | 指名恰好一条命令。执行它。不要自己挑节点。 |
 | 2 | *（同一响应）* | `isComplete` | 为 `true` 表示全部节点已完成；停止循环并归档。 |
 | 3 | *（同一响应）* | `pendingRollback` | 非 null 表示有门禁失败。改走[回退支线](#回退支线)，不要继续。 |
 | 4 | `loopspec instructions <node> --change <change> --json` | `instruction` | 任务本身。它并不总是"写一个文件"——见[不是文档的节点](#不是文档的节点)。 |
@@ -39,6 +39,20 @@ do what `instruction` says, write to `resolvedOutputPath`, update state.md
 | 12 | *（同一响应）* | `state` and `statePath` | 该 change 的记忆。先读再写，然后追加你的决策。 |
 | 13 | — | — | 回到步骤 1。 |
 
+### 不带 `--json` 读 `status`
+
+默认输出是一份纯文本报告，其各节承载的信息与 JSON 相同：
+
+| 分节 | 对应的 JSON |
+| --- | --- |
+| `=== OVERVIEW ===` | `changeName`、`schemaName`、`changeRoot`、`artifactRoot`、`stateExists`、`isComplete` |
+| `=== NODES ===` | `nodes[]`——每个节点一条首行，glob 的其余匹配各占一条缩进续行 |
+| `=== GATE FAILURES ===` | `nodes[].gate`，仅当某 gate 为 `failed` 或 `exhausted` 时出现 |
+| `=== PENDING ROLLBACK ===` | `pendingRollback`，仅当它非 null 时出现 |
+| `=== NEXT STEPS ===` | `nextSteps` |
+
+每一节开头都有一段说明交代该节怎么读，因此报告是自描述的。有两件事它不提供：单个产物的绝对路径（它给的是相对 artifact 根目录的形式，绝对形式在 `=== OVERVIEW ===` 里），以及可解析的节点清单（产物路径可能含空格）。需要其中任何一项时请传 `--json`。完整版式与示例见 [CLI 参考](cli-reference.md#loopspec-status)。
+
 重复到 `isComplete` 为 `true`，然后归档：
 
 ```bash
@@ -51,11 +65,11 @@ loopspec archive <change> --json
 
 | 步骤 | 命令 | 要读的字段 | 拿它做什么 |
 | --- | --- | --- | --- |
-| 1 | `loopspec status <change> --json` | `pendingRollback.command` | 确切的回退命令。原样执行。 |
+| 1 | `loopspec status <change>` | `pendingRollback.command` | 确切的回退命令。原样执行。 |
 | 2 | *（同一响应）* | `pendingRollback.closure` | 即将被重置的节点，让你知道接下来有多少工作量。 |
 | 3 | `loopspec rollback <change> --json` | `archivedFiles`, `archiveDir` | 什么被移走了、在哪能找到。什么都没被删除。 |
 | 4 | *（同一响应）* | `rollbacksUsed`, `maxRetries` | 在门禁变为 `exhausted` 之前还剩多少余量。 |
-| 5 | `loopspec status <change> --json` | `nextSteps` | 回到主循环；被重置的节点重新变为 `ready`。 |
+| 5 | `loopspec status <change>` | `nextSteps` | 回到主循环；被重置的节点重新变为 `ready`。 |
 | 6 | `loopspec instructions <node> ...` | `priorAttempts[].blockingIssues` | 上一次尝试被拒的原因。逐条具体地解决——换个说法但问题依旧，会再次被门禁拒掉。 |
 
 被报为 `exhausted` 的门禁无法再回退；`loopspec rollback` 会以 `retries_exhausted` 拒绝。读 `loopspec history <change> --json` 拿到历轮的完整记录，然后升级给人类。
@@ -114,7 +128,7 @@ loopspec archive <change> --json
 
 ```bash
 loopspec artifacts <change> --json
-loopspec status <change> --json
+loopspec status <change>
 loopspec history <change> --json
 ```
 
@@ -129,7 +143,7 @@ loopspec history <change> --json
 | 1 | `loopspec artifacts <change> --json` | `locations[].files` | 这个名字下存在的每一个文件，无论它在哪。 |
 | 2 | `loopspec artifacts <change> --json` | `locations[].statePath` | 每个位置各自的 `state.md`。较早那一段的决策在那里，不在当前这一段里。 |
 | 3 | `loopspec artifacts <change> --json` | `warnings` | 不可读的元数据、被两个 schema 同时认领的文件、因解析后逃出 workflow home 而被跳过的路径。 |
-| 4 | `loopspec status <change> --json` | `nextSteps` | 回到当前这一段的主循环。 |
+| 4 | `loopspec status <change>` | `nextSteps` | 回到当前这一段的主循环。 |
 
 这份响应里有两点不要读错。`locations[].schemas[]` 下的归属反映的是 schema **当前**的定义——它是一次投影，不是「历史上哪个 schema 写了什么」的记录。还有 `locations[].unclassifiedFiles` 不是一个可以无视的残留箱：任何没有被探测 schema 认领的文件都会落到那里，其中包括某个此后已被删除的 schema 的产物。那些路径也要读。
 

@@ -233,7 +233,7 @@ Wire it up and check it:
 ```bash
 loopspec schemas validate draft-and-review --json
 loopspec new my-first-change --schema draft-and-review --json
-loopspec status my-first-change --json
+loopspec status my-first-change
 ```
 
 The resulting flow: `draft` starts `ready`; once `draft.md` exists it is `done` and `review` becomes `ready`; writing `review/approved.md` completes the change, while writing `review/rejected.md` makes `review` `failed` and `loopspec rollback` moves `draft.md` and the rejection into `.attempts/round-001/` so the draft can be rewritten with the rejection's blocking issues in hand. After two rejections the gate is `exhausted` and asks for a human.

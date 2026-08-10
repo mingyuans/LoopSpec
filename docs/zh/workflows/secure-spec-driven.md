@@ -118,7 +118,7 @@ agent 读完全部产物——`instructions` 响应中的 `contextFiles` 会把�
 
 ```bash
 loopspec new add-payment --json
-loopspec status add-payment --json
+loopspec status add-payment
 loopspec instructions proposal --change add-payment --json
 # write proposal.md, update state.md, then loop back to status
 ```

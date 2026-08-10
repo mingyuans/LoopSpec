@@ -104,7 +104,7 @@ loopspec init ./loopspec
 loopspec new add-payment --home ./loopspec --json
 
 # 3. Ask what to do next
-loopspec status add-payment --home ./loopspec --json
+loopspec status add-payment --home ./loopspec
 #   -> nextSteps tells you to run `loopspec instructions <node> --change ...`
 
 # 4. Get the instructions for the next node, write the artifact it describes,
@@ -120,7 +120,7 @@ loopspec rollback add-payment --home ./loopspec --json
 loopspec archive add-payment --home ./loopspec --json
 ```
 
-Every command supports `--json` for machine-readable output — that's the primary protocol for driving `loopspec` from an LLM/agent. Omit `--json` for a plain-text summary intended for humans.
+Every command supports `--json` for machine-readable output — that's the primary protocol for driving `loopspec` from an LLM/agent when it needs exact field values. `loopspec status` is the exception worth knowing: its default output is a fixed-layout plain-text report written for the LLM driving the loop, so the loop can read progress and the next command without parsing JSON. Every other command's default output is a summary intended for humans.
 
 Two nodes in the built-in schema ask the agent for something other than another document, so a driving loop needs to expect them: `approval` is a human sign-off gate (the agent must never approve on your behalf), and `apply` is the implementation gate, which only counts as done once every checkbox in `tasks.md` is ticked. See [the built-in workflow](docs/en/workflows/secure-spec-driven.md) and [the agent protocol](docs/en/agent-protocol.md).
 

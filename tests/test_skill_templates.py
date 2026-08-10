@@ -23,6 +23,26 @@ def test_continue_template_references_status_and_nextsteps():
     assert "nextSteps" in template.body
 
 
+def test_no_template_calls_status_with_json():
+    """`status`'s default output is already the LLM-facing report -- see D9.
+
+    Asserted across every template rather than per template, so a `--json` added
+    back to any one of them fails here.
+    """
+
+    for template in SKILL_TEMPLATES:
+        for line in template.body.splitlines():
+            if "loopspec status" in line:
+                assert "--json" not in line, template.verb
+
+
+def test_continue_template_still_calls_instructions_with_json():
+    body = next(t for t in SKILL_TEMPLATES if t.verb == "continue").body
+    instruction_lines = [line for line in body.splitlines() if "loopspec instructions" in line]
+    assert instruction_lines
+    assert any("--json" in line for line in instruction_lines)
+
+
 def test_continue_template_covers_human_decisions_and_code_changes():
     body = next(t for t in SKILL_TEMPLATES if t.verb == "continue").body
     assert "ask a human for a decision" in body

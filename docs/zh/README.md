@@ -24,7 +24,7 @@ LoopSpec 是一个用于门禁式产物工作流的 CLI：你用 YAML 声明一�
 ```bash
 loopspec init ./loopspec
 loopspec new add-payment --json
-loopspec status add-payment --json
+loopspec status add-payment
 ```
 
 `status` 每一轮都会指名唯一的下一条命令。照它执行，写出 `loopspec instructions` 所描述的产物，再回到 `status`——这就是全部循环。细节见 [Agent 协议](agent-protocol.md)，其余一切见 [CLI 参考](cli-reference.md)。

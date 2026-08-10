@@ -233,7 +233,7 @@ loopspec/schemas/draft-and-review/
 ```bash
 loopspec schemas validate draft-and-review --json
 loopspec new my-first-change --schema draft-and-review --json
-loopspec status my-first-change --json
+loopspec status my-first-change
 ```
 
 由此得到的流程：`draft` 起初是 `ready`；`draft.md` 存在后它变为 `done`，`review` 变为 `ready`；写出 `review/approved.md` 即完成该 change，而写出 `review/rejected.md` 会让 `review` 变为 `failed`， `loopspec rollback` 随后把 `draft.md` 与那份拒绝意见移动进 `.attempts/round-001/`，使草稿可以带着拒绝意见中的阻塞项重写。两次被拒之后门禁变为 `exhausted` 并要求人类介入。

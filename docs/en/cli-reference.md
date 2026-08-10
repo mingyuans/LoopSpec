@@ -353,6 +353,72 @@ loopspec status <change-name> [--home <dir>] [--json]
 | `--home` | path | `./loopspec` | Workflow home the change lives in. |
 | `--json` | flag | off | Emit machine-readable JSON. |
 
+Without `--json`, the command prints a fixed-layout plain-text report rather than the field-by-field `key: value` dump it used to. That default output is written for the LLM driving the loop, so a skill no longer has to add `--json` and parse JSON just to learn the next step. `--json` remains the source for callers that need exact fields. **Breaking change:** anything that grepped the old non-JSON output must pass `--json` now.
+
+<!-- loopspec:example=status-report -->
+```text
+=== OVERVIEW ===
+Where this change lives and whether it is finished. Paths here are absolute;
+paths in every other section are relative to the artifact root.
+
+change:        add-payment
+schema:        secure-spec-driven
+change root:   /Users/<you>/proj/loopspec/changes/add-payment
+state.md:      present
+complete:      no
+
+=== NODES ===
+Every node of the workflow, in dependency order. Columns: node id, status,
+output path, then notes in parentheses. Statuses: done (output exists),
+ready (dependencies met, output not written yet), blocked (waiting on the
+nodes named in its notes), failed / exhausted (a gate rejected the work).
+Do not pick a node yourself -- act on the one named in NEXT STEPS. A path
+like dir/{a,b}.md means the node is a gate that writes exactly one of the
+two; get the real paths from `loopspec instructions`. A node whose output
+is a glob lists every file it currently matches, one per line, indented
+under its first line; a path still containing * means that glob has no
+matches yet. Notes describe the node, so they stay on its first line.
+
+proposal  done     proposal.md
+design    done     design.md
+specs     done     specs/loopspec-cli/spec.md
+                   specs/lpsx-skills/spec.md
+                   specs/status-report/spec.md
+tasks     done     tasks.md
+security  done     security/pass.md
+approval  ready    approval/{approved,changes-requested}.md
+apply     blocked  apply/{report,blocked}.md                 (needs: approval)
+
+=== NEXT STEPS ===
+What to do next. Run these in order; the first one is enough to make
+progress. Run them as written rather than composing your own.
+
+1. Run `loopspec instructions approval --change add-payment --json`, then write the artifact per the returned template(s) and update state.md.
+```
+
+The report always has these sections, in this order:
+
+| Section | Always present | What it renders |
+| --- | --- | --- |
+| `=== OVERVIEW ===` | yes | `changeName`, `schemaName`, `changeRoot`, `artifactRoot` (only when it differs from `changeRoot`), `stateExists`, `isComplete` |
+| `=== NODES ===` | yes | One first line per `nodes[]` entry, plus one continuation line per extra glob match |
+| `=== GATE FAILURES ===` | only when a gate is `failed` or `exhausted` | `nodes[].gate` |
+| `=== PENDING ROLLBACK ===` | only when `pendingRollback` is non-null | `pendingRollback` |
+| `=== NEXT STEPS ===` | yes | `nextSteps`, numbered; a placeholder line when it is empty |
+
+Each section opens with a built-in paragraph explaining what it is and how to read it, so the report does not assume the reader already knows loopspec's node, gate and rollback concepts.
+
+Reading the node list:
+
+- Paths are relative to the artifact root, whose absolute form `=== OVERVIEW ===` gives once.
+- A glob node lists **every** file it currently matches, the first on the node's own line and the rest on indented continuation lines. A path that still contains `*` means the glob matches nothing yet.
+- A gate shows `dir/{pass,fail}.ext` until it has written a verdict, then the real path of the file it wrote. The brace form is a display form, not a path you can write to -- `loopspec instructions` returns the real ones.
+- The note in parentheses is the node's, not a file's, and is exactly one of: missing dependencies, task progress, a pointer to `=== GATE FAILURES ===`, or "no matches yet".
+- A match that resolved outside the artifact root -- a symlink pointing out of the change directory -- prints `<outside artifact root>` instead of where it pointed. Use `--json` for the resolved path.
+- The list is **not** a parseable format: an output path may contain spaces, which makes column boundaries unreliable. Use `--json` when you need exact fields.
+
+Control characters in any interpolated value are rewritten as `\xNN`, so a path, a verdict summary or a change name cannot open a new line and forge a `=== SECTION ===` header.
+
 | Field | Type | Description |
 | --- | --- | --- |
 | `changeName` | string | The change's name. |

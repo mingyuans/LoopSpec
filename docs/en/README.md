@@ -24,7 +24,7 @@ Getting started:
 ```bash
 loopspec init ./loopspec
 loopspec new add-payment --json
-loopspec status add-payment --json
+loopspec status add-payment
 ```
 
 `status` names the single next command on every turn. Follow it, write the artifact `loopspec instructions` describes, and come back to `status` — that is the whole loop. See [Agent protocol](agent-protocol.md) for the details and [CLI reference](cli-reference.md) for everything else.

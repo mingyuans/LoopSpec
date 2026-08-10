@@ -33,14 +33,14 @@ _NEW_BODY = """Create a new loopspec change.
 
 1. Run `loopspec new <change-name> --json` (add `--schema <name>` if the \
 project has multiple candidate schemas and the command asks you to pick one).
-2. Run `loopspec status <change-name> --json` to see the first ready node \
+2. Run `loopspec status <change-name>` to see the first ready node \
 and its `nextSteps`.
 3. Continue with `/lpsx:continue` to drive the rest of the loop.
 """
 
 _CONTINUE_BODY = """Advance a loopspec change by one step.
 
-1. Run `loopspec status <change-name> --json`.
+1. Run `loopspec status <change-name>`.
 2. Read `nextSteps` -- it names exactly one `loopspec` command to run next \
 (usually `loopspec instructions <node> --change <change-name> --json`, \
 sometimes `loopspec rollback <change-name> --json`).
@@ -52,7 +52,7 @@ with your tool's interactive question facility and record their verdict, or \
 to change code in the repository and tick off entries in a tracked task \
 list (`taskProgress` shows what's left). Then update `state.md` per the \
 instructions.
-4. Re-run `loopspec status <change-name> --json` and repeat from step 2 \
+4. Re-run `loopspec status <change-name>` and repeat from step 2 \
 until `isComplete` is `true` or a gate is `exhausted`.
 
 If a gate is `failed`, `nextSteps` will point you at \
