@@ -260,7 +260,7 @@ This is the command to use while authoring a schema. See [Schema reference](sche
 
 ## loopspec new
 
-Create a change directory, record which schema it uses, and write its initial `state.md`.
+Create or reuse a canonical change directory and record the selected schema. In a multi-schema project without explicit `schemas[*].path` values, each schema owns `<change>/<schema>/`, including its metadata, `state.md`, rollback history and artifacts. An explicit `path` retains its historical artifact-only meaning, and single-schema projects retain the flat layout.
 
 ```bash
 loopspec new <change-name> [--schema <name>] [--home <dir>] [--json]
@@ -278,13 +278,16 @@ The chosen schema is written to the change's `.workflow.yaml`, so later commands
 | Field | Type | Description |
 | --- | --- | --- |
 | `changeName` | string | The change's name. |
+| `requestedChangeName` | string | Name requested by the caller, before canonical-name reuse. |
+| `reusedChange` | boolean | Whether an existing active change directory was reused. |
 | `schemaName` | string | Schema resolved for this change. |
 | `artifactsDir` | string | Value of `artifacts_dir` from `config.yaml`. |
-| `schemaPath` | string or null | The schema reference's `path`, when the schema nests artifacts in a subdirectory. |
+| `schemaPath` | string or null | Effective schema subdirectory: explicit `path`, or the schema name in the automatic multi-schema layout. |
 | `changeRoot` | string | Absolute path of the change directory. |
 | `artifactRoot` | string | Absolute path artifacts are resolved against. Equals `changeRoot` unless `schemaPath` is set. |
 | `statePath` | string | Absolute path of the change's `state.md`. |
 | `metadataPath` | string | Absolute path of the change's `.workflow.yaml`. |
+| `activeMetadataPath` | string | Absolute path of the root metadata pointer used by commands without `--schema`. |
 | `created` | string | Creation date, `YYYY-MM-DD`. |
 | `createdFiles` | array of string | Files written by this command. |
 | `nextSteps` | array of string | Suggested follow-up commands. |
@@ -292,6 +295,8 @@ The chosen schema is written to the change's `.workflow.yaml`, so later commands
 ```json
 {
   "changeName": "add-payment",
+  "requestedChangeName": "add-payment",
+  "reusedChange": false,
   "schemaName": "secure-spec-driven",
   "artifactsDir": "changes",
   "schemaPath": null,
@@ -299,6 +304,7 @@ The chosen schema is written to the change's `.workflow.yaml`, so later commands
   "artifactRoot": "/path/to/project/loopspec/changes/add-payment",
   "statePath": "/path/to/project/loopspec/changes/add-payment/state.md",
   "metadataPath": "/path/to/project/loopspec/changes/add-payment/.workflow.yaml",
+  "activeMetadataPath": "/path/to/project/loopspec/changes/add-payment/.workflow.yaml",
   "created": "2026-07-29",
   "createdFiles": [
     ".workflow.yaml",
@@ -337,7 +343,9 @@ When `config.yaml` lists several candidate schemas and `--schema` was not given,
 }
 ```
 
-Other failures: `invalid_change_name` for a name that is not kebab-case, `change_exists` when the directory is already there.
+Before creating a directory, `new` scans active and archived names. It reuses an unambiguous canonical name when the request adds the selected schema suffix (for example `-be` for `be-driven`) or shares a unique ticket prefix such as `afd-13592`. Ambiguous matches are never merged automatically. `change_exists` is returned only when that canonical change already contains the selected schema workspace; another schema may reuse the same change.
+
+Other failures: `invalid_change_name` for a name that is not kebab-case.
 
 ## loopspec status
 
@@ -424,7 +432,7 @@ Control characters in any interpolated value are rewritten as `\xNN`, so a path,
 | `changeName` | string | The change's name. |
 | `schemaName` | string | Schema in effect for this change. |
 | `artifactsDir` | string | Value of `artifacts_dir` from `config.yaml`. |
-| `schemaPath` | string or null | Artifact subdirectory declared by the schema reference, if any. |
+| `schemaPath` | string or null | Effective schema subdirectory: explicit `path`, or the automatic schema-named workspace. |
 | `changeRoot` | string | Absolute path of the change directory. |
 | `artifactRoot` | string | Absolute path artifacts are resolved against. |
 | `statePath` | string | Absolute path of `state.md`. |
@@ -769,7 +777,7 @@ loopspec history <change-name> [--home <dir>] [--json]
 
 ## loopspec artifacts
 
-List every artifact path a change name owns — across every schema that worked it and every location it lives in, the archive included.
+List every artifact path a canonical change owns — across every schema that worked it and every location it lives in, the archive included. Unambiguous ticket/schema-suffix aliases are resolved with the same rules as `new`.
 
 ```bash
 loopspec artifacts <change-name> [--schemas <names>] [--home <dir>] [--json]
@@ -792,7 +800,7 @@ This command answers a question no other command can. `status` and `instructions
 | Axis | What is covered |
 | --- | --- |
 | Location | The active directory plus **every** archive month. `ArchiveConflictError` only prevents same-month collisions, so one name can have a copy under several months; each match comes back as its own location. |
-| Schema | Every schema in scope is *probed*: its `schemas[*].path` gives an artifact root, and its nodes' output patterns are matched against files that actually exist. Nothing is assumed from `.workflow.yaml`. |
+| Schema | Every schema in scope is *probed*: explicit `schemas[*].path` gives its artifact root; otherwise a multi-schema change uses the schema-named workspace. Node output patterns are matched against files that actually exist. Legacy flat changes are still probed in place. |
 | Round | Each `.attempts/round-NNN/` directory in each location, reported separately from the current artifacts. |
 
 Three consequences worth knowing:
@@ -824,7 +832,7 @@ Locations come back oldest-first — archive months ascending, then the active d
 | `locations[].schemas` | array of object | One entry per probed schema, sorted by name. |
 | `locations[].schemas[].name` | string | Schema name. |
 | `locations[].schemas[].declared` | boolean | Whether this location's `.workflow.yaml` names this schema. False is normal — that is what a relay looks like. |
-| `locations[].schemas[].schemaPath` | string or null | The `path` from this schema's config entry, if any. |
+| `locations[].schemas[].schemaPath` | string or null | Effective schema subdirectory: explicit `path`, or the schema name in the automatic multi-schema layout. |
 | `locations[].schemas[].artifactRoot` | string | Absolute path the probe resolved against. |
 | `locations[].schemas[].nodes` | array of object | Nodes with at least one existing output, in build order. Nodes with nothing on disk are omitted. |
 | `locations[].schemas[].nodes[].id` | string | Node id. |
@@ -1045,7 +1053,7 @@ Every failure exits 1 and reports one of these codes in the `error` field.
 | `template_not_found` | A node's `template`, or a gate's pass/fail template, does not exist under the schema's `templates/`. | Add the template file, or fix the name in `schema.yaml`. |
 | `instruction_not_found` | A node's `instruction.file` does not exist under the schema's `instructions/`. | Add the instruction file, or fix the name in `schema.yaml`. |
 | `change_not_found` | The named change directory does not exist in this workflow home. | Check the name, or check `--home`. |
-| `change_exists` | `loopspec new` was given a name whose directory already exists. | Pick a different name, or continue the existing change. |
+| `change_exists` | The canonical change already contains the selected schema workspace, or its path is unsafe to reuse. | Continue that schema, or select a different schema/change. |
 | `invalid_change_name` | The change name is not kebab-case. | Rename to match `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`. |
 | `node_not_found` | `loopspec instructions` was given a node id the schema does not define. | Run `loopspec schemas show` to list the real node ids. |
 | `gate_output_conflict` | Both the PASS and FAIL files of one gate exist, so the verdict is ambiguous. | Delete whichever file does not reflect the real verdict. |

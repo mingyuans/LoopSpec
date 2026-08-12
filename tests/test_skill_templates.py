@@ -17,6 +17,14 @@ def test_new_template_references_loopspec_new_command():
     assert "loopspec new" in template.body
 
 
+def test_new_template_reuses_canonical_name_without_schema_suffixes():
+    body = next(t for t in SKILL_TEMPLATES if t.verb == "new").body
+    assert "inspect existing change names" in body
+    assert "same ticket key" in body
+    assert "do not add" in body
+    assert "returned canonical name" in body
+
+
 def test_continue_template_references_status_and_nextsteps():
     template = next(t for t in SKILL_TEMPLATES if t.verb == "continue")
     assert "loopspec status" in template.body

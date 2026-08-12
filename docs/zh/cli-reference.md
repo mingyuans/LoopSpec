@@ -260,7 +260,7 @@ loopspec schemas validate <name> [--home <dir>] [--json]
 
 ## loopspec new
 
-创建一个 change 目录，记录它使用的 schema，并写出初始 `state.md`。
+创建或复用 canonical change 目录并记录所选 schema。未显式配置 `schemas[*].path` 时，多 schema 项目的每个 schema 独占 `<change>/<schema>/`，其中包含 metadata、`state.md`、rollback 历史与 artifacts。显式 `path` 保持原有的 artifact-only 语义，单 schema 项目继续使用平铺布局。
 
 ```bash
 loopspec new <change-name> [--schema <name>] [--home <dir>] [--json]
@@ -278,13 +278,16 @@ loopspec new <change-name> [--schema <name>] [--home <dir>] [--json]
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `changeName` | string | change 的名称。 |
+| `requestedChangeName` | string | 调用方请求的名称，即 canonical 复用前的名称。 |
+| `reusedChange` | boolean | 是否复用了已有 active change 目录。 |
 | `schemaName` | string | 为该 change 解析出的 schema。 |
 | `artifactsDir` | string | `config.yaml` 中 `artifacts_dir` 的取值。 |
-| `schemaPath` | string or null | schema 引用中的 `path`，即产物被收进子目录时的那个子目录。 |
+| `schemaPath` | string or null | schema 的有效子目录：显式 `path`，或多 schema 自动布局中的 schema 名。 |
 | `changeRoot` | string | change 目录的绝对路径。 |
 | `artifactRoot` | string | 产物解析所基于的绝对路径。未设 `schemaPath` 时等于 `changeRoot`。 |
 | `statePath` | string | 该 change 的 `state.md` 的绝对路径。 |
 | `metadataPath` | string | 该 change 的 `.workflow.yaml` 的绝对路径。 |
+| `activeMetadataPath` | string | 未传 `--schema` 的命令用于定位当前 schema 的根 metadata 指针绝对路径。 |
 | `created` | string | 创建日期，`YYYY-MM-DD`。 |
 | `createdFiles` | array of string | 本命令写出的文件。 |
 | `nextSteps` | array of string | 建议的后续命令。 |
@@ -292,6 +295,8 @@ loopspec new <change-name> [--schema <name>] [--home <dir>] [--json]
 ```json
 {
   "changeName": "add-payment",
+  "requestedChangeName": "add-payment",
+  "reusedChange": false,
   "schemaName": "secure-spec-driven",
   "artifactsDir": "changes",
   "schemaPath": null,
@@ -299,6 +304,7 @@ loopspec new <change-name> [--schema <name>] [--home <dir>] [--json]
   "artifactRoot": "/path/to/project/loopspec/changes/add-payment",
   "statePath": "/path/to/project/loopspec/changes/add-payment/state.md",
   "metadataPath": "/path/to/project/loopspec/changes/add-payment/.workflow.yaml",
+  "activeMetadataPath": "/path/to/project/loopspec/changes/add-payment/.workflow.yaml",
   "created": "2026-07-29",
   "createdFiles": [
     ".workflow.yaml",
@@ -337,7 +343,9 @@ loopspec new <change-name> [--schema <name>] [--home <dir>] [--json]
 }
 ```
 
-其他失败：名称不是 kebab-case 时报 `invalid_change_name`，目录已存在时报 `change_exists`。
+创建目录前，`new` 会扫描 active 与 archived change 名。请求名追加了所选 schema 后缀（例如 `be-driven` 对应的 `-be`），或与唯一已有 change 共享 `afd-13592` 这类工单前缀时，会复用已有 canonical 名；匹配有歧义时绝不自动合并。只有 canonical change 中已经存在同一 schema workspace 时才报 `change_exists`，另一 schema 可以复用同一 change。
+
+其他失败：名称不是 kebab-case 时报 `invalid_change_name`。
 
 ## loopspec status
 
@@ -423,7 +431,7 @@ progress. Run them as written rather than composing your own.
 | `changeName` | string | change 的名称。 |
 | `schemaName` | string | 该 change 当前生效的 schema。 |
 | `artifactsDir` | string | `config.yaml` 中 `artifacts_dir` 的取值。 |
-| `schemaPath` | string or null | schema 引用声明的产物子目录，如果有。 |
+| `schemaPath` | string or null | schema 的有效子目录：显式 `path`，或自动生成的 schema 同名 workspace。 |
 | `changeRoot` | string | change 目录的绝对路径。 |
 | `artifactRoot` | string | 产物解析所基于的绝对路径。 |
 | `statePath` | string | `state.md` 的绝对路径。 |
@@ -768,7 +776,7 @@ loopspec history <change-name> [--home <dir>] [--json]
 
 ## loopspec artifacts
 
-列出一个 change 名下的全部产物路径——跨越所有工作过它的 schema，以及它存在的所有位置，归档目录也包含在内。
+列出一个 canonical change 名下的全部产物路径——跨越所有工作过它的 schema，以及它存在的所有位置，归档目录也包含在内。无歧义的工单/schema 后缀别名会按与 `new` 相同的规则解析。
 
 ```bash
 loopspec artifacts <change-name> [--schemas <names>] [--home <dir>] [--json]
@@ -791,7 +799,7 @@ loopspec artifacts <change-name> [--schemas <names>] [--home <dir>] [--json]
 | 维度 | 覆盖范围 |
 | --- | --- |
 | 位置 | 活跃目录，外加**全部**归档月份。`ArchiveConflictError` 只阻止同月重名，因此同一个名字可以在多个月份各有一份；每个命中都作为一条独立的 location 返回。 |
-| schema | 范围内的每个 schema 都被**探测**：它的 `schemas[*].path` 给出 artifact root，它各节点的产物模式去匹配磁盘上真实存在的文件。不从 `.workflow.yaml` 做任何假定。 |
+| schema | 范围内的每个 schema 都被**探测**：显式 `schemas[*].path` 给出 artifact root；未配置时，多 schema change 使用 schema 同名 workspace。各节点的产物模式匹配磁盘上真实存在的文件，旧版平铺 change 仍原地兼容探测。 |
 | 轮次 | 每个位置下的每个 `.attempts/round-NNN/` 目录，与当前产物分开报告。 |
 
 三点值得知道的后果：
@@ -823,7 +831,7 @@ loopspec artifacts <change-name> [--schemas <names>] [--home <dir>] [--json]
 | `locations[].schemas` | array of object | 每个被探测的 schema 一条，按名称排序。 |
 | `locations[].schemas[].name` | string | schema 名称。 |
 | `locations[].schemas[].declared` | boolean | 该位置的 `.workflow.yaml` 是否记的就是这个 schema。为假是正常的——接力就是这个样子。 |
-| `locations[].schemas[].schemaPath` | string or null | 该 schema 配置条目中的 `path`，如果有。 |
+| `locations[].schemas[].schemaPath` | string or null | schema 的有效子目录：显式 `path`，或多 schema 自动布局中的 schema 名。 |
 | `locations[].schemas[].artifactRoot` | string | 探测所基于的绝对路径。 |
 | `locations[].schemas[].nodes` | array of object | 至少有一个现存产物的节点，按构建序排列。磁盘上什么都没有的节点被省略。 |
 | `locations[].schemas[].nodes[].id` | string | 节点 id。 |
@@ -1044,7 +1052,7 @@ loopspec bulk-archive [--complete] [--exhausted] [--older-than <days>] [--dry-ru
 | `template_not_found` | 某节点的 `template`，或某门禁的 pass/fail 模板，在 schema 的 `templates/` 下不存在。 | 补上模板文件，或修正 `schema.yaml` 中的名称。 |
 | `instruction_not_found` | 某节点的 `instruction.file` 在 schema 的 `instructions/` 下不存在。 | 补上指令文件，或修正 `schema.yaml` 中的名称。 |
 | `change_not_found` | 该 workflow home 中不存在指定名称的 change 目录。 | 检查名称，或检查 `--home`。 |
-| `change_exists` | `loopspec new` 收到的名称对应的目录已存在。 | 换一个名称，或继续那个已有的 change。 |
+| `change_exists` | canonical change 中已存在所选 schema workspace，或该路径无法安全复用。 | 继续该 schema，或选择另一 schema/change。 |
 | `invalid_change_name` | change 名称不是 kebab-case。 | 改成符合 `^[a-z][a-z0-9]*(-[a-z0-9]+)*$` 的名称。 |
 | `node_not_found` | `loopspec instructions` 收到的节点 id 未在 schema 中定义。 | 用 `loopspec schemas show` 列出真实的节点 id。 |
 | `gate_output_conflict` | 同一门禁的 PASS 与 FAIL 文件同时存在，裁决因此歧义。 | 删掉不反映真实裁决的那一个文件。 |

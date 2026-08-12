@@ -160,6 +160,147 @@ def test_new_multi_schema_requires_selection(tmp_path: Path):
     )
     assert code == 0
     assert data["schemaName"] == "docs-only"
+    assert data["schemaPath"] == "docs-only"
+    assert Path(data["artifactRoot"]).name == "docs-only"
+
+
+def test_new_reuses_ticket_change_and_creates_one_workspace_per_schema(tmp_path: Path):
+    home = make_multi_schema_home(tmp_path)
+    code, first = run(
+        "new",
+        "afd-13592-listing-inventory-filter",
+        "--schema",
+        "secure-spec-driven",
+        "--home",
+        str(home),
+        "--json",
+    )
+    assert code == 0
+
+    code, second = run(
+        "new",
+        "afd-13592-listing-inventory-filter-docs",
+        "--schema",
+        "docs-only",
+        "--home",
+        str(home),
+        "--json",
+    )
+    assert code == 0
+    assert second["requestedChangeName"] == "afd-13592-listing-inventory-filter-docs"
+    assert second["changeName"] == "afd-13592-listing-inventory-filter"
+    assert second["reusedChange"] is True
+    assert Path(first["changeRoot"]) == Path(second["changeRoot"])
+    assert Path(first["artifactRoot"]).name == "secure-spec-driven"
+    assert Path(second["artifactRoot"]).name == "docs-only"
+    assert Path(first["statePath"]).is_file()
+    assert Path(second["statePath"]).is_file()
+    assert second["createdFiles"] == [
+        ".workflow.yaml",
+        "docs-only/.workflow.yaml",
+        "docs-only/state.md",
+    ]
+
+    code, status = run(
+        "status",
+        "afd-13592-listing-inventory-filter",
+        "--home",
+        str(home),
+        "--json",
+    )
+    assert code == 0
+    assert status["schemaName"] == "docs-only"
+    assert status["artifactRoot"] == second["artifactRoot"]
+    assert status["statePath"] == second["statePath"]
+
+    Path(first["artifactRoot"], "proposal.md").write_text("# product\n")
+    Path(second["artifactRoot"], "proposal.md").write_text("# docs\n")
+    code, artifacts = run(
+        "artifacts",
+        "afd-13592-listing-inventory-filter-docs",
+        "--home",
+        str(home),
+        "--json",
+    )
+    assert code == 0
+    assert artifacts["changeName"] == "afd-13592-listing-inventory-filter"
+    by_schema = {item["name"]: item for item in artifacts["locations"][0]["schemas"]}
+    assert by_schema["secure-spec-driven"]["files"] == [
+        str(Path(first["artifactRoot"], "proposal.md"))
+    ]
+    assert by_schema["docs-only"]["files"] == [
+        str(Path(second["artifactRoot"], "proposal.md"))
+    ]
+
+
+def test_new_reuses_a_schema_suffix_without_a_ticket_prefix(tmp_path: Path):
+    home = make_multi_schema_home(tmp_path)
+    assert run(
+        "new",
+        "listing-inventory-filter",
+        "--schema",
+        "secure-spec-driven",
+        "--home",
+        str(home),
+        "--json",
+    )[0] == 0
+
+    code, data = run(
+        "new",
+        "listing-inventory-filter-docs",
+        "--schema",
+        "docs-only",
+        "--home",
+        str(home),
+        "--json",
+    )
+    assert code == 0
+    assert data["changeName"] == "listing-inventory-filter"
+
+
+def test_new_rejects_only_a_duplicate_schema_workspace(tmp_path: Path):
+    home = make_multi_schema_home(tmp_path)
+    args = (
+        "new",
+        "add-payment",
+        "--schema",
+        "docs-only",
+        "--home",
+        str(home),
+        "--json",
+    )
+    assert run(*args)[0] == 0
+    code, data = run(*args)
+    assert code == 1
+    assert data["error"] == "change_exists"
+
+
+def test_new_keeps_explicit_schema_path_as_artifact_only_layout(tmp_path: Path):
+    home = make_multi_schema_home(tmp_path)
+    (home / "config.yaml").write_text(
+        """
+schemas:
+  - name: secure-spec-driven
+    path: product-artifacts
+  - name: docs-only
+    path: docs-artifacts
+"""
+    )
+    code, data = run(
+        "new",
+        "add-payment",
+        "--schema",
+        "docs-only",
+        "--home",
+        str(home),
+        "--json",
+    )
+    assert code == 0
+    change_root = Path(data["changeRoot"])
+    assert Path(data["artifactRoot"]) == change_root / "docs-artifacts"
+    assert Path(data["statePath"]) == change_root / "state.md"
+    assert Path(data["metadataPath"]) == change_root / ".workflow.yaml"
+    assert not (change_root / "docs-artifacts" / ".workflow.yaml").exists()
 
 
 def test_status_reflects_ready_node(tmp_path: Path):
@@ -844,7 +985,7 @@ def test_artifacts_schemas_option_narrows_and_reports_the_rest_as_unclaimed(tmp_
         "new", "add-payment", "--schema", "docs-only", "--home", str(home), "--json"
     )
     change_dir = Path(data["changeRoot"])
-    (change_dir / "proposal.md").write_text("# p")
+    (Path(data["artifactRoot"]) / "proposal.md").write_text("# p")
     (change_dir / "extra.md").write_text("# e")
 
     code, data = run(

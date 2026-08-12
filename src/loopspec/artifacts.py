@@ -326,8 +326,23 @@ def _collect_schema(
     label: str,
     warnings: list[str],
 ) -> SchemaArtifacts:
-    schema_path = config_mod.schema_path_for(config, name)
+    schema_path = config_mod.schema_workspace_path_for(config, name)
     artifact_root = paths_mod.artifact_root(change_dir, schema_path)
+
+    # Before schema workspaces were introduced, a multi-schema change could
+    # have its declared schema's outputs directly at the change root.  Probe
+    # that old location only for the declared schema, avoiding false claims by
+    # every candidate whose node patterns happen to overlap.
+    if schema_path is not None and config_mod.schema_path_for(config, name) is None:
+        automatic_roots_exist = any(
+            (
+                change_dir
+                / (config_mod.schema_workspace_path_for(config, candidate) or "")
+            ).is_dir()
+            for candidate in _candidate_names(config)
+        )
+        if not automatic_roots_exist or (not artifact_root.is_dir() and declared):
+            artifact_root = change_dir
 
     nodes: list[NodeArtifacts] = []
     files: list[Path] = []
@@ -432,6 +447,18 @@ def discover_artifacts(
     """Every artifact path this change name owns, across locations and schemas."""
 
     paths_mod.safe_change_name(change_name)
+    schema_hints: list[str | None] = list(
+        requested_schemas or _candidate_names(config)
+    ) or [None]
+    resolved_names = {
+        paths_mod.reusable_change_name(
+            workflow_home, config.artifacts_dir, change_name, schema_hint
+        )
+        for schema_hint in schema_hints
+    }
+    reused_names = resolved_names - {change_name}
+    if len(reused_names) == 1:
+        change_name = reused_names.pop()
     warnings: list[str] = []
 
     raw_locations = discover_locations(workflow_home, config.artifacts_dir, change_name)
@@ -461,7 +488,13 @@ def discover_artifacts(
     for kind, month, directory in raw_locations:
         label = _label(kind, month)
         declared_schema, created = declared[directory]
-        state_path = directory / "state.md"
+        state_root = directory
+        if declared_schema is not None:
+            declared_path = config_mod.schema_workspace_path_for(config, declared_schema)
+            candidate_state_root = paths_mod.artifact_root(directory, declared_path)
+            if (candidate_state_root / config_mod.METADATA_FILENAME).is_file():
+                state_root = candidate_state_root
+        state_path = state_root / "state.md"
 
         location = ChangeLocation(
             kind=kind,
@@ -496,7 +529,16 @@ def discover_artifacts(
                     f"schema ({', '.join(owners)})"
                 )
 
-        location.attempts = _collect_attempts(workflow_home, directory, label, warnings)
+        attempt_roots = [directory]
+        for schema_artifacts in location.schemas:
+            root = schema_artifacts.artifact_root
+            if root != directory and root.is_dir() and root not in attempt_roots:
+                attempt_roots.append(root)
+        location.attempts = [
+            round_
+            for attempt_root in attempt_roots
+            for round_ in _collect_attempts(workflow_home, attempt_root, label, warnings)
+        ]
 
         candidates = _keep_contained(
             workflow_home, iter_artifact_candidates(directory), label, warnings

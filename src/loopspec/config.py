@@ -115,6 +115,23 @@ def schema_path_for(config: WorkflowConfig, schema_name: str) -> str | None:
     return None
 
 
+def schema_workspace_path_for(config: WorkflowConfig, schema_name: str) -> str | None:
+    """Directory occupied by one schema inside a change.
+
+    Explicit ``schemas[*].path`` values remain authoritative.  When a project
+    offers several schemas and no path was configured, use the schema name as
+    the directory automatically.  A single-schema project keeps the historical
+    flat layout for backwards compatibility.
+    """
+
+    explicit = schema_path_for(config, schema_name)
+    if explicit is not None:
+        return explicit
+    if len(config.schemas) > 1:
+        return schema_name
+    return None
+
+
 def rules_for(config: WorkflowConfig) -> dict[str, list[str]]:
     return config.rules
 

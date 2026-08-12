@@ -87,7 +87,7 @@ TBD - created by archiving change gated-artifact-workflow. Update Purpose after 
 - **THEN** 返回统一错误格式，`message` 描述具体校验失败原因，`fix` 给出可执行的修复建议
 
 ### Requirement: loopspec new 创建 change
-`loopspec new <change-name> [--schema S] [--json]` SHALL 校验 change 名符合 kebab-case（否则报 `invalid_change_name`）、change 不存在（否则报 `change_exists`）；创建成功 SHALL 在 change 目录写入 `.workflow.yaml`（记录选中的 `schema` 与 `created` 日期）与初始 `state.md`，并返回 `changeName`/`schemaName`/`artifactsDir`/`schemaPath`/`changeRoot`/`artifactRoot`/`statePath`/`metadataPath`/`created`/`createdFiles`/`nextSteps`。
+`loopspec new <change-name> [--schema S] [--json]` SHALL 校验 change 名符合 kebab-case（否则报 `invalid_change_name`），并扫描 active/archive change 名：当请求名带有所选 schema 后缀，或与唯一已有 change 共享工单前缀（如 `afd-13592`）时，SHALL 复用已有 canonical change 名；匹配有歧义时 SHALL 保留请求名，不自动合并。多 schema 配置在未显式配置 `schemas[*].path` 时，SHALL 把每个 schema 的 metadata、state、rollback 与 artifacts 写入 `<change>/<schema>/`；显式 `path` SHALL 保持原有 artifact-only 子目录语义，单 schema 配置 SHALL 保持原有平铺布局。仅当同一 change 的同一 schema workspace 已存在时 SHALL 报 `change_exists`。创建成功 SHALL 返回 `changeName`/`requestedChangeName`/`reusedChange`/`schemaName`/`artifactsDir`/`schemaPath`/`changeRoot`/`artifactRoot`/`statePath`/`metadataPath`/`activeMetadataPath`/`created`/`createdFiles`/`nextSteps`。
 
 当 `config.yaml` 配置了多个候选 schema 且命令未显式传 `--schema` 时，SHALL 返回 `schema_selection_required`（含 `schemas` 候选列表与 `selectionInstruction`），且不创建任何 change 目录或文件；调用方选定后需重新执行并显式传入 `--schema <selected>`。当 `--schema` 指定的名称不在 `config.yaml` 候选列表中时 SHALL 报 `config_invalid`。
 
@@ -98,6 +98,11 @@ TBD - created by archiving change gated-artifact-workflow. Update Purpose after 
 #### Scenario: 使用 schema 二级 path
 - **WHEN** 选中的 schema 在 `config.yaml` 中配置了 `path: bugfix`
 - **THEN** 输出的 `schemaPath` 为 `"bugfix"`，`artifactRoot` 为 `<changeRoot>/bugfix`
+
+#### Scenario: 多 schema 默认隔离并复用 change
+- **GIVEN** 已存在 `afd-13592-listing-inventory-filter/prd-generation/`
+- **WHEN** 执行 `loopspec new afd-13592-listing-inventory-filter-be --schema be-driven --json`
+- **THEN** 返回的 `changeName` 为 `afd-13592-listing-inventory-filter`、`reusedChange` 为 true，并创建 `<changeRoot>/be-driven/`，不创建第二个顶层 change
 
 #### Scenario: 多候选未指定 schema
 - **WHEN** `config.yaml` 配置了多个候选 schema，且 `loopspec new add-payment --json` 未传 `--schema`
@@ -111,8 +116,8 @@ TBD - created by archiving change gated-artifact-workflow. Update Purpose after 
 - **WHEN** 传入的 `--schema` 名称不在 `config.yaml` 的 `schemas[*].name` 列表中
 - **THEN** 报 `config_invalid`
 
-#### Scenario: 同名重复创建
-- **WHEN** 对已存在的 change 名再次执行 `loopspec new`
+#### Scenario: 同一 schema 重复创建
+- **WHEN** 对已存在的 change/schema 组合再次执行 `loopspec new`
 - **THEN** 报 `change_exists`
 
 #### Scenario: 非法 change 名
@@ -215,4 +220,3 @@ TBD - created by archiving change gated-artifact-workflow. Update Purpose after 
 #### Scenario: 多个 gate 同时失败时只返回拓扑序最早的一个
 - **WHEN** schema 中有多个 gate 同时处于 `failed` 或 `exhausted` 状态
 - **THEN** `nextSteps` 只返回拓扑序中最早出现的那个 gate 对应的指令，避免一次触发多个无关闭包的回退
-

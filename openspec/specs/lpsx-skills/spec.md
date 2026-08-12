@@ -5,7 +5,7 @@ TBD - created by archiving change ai-tool-scaffolding. Update Purpose after arch
 ## Requirements
 ### Requirement: 四个内置 skill/命令模板
 系统 SHALL 内置 4 个 skill/命令模板，分别对应 loopspec 主循环中的一个动作，每个模板 SHALL 提供 `name`（如 `loopspec-new`）、`description`、`verb`（用于命令文件命名，如 `new`）与正文指令：
-- `loopspec-new`：对应 `loopspec new <change-name>`，创建成功后建议接着执行 `loopspec status` 获取第一个 `nextSteps`。
+- `loopspec-new`：先扫描已有 change 并复用同一需求的 canonical 名（不得追加 schema/角色后缀），再执行 `loopspec new <change-name>`；创建成功后必须使用响应中的 `changeName` 执行 `loopspec status` 获取第一个 `nextSteps`。
 - `loopspec-continue`：对应读取 `loopspec status` 的 `nextSteps`，再执行其中指定的 `loopspec` 命令（可能是 `instructions`、`rollback`，或提示已完成/需人工介入）。
 - `loopspec-archive`：对应 `loopspec archive <change-name>`。
 - `loopspec-bulk-archive`：对应 `loopspec bulk-archive`。
@@ -17,6 +17,10 @@ TBD - created by archiving change ai-tool-scaffolding. Update Purpose after arch
 #### Scenario: 模板正文引用对应的 loopspec 命令
 - **WHEN** 查看 `loopspec-new` 模板正文
 - **THEN** 正文中包含对 `loopspec new` 命令的引用与后续建议动作
+
+#### Scenario: new 模板复用已有 canonical change 名
+- **WHEN** 查看 `loopspec-new` 模板正文
+- **THEN** 正文要求先检查已有 change、同一工单复用名称，且不得追加 `-be`/`-prd` 等 schema 或角色后缀
 
 ### Requirement: 同一正文跨工具复用
 系统 SHALL 保证每个模板只维护一份正文内容，写入不同工具的 skill 文件与命令文件时复用同一份正文（经过命名转换后），不为每个工具单独维护一份重复的正文文本。

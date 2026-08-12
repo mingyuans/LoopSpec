@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from .errors import ConfigValidationError, InvalidChangeNameError
+
+_ISSUE_PREFIX_RE = re.compile(r"^([a-z][a-z0-9]*-\d+)(?:-|$)")
 
 
 def is_safe_relative_path(path: str) -> bool:
@@ -48,6 +51,74 @@ def artifact_root(change_dir: Path, schema_path: str | None) -> Path:
 
 def schema_dir(workflow_home: Path, schema_name: str) -> Path:
     return workflow_home / "schemas" / schema_name
+
+
+def reusable_change_name(
+    workflow_home: Path,
+    artifacts_dir: str,
+    requested_name: str,
+    schema_name: str | None = None,
+) -> str:
+    """Return an unambiguous existing canonical name for ``requested_name``.
+
+    Agents commonly append the workflow role to the same ticket, producing
+    names such as ``afd-13592-listing-filter-be`` for the ``be-driven`` schema.
+    Prefer an exact schema-suffix match, then a unique issue-key match.  If more
+    than one existing change is plausible, preserve the requested name instead
+    of silently merging unrelated work.
+    """
+
+    safe_change_name(requested_name)
+    names = _known_change_names(workflow_home, artifacts_dir)
+    if requested_name in names:
+        return requested_name
+
+    aliases: list[str] = []
+    if schema_name:
+        aliases.append(schema_name)
+        first_token = schema_name.split("-", 1)[0]
+        if first_token not in aliases:
+            aliases.append(first_token)
+    for alias in aliases:
+        suffix = f"-{alias}"
+        if requested_name.endswith(suffix):
+            base = requested_name[: -len(suffix)]
+            if base in names:
+                return base
+
+    issue_match = _ISSUE_PREFIX_RE.match(requested_name)
+    if issue_match is not None:
+        issue_prefix = issue_match.group(1)
+        matches = sorted(
+            name
+            for name in names
+            if (candidate := _ISSUE_PREFIX_RE.match(name)) is not None
+            and candidate.group(1) == issue_prefix
+        )
+        if len(matches) == 1:
+            return matches[0]
+
+    return requested_name
+
+
+def _known_change_names(workflow_home: Path, artifacts_dir: str) -> set[str]:
+    """Safe directory names seen in the active area or an archive month."""
+
+    roots = [artifacts_root(workflow_home, artifacts_dir)]
+    archive = workflow_home / "archive"
+    if archive.is_dir():
+        roots.extend(sorted(path for path in archive.iterdir() if path.is_dir()))
+
+    names: set[str] = set()
+    for root in roots:
+        if not root.is_dir() or not contained_in(workflow_home, root):
+            continue
+        for candidate in root.iterdir():
+            if not candidate.is_dir() or not contained_in(workflow_home, candidate):
+                continue
+            if is_safe_relative_path(candidate.name):
+                names.add(candidate.name)
+    return names
 
 
 def archive_root(workflow_home: Path, year_month: str) -> Path:

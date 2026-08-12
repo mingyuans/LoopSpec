@@ -111,6 +111,8 @@ Creating a change then looks like this:
 loopspec new update-readme --schema docs-only --json
 ```
 
+With multiple candidates, an omitted `path` defaults to the schema name inside the canonical change: `changes/update-readme/docs-only/`. A later schema reuses `changes/update-readme/` and gets its own sibling workspace, metadata, state and rollback history. Set `path` only when an explicit artifact directory name is required.
+
 ### Project context and per-node rules
 
 `context` is prepended to every node's instruction payload; `rules` adds node-specific constraints. Both are passed through verbatim, so they are the place to encode house style without editing the schema itself.

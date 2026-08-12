@@ -105,6 +105,7 @@ def _fail(exc: LoopspecError, as_json: bool, extra: dict[str, Any] | None = None
 class ChangeContext:
     change_name: str
     config: Any
+    change_root: Path
     change_dir: Path
     artifact_dir: Path
     schema_name: str
@@ -113,21 +114,32 @@ class ChangeContext:
 
 def _load_change_context(home: Path, change_name: str) -> ChangeContext:
     config = config_mod.load_config(home)
-    change_dir = paths_mod.change_root(home, config.artifacts_dir, change_name)
-    if not change_dir.is_dir():
+    change_root = paths_mod.change_root(home, config.artifacts_dir, change_name)
+    if not change_root.is_dir() or not paths_mod.contained_in(home, change_root):
         raise ChangeNotFoundError(f"Change not found: {change_name}")
 
-    metadata = config_mod.read_metadata(change_dir)
+    metadata = config_mod.read_metadata(change_root)
     schema_name = config_mod.resolve_schema_for_existing_change(config, metadata, None)
     schema_dir = paths_mod.schema_dir(home, schema_name)
     loaded = load_schema(schema_dir)
-    schema_path = config_mod.schema_path_for(config, schema_name)
-    artifact_dir = paths_mod.artifact_root(change_dir, schema_path)
+    schema_path = config_mod.schema_workspace_path_for(config, schema_name)
+    workspace_dir = paths_mod.artifact_root(change_root, schema_path)
+    # New multi-schema changes keep metadata, state and attempts inside their
+    # schema workspace.  Old changes have those files at the change root and
+    # continue to load without migration.
+    change_dir = (
+        workspace_dir
+        if workspace_dir != change_root
+        and (workspace_dir / config_mod.METADATA_FILENAME).is_file()
+        else change_root
+    )
+    artifact_dir = workspace_dir if workspace_dir != change_root else change_dir
     artifact_dir.mkdir(parents=True, exist_ok=True)
 
     return ChangeContext(
         change_name=change_name,
         config=config,
+        change_root=change_root,
         change_dir=change_dir,
         artifact_dir=artifact_dir,
         schema_name=schema_name,
@@ -408,10 +420,6 @@ def new(
     except LoopspecError as exc:
         _fail(exc, as_json)
 
-    change_dir = paths_mod.change_root(home, config.artifacts_dir, change_name)
-    if change_dir.exists():
-        _fail(ChangeExistsError(f"Change already exists: {change_name}"), as_json)
-
     try:
         schema_name = config_mod.resolve_schema_for_new_change(config, schema)
     except SchemaSelectionRequiredError as exc:
@@ -444,27 +452,66 @@ def new(
     except LoopspecError as exc:
         _fail(exc, as_json)
 
-    schema_path = config_mod.schema_path_for(config, schema_name)
-    artifact_root = paths_mod.artifact_root(change_dir, schema_path)
+    canonical_name = paths_mod.reusable_change_name(
+        home, config.artifacts_dir, change_name, schema_name
+    )
+    change_dir = paths_mod.change_root(home, config.artifacts_dir, canonical_name)
+    reused_change = change_dir.exists()
+    if reused_change and (
+        not change_dir.is_dir() or not paths_mod.contained_in(home, change_dir)
+    ):
+        _fail(ChangeExistsError(f"Change path is not reusable: {canonical_name}"), as_json)
+    schema_path = config_mod.schema_workspace_path_for(config, schema_name)
+    workspace_dir = paths_mod.artifact_root(change_dir, schema_path)
+    if workspace_dir.exists():
+        _fail(
+            ChangeExistsError(
+                f"Schema '{schema_name}' already exists for change: {canonical_name}"
+            ),
+            as_json,
+        )
 
-    change_dir.mkdir(parents=True)
-    artifact_root.mkdir(parents=True, exist_ok=True)
+    change_dir.mkdir(parents=True, exist_ok=True)
+    if workspace_dir != change_dir:
+        workspace_dir.mkdir(parents=True)
     created = date.today().isoformat()
-    metadata_path = config_mod.write_metadata(change_dir, schema_name, created)
-    state_path = create_initial_state(change_dir)
+    # Root metadata is the active-schema pointer consumed by commands that do
+    # not take --schema.  Automatically nested multi-schema workspaces also own
+    # durable metadata, state and rollback history of their own; an explicit
+    # schemas[*].path retains its historical artifact-only meaning.
+    active_metadata_path = config_mod.write_metadata(change_dir, schema_name, created)
+    owns_schema_workspace = (
+        len(config.schemas) > 1
+        and config_mod.schema_path_for(config, schema_name) is None
+    )
+    metadata_path = (
+        config_mod.write_metadata(workspace_dir, schema_name, created)
+        if owns_schema_workspace
+        else active_metadata_path
+    )
+    state_path = create_initial_state(workspace_dir if owns_schema_workspace else change_dir)
+
+    written_paths = [active_metadata_path]
+    if metadata_path not in written_paths:
+        written_paths.append(metadata_path)
+    written_paths.append(state_path)
+    created_files = [str(path.relative_to(change_dir)) for path in written_paths]
 
     result = {
-        "changeName": change_name,
+        "changeName": canonical_name,
+        "requestedChangeName": change_name,
+        "reusedChange": reused_change,
         "schemaName": schema_name,
         "artifactsDir": config.artifacts_dir,
         "schemaPath": schema_path,
         "changeRoot": str(change_dir.resolve()),
-        "artifactRoot": str(artifact_root.resolve()),
+        "artifactRoot": str(workspace_dir.resolve()),
         "statePath": str(state_path.resolve()),
         "metadataPath": str(metadata_path.resolve()),
+        "activeMetadataPath": str(active_metadata_path.resolve()),
         "created": created,
-        "createdFiles": [".workflow.yaml", "state.md"],
-        "nextSteps": [f'Run `loopspec status {change_name}` to see the first node.'],
+        "createdFiles": created_files,
+        "nextSteps": [f'Run `loopspec status {canonical_name}` to see the first node.'],
     }
     _emit(result, as_json)
 
@@ -550,8 +597,8 @@ def status(change_name: str, home: Path = HomeOption, as_json: bool = JsonOption
         "changeName": change_name,
         "schemaName": ctx.schema_name,
         "artifactsDir": ctx.config.artifacts_dir,
-        "schemaPath": config_mod.schema_path_for(ctx.config, ctx.schema_name),
-        "changeRoot": str(ctx.change_dir.resolve()),
+        "schemaPath": config_mod.schema_workspace_path_for(ctx.config, ctx.schema_name),
+        "changeRoot": str(ctx.change_root.resolve()),
         "artifactRoot": str(ctx.artifact_dir.resolve()),
         "statePath": str(state_path.resolve()),
         "stateExists": state_path.is_file(),
@@ -861,7 +908,7 @@ def _archive_one(
         "changeName": change_name,
         "schemaName": ctx.schema_name,
         "reason": reason,
-        "source": str(ctx.change_dir.resolve()),
+        "source": str(ctx.change_root.resolve()),
         "destination": str(destination),
     }
 
@@ -873,7 +920,7 @@ def _archive_one(
         raise ArchiveConflictError(f"Archive destination already exists: {destination}")
 
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(ctx.change_dir), str(destination))
+    shutil.move(str(ctx.change_root), str(destination))
     result["moved"] = True
     result["nextSteps"] = ["Archiving complete."]
     return result

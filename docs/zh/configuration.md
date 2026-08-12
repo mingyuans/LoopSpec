@@ -111,6 +111,8 @@ schema_selection:
 loopspec new update-readme --schema docs-only --json
 ```
 
+存在多个候选时，省略 `path` 会默认以 schema 名作为 canonical change 内的目录：`changes/update-readme/docs-only/`。后续 schema 会复用 `changes/update-readme/`，并拥有独立的同级 workspace、metadata、state 与 rollback 历史。只有确实需要自定义 artifact 目录名时才设置 `path`。
+
 ### 项目上下文与按节点的规则
 
 `context` 会附加到每个节点的指令载荷；`rules` 为特定节点补充约束。两者都是原样透传，因此它们正是在不改 schema 的前提下编码团队规范的地方。
