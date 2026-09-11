@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.resources
 import json
 import re
 import shutil
@@ -17,6 +16,7 @@ from . import config as config_mod
 from . import paths as paths_mod
 from .artifacts import ArtifactReport, discover_artifacts, resolve_requested_schemas
 from .attempts import list_rounds
+from .builtin_resources import builtin_schemas_dir
 from .change_state import create_initial_state
 from .errors import (
     ArchiveConflictError,
@@ -224,21 +224,6 @@ def _init_counts(result: ScaffoldResult) -> tuple[int, int]:
     return skills, len(written) - skills
 
 
-def _builtin_schemas_source() -> Path:
-    """Locate the bundled built-in schemas.
-
-    Normal installs get `builtin_schemas/` copied inside the package (see
-    `[tool.hatch.build.targets.wheel.force-include]`); editable/source
-    checkouts resolve straight to `src/loopspec`, which doesn't have that
-    copy, so fall back to the repo-root `schemas/` directory in that case.
-    """
-
-    packaged = Path(str(importlib.resources.files("loopspec") / "builtin_schemas"))
-    if packaged.is_dir() and any(packaged.iterdir()):
-        return packaged
-    return Path(__file__).resolve().parent.parent.parent / "schemas"
-
-
 @app.command()
 def init(
     path: Path = HomePathArgument,
@@ -265,7 +250,7 @@ def init(
 
     copied_schemas: list[str] = []
     if not no_builtin:
-        source = _builtin_schemas_source()
+        source = builtin_schemas_dir()
         if source.is_dir():
             for candidate in sorted(p for p in source.iterdir() if p.is_dir()):
                 destination = path / "schemas" / candidate.name

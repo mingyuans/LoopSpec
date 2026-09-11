@@ -36,7 +36,9 @@ expression = "resolve_version()"
 packages = ["src/loopspec"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"schemas" = "loopspec/builtin_schemas"
+# Both bundled resource trees (schemas + skills) travel as one directory, which
+# is what `builtin_resources.builtin_root()` resolves to inside an install.
+"builtin" = "loopspec/builtin"
 
 [dependency-groups]
 dev = [

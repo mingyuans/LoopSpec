@@ -1051,6 +1051,7 @@ loopspec bulk-archive [--complete] [--exhausted] [--older-than <days>] [--dry-ru
 | `config_invalid` | `config.yaml` 缺失、校验失败，或含不安全的相对路径。 | 修正 `config.yaml` 中被指出的字段。 |
 | `template_not_found` | 某节点的 `template`，或某门禁的 pass/fail 模板，在 schema 的 `templates/` 下不存在。 | 补上模板文件，或修正 `schema.yaml` 中的名称。 |
 | `instruction_not_found` | 某节点的 `instruction.file` 在 schema 的 `instructions/` 下不存在。 | 补上指令文件，或修正 `schema.yaml` 中的名称。 |
+| `builtin_skill_invalid` | 随包分发的 `builtin/skills/*.md` 缺失、没有 frontmatter，或缺少 `name`、`description`、正文之一。 | 重新安装 loopspec；源码检出下恢复 `builtin/skills/`。 |
 | `change_not_found` | 该 workflow home 中不存在指定名称的 change 目录。 | 检查名称，或检查 `--home`。 |
 | `change_exists` | canonical change 中已存在所选 schema workspace，或该路径无法安全复用。 | 继续该 schema，或选择另一 schema/change。 |
 | `invalid_change_name` | change 名称不是 kebab-case。 | 改成符合 `^[a-z][a-z0-9]*(-[a-z0-9]+)*$` 的名称。 |

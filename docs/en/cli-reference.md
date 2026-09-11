@@ -1052,6 +1052,7 @@ Every failure exits 1 and reports one of these codes in the `error` field.
 | `config_invalid` | `config.yaml` is missing, fails validation, or contains an unsafe relative path. | Correct the reported field in `config.yaml`. |
 | `template_not_found` | A node's `template`, or a gate's pass/fail template, does not exist under the schema's `templates/`. | Add the template file, or fix the name in `schema.yaml`. |
 | `instruction_not_found` | A node's `instruction.file` does not exist under the schema's `instructions/`. | Add the instruction file, or fix the name in `schema.yaml`. |
+| `builtin_skill_invalid` | A bundled `builtin/skills/*.md` file is missing, lacks frontmatter, or lacks a `name`, `description` or body. | Reinstall loopspec; from a source checkout, restore `builtin/skills/`. |
 | `change_not_found` | The named change directory does not exist in this workflow home. | Check the name, or check `--home`. |
 | `change_exists` | The canonical change already contains the selected schema workspace, or its path is unsafe to reuse. | Continue that schema, or select a different schema/change. |
 | `invalid_change_name` | The change name is not kebab-case. | Rename to match `^[a-z][a-z0-9]*(-[a-z0-9]+)*$`. |

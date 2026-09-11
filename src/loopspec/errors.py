@@ -42,6 +42,17 @@ class TemplateLoadError(LoopspecError):
     code = "template_not_found"
 
 
+class BuiltinSkillError(LoopspecError):
+    """A bundled `builtin/skills/*.md` file is missing or unreadable.
+
+    Not a user authoring error like the ones around it: it means the resources
+    that shipped with this install are broken, so the fix points at the install
+    rather than at the project.
+    """
+
+    code = "builtin_skill_invalid"
+
+
 class InstructionLoadError(LoopspecError):
     code = "instruction_not_found"
 

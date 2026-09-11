@@ -312,7 +312,8 @@ def test_namespaced_and_hyphenated_tools_differ_only_in_command_naming():
 
     from loopspec.skill_templates import SKILL_TEMPLATES, generate_command_content
 
-    template = SKILL_TEMPLATES[1]  # `continue`, whose body cites other commands
+    # `continue`, whose body cites other commands.
+    template = next(t for t in SKILL_TEMPLATES if t.verb == "continue")
     colon = generate_command_content(template, apply_hyphen_transform=False)
     hyphen = generate_command_content(template, apply_hyphen_transform=True)
 

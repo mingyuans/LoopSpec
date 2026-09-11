@@ -1,18 +1,38 @@
 """Built-in skill/command templates for the loopspec main loop.
 
-Each template has exactly one body of instructions, reused for every tool's
-skill file and (if the tool has a command adapter) command file — only the
-command-reference naming style (`/lpsx:x` vs `/lpsx-x`) varies per tool.
+The instructions themselves are not here -- they are Markdown files under
+`builtin/skills/`, one per command, each already shaped like the `SKILL.md` it
+becomes: `name`/`description` frontmatter plus the body. This module only loads
+and re-emits them.
+
+Each template has exactly one body, reused for every tool's skill file and (if
+the tool has a command adapter) command file -- only the command-reference
+naming style (`/lpsx:x` vs `/lpsx-x`) varies per tool.
+
+The command `verb` comes from the filename (`new.md` -> `new`), so the two can
+never disagree; templates load in filename order.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
+import yaml
+
+from .builtin_resources import builtin_skills_dir
+from .errors import BuiltinSkillError
 from .tool_registry import CommandContent
 
 _COMMAND_REF_RE = re.compile(r"/lpsx:([A-Za-z][\w-]*)")
+
+_SKILL_FILE_RE = re.compile(r"\A---\n(?P<frontmatter>.*?)\n---\n(?P<body>.*)\Z", re.DOTALL)
+
+_BROKEN_INSTALL_FIX = (
+    "The bundled skill files are part of the loopspec install; reinstall it, "
+    "or restore builtin/skills/ if you are working from a source checkout."
+)
 
 
 def to_hyphenated(text: str) -> str:
@@ -29,86 +49,64 @@ class SkillTemplate:
     body: str
 
 
-_NEW_BODY = """Create a new loopspec change.
+def _required_string(frontmatter: dict[str, object], key: str, path: Path) -> str:
+    value = frontmatter.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise BuiltinSkillError(
+            f"{path.name}: frontmatter key `{key}` must be a non-empty string",
+            fix=_BROKEN_INSTALL_FIX,
+        )
+    return value.strip()
 
-1. Derive a concise kebab-case `<change-name>` from the requirement. Before \
-creating it, inspect existing change names and reuse the canonical name when \
-the same work item already exists (especially the same ticket key); do not add \
-a schema or role suffix such as `-be` or `-prd`.
-2. Run `loopspec new <change-name> --json` (add `--schema <name>` if the \
-project has multiple candidate schemas and the command asks you to pick one). \
-The command also resolves unambiguous existing names and returns the canonical \
-name in `changeName`.
-3. Run `loopspec status <changeName>` using the returned canonical name to see \
-the first ready node and its `nextSteps`.
-4. Continue with `/lpsx:continue` to drive the rest of the loop.
-"""
 
-_CONTINUE_BODY = """Advance a loopspec change by one step.
+def parse_skill_file(path: Path) -> SkillTemplate:
+    """Parse one `builtin/skills/<verb>.md` file into a template."""
 
-1. Run `loopspec status <change-name>`.
-2. Read `nextSteps` -- it names exactly one `loopspec` command to run next \
-(usually `loopspec instructions <node> --change <change-name> --json`, \
-sometimes `loopspec rollback <change-name> --json`).
-3. Run that command. If it's `instructions`, do what the returned \
-`instruction` says -- that is not always "write a file". Depending on the \
-node it may ask you to write an artifact to `resolvedOutputPath` (or \
-`resolvedOutputPath.pass`/`.fail` for a gate), to ask a human for a decision \
-with your tool's interactive question facility and record their verdict, or \
-to change code in the repository and tick off entries in a tracked task \
-list (`taskProgress` shows what's left). Then update `state.md` per the \
-instructions.
-4. Re-run `loopspec status <change-name>` and repeat from step 2 \
-until `isComplete` is `true` or a gate is `exhausted`.
+    match = _SKILL_FILE_RE.match(path.read_text(encoding="utf-8"))
+    if match is None:
+        raise BuiltinSkillError(
+            f"{path.name}: expected YAML frontmatter delimited by `---` lines",
+            fix=_BROKEN_INSTALL_FIX,
+        )
 
-If a gate is `failed`, `nextSteps` will point you at \
-`loopspec rollback <change-name> --json` first -- run it, then continue \
-via `/lpsx:continue`; `loopspec instructions` for the reset nodes will \
-include `priorAttempts` explaining what failed last time.
-"""
+    try:
+        frontmatter = yaml.safe_load(match.group("frontmatter"))
+    except yaml.YAMLError as exc:
+        raise BuiltinSkillError(
+            f"{path.name}: frontmatter is not valid YAML: {exc}", fix=_BROKEN_INSTALL_FIX
+        ) from exc
+    if not isinstance(frontmatter, dict):
+        raise BuiltinSkillError(
+            f"{path.name}: frontmatter must be a YAML mapping", fix=_BROKEN_INSTALL_FIX
+        )
 
-_ARCHIVE_BODY = """Archive a completed loopspec change.
+    # Normalised to exactly one trailing newline: the body is re-emitted into
+    # generated files, whose own formatters append their separators.
+    body = match.group("body").strip("\n")
+    if not body:
+        raise BuiltinSkillError(f"{path.name}: body is empty", fix=_BROKEN_INSTALL_FIX)
 
-Run `loopspec archive <change-name> --json`. Add `--dry-run` first if you \
-want to preview the destination before moving anything. The change must be \
-complete, or you must pass `--exhausted`/`--include-pending-failures` for \
-the applicable edge cases.
-"""
+    return SkillTemplate(
+        name=_required_string(frontmatter, "name", path),
+        description=_required_string(frontmatter, "description", path),
+        verb=path.stem,
+        body=f"{body}\n",
+    )
 
-_BULK_ARCHIVE_BODY = """Archive every eligible loopspec change in one pass.
 
-Run `loopspec bulk-archive --json` (add `--dry-run` to preview candidates \
-first, `--older-than <days>` to restrict by age, `--exhausted` to include \
-retry-exhausted changes). Review the `candidates`/`moved` list in the \
-response before trusting it ran.
-"""
+def load_skill_templates(skills_dir: Path | None = None) -> list[SkillTemplate]:
+    """Load every bundled skill template, in filename order."""
 
-SKILL_TEMPLATES: list[SkillTemplate] = [
-    SkillTemplate(
-        name="loopspec-new",
-        description="Create a new loopspec change and see its first step.",
-        verb="new",
-        body=_NEW_BODY,
-    ),
-    SkillTemplate(
-        name="loopspec-continue",
-        description="Advance a loopspec change by reading status.nextSteps and acting on it.",
-        verb="continue",
-        body=_CONTINUE_BODY,
-    ),
-    SkillTemplate(
-        name="loopspec-archive",
-        description="Archive a single completed loopspec change.",
-        verb="archive",
-        body=_ARCHIVE_BODY,
-    ),
-    SkillTemplate(
-        name="loopspec-bulk-archive",
-        description="Archive all eligible loopspec changes at once.",
-        verb="bulk-archive",
-        body=_BULK_ARCHIVE_BODY,
-    ),
-]
+    directory = builtin_skills_dir() if skills_dir is None else skills_dir
+    paths = sorted(directory.glob("*.md"))
+    if not paths:
+        raise BuiltinSkillError(
+            f"no built-in skill files found in {directory}", fix=_BROKEN_INSTALL_FIX
+        )
+    return [parse_skill_file(path) for path in paths]
+
+
+SKILL_TEMPLATES: list[SkillTemplate] = load_skill_templates()
 
 
 def generate_skill_content(template: SkillTemplate) -> str:
