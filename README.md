@@ -33,7 +33,7 @@ Pin a specific version with `LOOPSPEC_VERSION`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mingyuans/LoopSpec/main/install.sh \
-  | LOOPSPEC_VERSION=0.1.0 sh
+  | LOOPSPEC_VERSION=1.0.3 sh
 ```
 
 ### Without the script
@@ -41,9 +41,9 @@ curl -fsSL https://raw.githubusercontent.com/mingyuans/LoopSpec/main/install.sh 
 The wheel is a normal `py3-none-any` wheel, so any tool that installs CLI apps works:
 
 ```bash
-uv tool install https://github.com/mingyuans/LoopSpec/releases/latest/download/loopspec-0.1.0-py3-none-any.whl
+uv tool install https://github.com/mingyuans/LoopSpec/releases/latest/download/loopspec-1.0.3-py3-none-any.whl
 # or
-pipx install https://github.com/mingyuans/LoopSpec/releases/latest/download/loopspec-0.1.0-py3-none-any.whl
+pipx install https://github.com/mingyuans/LoopSpec/releases/latest/download/loopspec-1.0.3-py3-none-any.whl
 ```
 
 Substitute the version you want; the filenames are listed on each release page. Note that this path skips the checksum verification the script does for you.

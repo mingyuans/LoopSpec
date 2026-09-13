@@ -182,3 +182,138 @@ def test_main_is_called_on_the_last_line():
     """A truncated `curl | sh` must not execute a partial install."""
     lines = [line for line in INSTALL_SH.read_text(encoding="utf-8").splitlines() if line.strip()]
     assert lines[-1] == 'main "$@"'
+
+
+# --- version resolution -------------------------------------------------
+#
+# The installer used to read the version from api.github.com, which allows 60
+# unauthenticated requests per hour per IP -- shared by everyone behind a NAT,
+# so the lookup failed with 403 for reasons unrelated to this repository. It now
+# reads `releases/latest/download/checksums.txt`, a constant github.com URL with
+# no such cap, and takes the version from the wheel filename inside it.
+#
+# curl is stubbed rather than called: these assert which URLs the script asks
+# for, which is exactly what a real request would hide.
+
+CURL_STUB = """#!/bin/sh
+# Record the full argument list, then honour `-o <path>` the way curl would.
+printf '%s\\n' "$*" >>"$STUB_LOG"
+out=""
+prev=""
+for arg in "$@"; do
+\t[ "$prev" = "-o" ] && out=$arg
+\tprev=$arg
+done
+[ "$STUB_EXIT" -eq 0 ] || exit "$STUB_EXIT"
+[ -z "$out" ] || printf '%s' "$STUB_BODY" >"$out"
+exit 0
+"""
+
+LATEST_CHECKSUMS = (
+    f"{WHEEL_SHA}  {WHEEL}\n" "deadbeef  loopspec-0.1.0.tar.gz\n"
+)
+
+
+def resolve(
+    sourceable: Path,
+    workdir: Path,
+    *,
+    body: str = LATEST_CHECKSUMS,
+    exit_code: int = 0,
+    env: dict[str, str] | None = None,
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """Run `resolve_release` with a stubbed curl; return the result and the URLs asked for."""
+    bindir = workdir / "bin"
+    bindir.mkdir()
+    stub = bindir / "curl"
+    stub.write_text(CURL_STUB, encoding="utf-8")
+    stub.chmod(0o755)
+
+    log = workdir / "curl.log"
+    full_env = {
+        "PATH": f"{bindir}:/usr/bin:/bin",
+        "STUB_LOG": str(log),
+        "STUB_BODY": body,
+        "STUB_EXIT": str(exit_code),
+        **(env or {}),
+    }
+    result = subprocess.run(
+        ["sh", "-c", f'. "{sourceable}"\nresolve_release "{workdir}"\n'],
+        cwd=workdir,
+        capture_output=True,
+        text=True,
+        check=False,
+        env=full_env,
+    )
+    calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    return result, calls
+
+
+def test_latest_version_comes_from_the_constant_checksums_url(sourceable: Path, tmp_path: Path):
+    result, calls = resolve(sourceable, tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "0.1.0"
+    assert len(calls) == 1
+    assert "releases/latest/download/checksums.txt" in calls[0]
+
+
+def test_version_resolution_never_touches_the_github_api(sourceable: Path, tmp_path: Path):
+    """The 403 this replaced came from the API's 60-request hourly cap."""
+    _, calls = resolve(sourceable, tmp_path)
+    assert not any("api.github.com" in call for call in calls)
+    assert "api.github.com" not in "\n".join(code_lines())
+
+
+def test_pinned_version_reads_that_release_not_the_latest(sourceable: Path, tmp_path: Path):
+    result, calls = resolve(sourceable, tmp_path, env={"LOOPSPEC_VERSION": "0.1.0"})
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "0.1.0"
+    assert len(calls) == 1
+    assert "releases/download/v0.1.0/checksums.txt" in calls[0]
+    assert "latest" not in calls[0]
+
+
+def test_pinned_version_is_validated_before_reaching_a_url(sourceable: Path, tmp_path: Path):
+    result, calls = resolve(sourceable, tmp_path, env={"LOOPSPEC_VERSION": "0.1.0; rm -rf /"})
+    assert result.returncode != 0
+    assert "not a valid version" in result.stderr
+    assert calls == [], "a rejected version must not produce a request"
+
+
+def test_binary_mode_marker_does_not_hide_the_version(sourceable: Path, tmp_path: Path):
+    result, _ = resolve(sourceable, tmp_path, body=f"{WHEEL_SHA} *{WHEEL}\n")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "0.1.0"
+
+
+def test_checksums_without_a_wheel_entry_fails(sourceable: Path, tmp_path: Path):
+    result, _ = resolve(sourceable, tmp_path, body="deadbeef  loopspec-0.1.0.tar.gz\n")
+    assert result.returncode != 0
+    assert "no wheel entry" in result.stderr
+
+
+def test_html_error_page_yields_no_version(sourceable: Path, tmp_path: Path):
+    result, _ = resolve(sourceable, tmp_path, body="<html><body>Not Found</body></html>\n")
+    assert result.returncode != 0
+    assert "no wheel entry" in result.stderr
+
+
+def test_malformed_version_in_checksums_is_rejected(sourceable: Path, tmp_path: Path):
+    """A tampered filename must not become part of a download URL."""
+    body = f"{WHEEL_SHA}  loopspec-1.0.3; rm -rf /-py3-none-any.whl\n"
+    result, _ = resolve(sourceable, tmp_path, body=body)
+    assert result.returncode != 0
+    assert "not a valid version" in result.stderr
+
+
+def test_unreachable_release_points_at_the_pin_escape_hatch(sourceable: Path, tmp_path: Path):
+    result, _ = resolve(sourceable, tmp_path, exit_code=22)
+    assert result.returncode != 0
+    assert "LOOPSPEC_VERSION" in result.stderr
+
+
+def test_wheel_is_downloaded_from_the_versioned_tag_url():
+    """`latest/download` resolves the version; the wheel then comes from the
+    immutable tag URL, so a release landing mid-run cannot swap the bytes."""
+    code = "\n".join(code_lines())
+    assert 'wheel_url="$RELEASES/download/v$version/$wheel_name"' in code

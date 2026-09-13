@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/mingyuans/LoopSpec/main/install.sh | sh
 #
 # The same command does both: an existing install is overwritten with the target
-# version. Set LOOPSPEC_VERSION=0.1.0 to pin a version instead of taking the
+# version. Set LOOPSPEC_VERSION=1.0.3 to pin a version instead of taking the
 # latest release.
 #
 # Every download is verified against the release's checksums.txt before anything
@@ -17,6 +17,21 @@
 set -eu
 
 REPO="mingyuans/LoopSpec"
+RELEASES="https://github.com/$REPO/releases"
+
+# The latest release's checksums.txt, at a URL that never changes.
+#
+# Deliberately not api.github.com: unauthenticated calls there are capped at 60
+# per hour per IP -- a budget shared by everyone behind the same NAT -- so this
+# lookup used to fail with 403 for reasons that had nothing to do with this
+# repository. github.com's own `releases/latest/download/<asset>` path carries
+# no such cap, and needs no mutable `latest` tag for anyone to maintain.
+#
+# It also leaves the install depending on one host instead of two: the wheel
+# already comes from github.com, so an API that is reachable when github.com is
+# not could never have completed an install anyway.
+LATEST_CHECKSUMS_URL="$RELEASES/latest/download/checksums.txt"
+
 VERSION_PATTERN='^[0-9]\{1,\}\.[0-9]\{1,\}\.[0-9]\{1,\}\([._-]\{0,1\}\(a\|b\|rc\|alpha\|beta\|dev\|post\)[0-9]\{1,\}\)\{0,1\}$'
 
 log() {
@@ -29,10 +44,6 @@ die() {
 }
 
 # Only ever https, and never downgraded to http by a redirect.
-fetch() {
-	curl -fsSL --proto '=https' --tlsv1.2 "$1"
-}
-
 fetch_to() {
 	curl -fsSL --proto '=https' --tlsv1.2 -o "$2" "$1"
 }
@@ -43,29 +54,51 @@ validate_version() {
 	printf '%s' "$1" | grep -q "$VERSION_PATTERN" || die "not a valid version: '$1'"
 }
 
-resolve_version() {
+# checksums.txt lines are "<sha256>  loopspec-<version>-py3-none-any.whl", so
+# the file that verifies the download also names the version of it. Lenient
+# extraction, strict validation: whatever comes out still has to satisfy
+# validate_version before it reaches a URL or a filename.
+extract_version_from_checksums() {
+	sed -n 's/.*[[:space:]]\**loopspec-\(.*\)-py3-none-any\.whl$/\1/p' "$1" |
+		head -n 1
+}
+
+# Download checksums.txt and report the version it belongs to.
+#
+# Two ways in, differing only in where that file comes from:
+#
+#   pinned -- LOOPSPEC_VERSION is set, so the version is known up front and the
+#             file is fetched from that release's immutable tag URL.
+#   latest -- no version known, so the file is fetched from the constant
+#             `releases/latest/download/` URL and the version is read out of it.
+#
+# The latest path costs one request rather than two, and the version and the
+# checksum then come from the same file, so they cannot describe different
+# releases. The wheel itself is downloaded from the versioned tag URL either
+# way, which pins the bytes we verify to the bytes we install even if a new
+# release lands mid-run.
+resolve_release() {
+	tmp=$1
+
 	if [ -n "${LOOPSPEC_VERSION:-}" ]; then
 		validate_version "$LOOPSPEC_VERSION"
+		url="$RELEASES/download/v$LOOPSPEC_VERSION/checksums.txt"
+		fetch_to "$url" "$tmp/checksums.txt" ||
+			die "could not download $url
+  Check that release v$LOOPSPEC_VERSION exists."
 		printf '%s' "$LOOPSPEC_VERSION"
 		return
 	fi
 
-	api_url="https://api.github.com/repos/$REPO/releases/latest"
-	if ! response=$(fetch "$api_url"); then
-		die "could not query the latest release ($api_url).
-  If the network is fine, the API rate limit may be the cause, or the
-  repository may have no releases yet. Pin a version to skip this lookup:
-    curl -fsSL <this script's url> | LOOPSPEC_VERSION=0.1.0 sh"
-	fi
+	fetch_to "$LATEST_CHECKSUMS_URL" "$tmp/checksums.txt" ||
+		die "could not reach the latest release ($LATEST_CHECKSUMS_URL).
+  If the network is fine, the repository may have no releases yet.
+  Pin a version to skip this lookup:
+    curl -fsSL <this script's url> | LOOPSPEC_VERSION=1.0.3 sh"
 
-	# Deliberately lenient extraction, strict validation: no jq dependency, and
-	# whatever comes out still has to satisfy validate_version.
-	tag=$(printf '%s' "$response" |
-		sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
-		head -n 1)
-	[ -n "$tag" ] || die "could not find tag_name in the latest release response"
-
-	version=${tag#v}
+	version=$(extract_version_from_checksums "$tmp/checksums.txt")
+	[ -n "$version" ] ||
+		die "no wheel entry in checksums.txt from $LATEST_CHECKSUMS_URL"
 	validate_version "$version"
 	printf '%s' "$version"
 }
@@ -150,18 +183,15 @@ report_result() {
 main() {
 	command -v curl >/dev/null 2>&1 || die "curl is required"
 
-	version=$(resolve_version)
-	wheel_name="loopspec-$version-py3-none-any.whl"
-	base_url="https://github.com/$REPO/releases/download/v$version"
-
 	tmp=$(mktemp -d)
 	trap 'rm -rf "$tmp"' EXIT INT TERM
 
+	version=$(resolve_release "$tmp")
+	wheel_name="loopspec-$version-py3-none-any.whl"
+	wheel_url="$RELEASES/download/v$version/$wheel_name"
+
 	log "Downloading loopspec $version..."
-	fetch_to "$base_url/$wheel_name" "$tmp/$wheel_name" ||
-		die "could not download $base_url/$wheel_name"
-	fetch_to "$base_url/checksums.txt" "$tmp/checksums.txt" ||
-		die "could not download $base_url/checksums.txt"
+	fetch_to "$wheel_url" "$tmp/$wheel_name" || die "could not download $wheel_url"
 
 	extract_checksum_line "$tmp/checksums.txt" "$wheel_name" "$tmp/wheel.sha256"
 	verify_checksum "$tmp"
