@@ -133,10 +133,10 @@ make lint             # ruff check + mypy
 make docs-check       # docs/code consistency only
 make build            # uv build
 make install-local    # build, then uv tool install the wheel as the global `loopspec`
-make release-dry-run  # version check + install.sh checks + build
+make release-dry-run  # install.sh checks + build (add TAG= to check artifact names)
 make clean            # remove build/test caches
 ```
 
-`make release-dry-run` accepts `TAG=v0.2.0` to also verify a tag name against the two version declarations. It skips `shellcheck` when it isn't installed locally; CI treats it as mandatory.
+`make release-dry-run` accepts `TAG=v0.2.0` to also build the artifacts that tag would publish and assert their filenames -- there is no declared version for it to check them against, only the tag. It skips `shellcheck` when it isn't installed locally; CI treats it as mandatory.
 
 Everything that ships as data lives under `builtin/` at the repo root and is bundled into the installed package: the built-in `secure-spec-driven` schema in `builtin/schemas/`, and the Agent Skill bodies `loopspec init` writes in `builtin/skills/` (one Markdown file per `/lpsx:*` command, edit it and the next `init` writes the new text). `make docs-check` asserts the manual has not drifted from the code, and that the two language versions still match.
