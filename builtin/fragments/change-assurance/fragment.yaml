@@ -1,0 +1,12 @@
+version: 1
+name: change-assurance
+description: 基于本次全量 Diff 的确定性交付保障
+nodes:
+- id: check
+  instruction: check.instruction.md
+  requires: []
+  gate:
+    outputs:
+      pass: check/pass.md
+      fail: check/fail.md
+    assurance: rules.yaml

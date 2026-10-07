@@ -126,9 +126,7 @@ def test_headings_and_dim_carry_no_glyph():
 
 def test_colour_is_applied_when_the_console_allows_it():
     stream = io.StringIO()
-    presenter = Presenter(
-        Console(file=stream, force_terminal=True, width=200), ascii_only=False
-    )
+    presenter = Presenter(Console(file=stream, force_terminal=True, width=200), ascii_only=False)
     presenter.line(presenter.success("done"))
     assert "\x1b[" in stream.getvalue()  # some colour escape is present
 
@@ -218,8 +216,8 @@ def summary_output(**overrides) -> str:
         "tool_dirs": [".claude", ".codex"],
         "skipped_command_generation": [],
         "config_path": "loopspec/config.yaml",
-        "schema_name": "secure-spec-driven",
-        "getting_started": "loopspec new <change-name>",
+        "config_created": True,
+        "getting_started": "loopspec change new <change-name>",
         "project_url": "https://github.com/mingyuans/LoopSpec",
         "issues_url": "https://github.com/mingyuans/LoopSpec/issues",
     }
@@ -235,9 +233,9 @@ def test_summary_section_order():
         "Created: Claude Code",
         "Refreshed: Codex",
         "8 skills and 8 commands in .claude, .codex",
-        "Config: loopspec/config.yaml (schema: secure-spec-driven)",
+        "Config: loopspec/config.yaml (created)",
         "Getting started:",
-        "  loopspec new <change-name>",
+        "  loopspec change new <change-name>",
         "Learn more: https://github.com/mingyuans/LoopSpec",
         "Feedback:   https://github.com/mingyuans/LoopSpec/issues",
         "Restart your IDE for slash commands to take effect.",
@@ -257,9 +255,9 @@ def test_summary_omits_empty_created_or_refreshed_lines():
 
 
 def test_summary_config_exists_variant():
-    output = summary_output(schema_name=None)
+    output = summary_output(config_created=False)
     assert "Config: loopspec/config.yaml (exists)" in output
-    assert "schema:" not in output
+    assert "schema" not in output
 
 
 def test_summary_reports_tools_without_a_command_adapter():
@@ -367,9 +365,7 @@ def test_logo_falls_back_to_ascii_when_the_encoding_cannot_take_it():
 
 def test_logo_carries_colour_only_when_the_console_allows_it():
     stream = io.StringIO()
-    presenter = Presenter(
-        Console(file=stream, force_terminal=True, width=200), ascii_only=False
-    )
+    presenter = Presenter(Console(file=stream, force_terminal=True, width=200), ascii_only=False)
     render_welcome(presenter)
     assert "\x1b[" in stream.getvalue()
 

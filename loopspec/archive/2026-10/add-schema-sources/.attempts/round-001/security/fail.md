@@ -1,0 +1,15 @@
+# Security Review: FAIL
+
+## Blocking Issues
+- 包含性声明与实现不符（任意本地文件读取 → 泄露给 agent）：design D4 声称 "schema 内的 instructions / templates 继续由 `schema_loader` 既有检查约束在该 schema 目录内"，但 `_resolve_instruction` 与 `_check_template_exists` 只检查目标是否位于 `(schema_dir / "instructions"|"templates").resolve()` 之下——若 `instructions/` 或 `templates/` 本身是符号链接（例如共享源中 `instructions -> ~/.ssh`，`instruction.file: id_rsa`），检查通过，文件内容会作为 `instruction`/`template` 原样输出给 agent。外部源把「可写 schema 目录的人」从项目成员扩大到共享目录的任意写者，此缺口必须在本次关闭：包含性必须相对于**已解析的 schema 目录本身**判定，并覆盖 instructions、templates（含 `instructions._read_template` 的实际读取时刻）与 `schema.yaml`。tasks.md 需有对应任务与符号链接测试。
+- `schema.yaml` 本身未做包含性检查（经校验错误回显泄露内容）：`<源根>/<name>/schema.yaml` 若为指向源外文件的符号链接，会被 `yaml.safe_load` 解析；Pydantic 校验错误会回显输入值，`schemas validate` / `config_invalid` 的消息因此可能打印该外部文件（如某个 YAML 格式的凭据文件）的内容。design/tasks 必须要求 `schema.yaml` 解析后仍位于已解析的 schema 目录内，否则拒绝加载且不读取内容。
+- 逃逸路径的诊断信息未约束：tasks 2.3 要求「符号链接逃出源根时记录 warning」、2.2 要求错误消息只含原始 `path`，但 spec 与 tasks 均未规定 warning / 错误中**不得包含符号链接解析后的目标路径**。前一个变更（artifacts-command 第 1 轮）已因同类问题失败；本次需把「warning 与错误只回显源名、schema 名及配置原文，不回显 `resolve()` 结果」写进 spec 与测试断言。
+
+## Scope Reviewed
+- `loopspec/changes/add-schema-sources/design.md`（D1–D8）、`tasks.md`、`specs/schema-sources/spec.md`、`specs/loopspec-cli/spec.md`。
+- 受影响代码：`src/loopspec/schema_loader.py`（`_check_template_exists`、`_resolve_instruction`、`load_schema`）、`src/loopspec/instructions.py`（`_read_template`）、`src/loopspec/config.py`、`src/loopspec/paths.py`、`src/loopspec/cli.py`、`src/loopspec/artifacts.py`。
+- 已检查且无问题：无新增第三方依赖；无 shell/SQL/模板注入面（YAML 仍用 `safe_load`）；不展开环境变量（D4）；schema 名称在拼接前统一按 kebab-case 校验并补上 `.workflow.yaml` 的缺口（D3）；源目录只读（D4、tasks 3.6、4.5）；不涉及认证授权与密钥处理。
+
+## Recommended Fix Direction
+- 在 `load_schema` 入口计算一次 `resolved_schema_dir = schema_dir.resolve()`，把 `schema.yaml`、每个 instruction 文件、每个 template 文件的 `resolve()` 结果都与它做 `contained_in` 判定（而不是与各自的子目录判定）；`_read_template` 读取前复用同一判定，避免校验与读取之间目标被替换后读到目录外文件。该收紧同样作用于 `local` 源，需确认内置 schema 与现有测试不依赖目录外链接。
+- 在 `schema-sources` spec 的安全边界 requirement 中新增 scenario：`instructions/` 目录为外链、`templates/` 目录为外链、`schema.yaml` 为外链三种情况均被拒绝，且错误消息与 warnings 中不出现链接目标路径。

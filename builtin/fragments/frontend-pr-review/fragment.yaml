@@ -1,0 +1,17 @@
+version: 1
+name: frontend-pr-review
+description: 前端代码审查
+nodes:
+- id: check
+  instruction: check.instruction.md
+  requires: []
+  gate:
+    outputs:
+      pass: check/pass.md
+      fail: check/fail.md
+    templates:
+      pass: check.pass.md
+      fail: check.fail.md
+    evidence:
+      provides: [pr-review]
+      paths: [src/frontend/**, frontend/**, tests/frontend/**]

@@ -1,39 +1,43 @@
 # LoopSpec 手册
 
-> 覆盖范围：中文手册索引——每一篇覆盖什么、面向谁。
-> 适用读者：人类与 LLM agent；从这里开始。
-> 语言：[English](../en/README.md) · **中文**
+> 覆盖范围：中文手册索引——每页讲什么、适合谁读。
+> 适用读者：人与 LLM Agent；从这里开始。
+> 语言：**中文** · [English](../en/README.md)
 
-LoopSpec 是一个用于门禁式产物工作流的 CLI：你用 YAML 声明一次变更必须产出的文档图，agent 逐个生成它们，门禁节点可以带着记录在案的理由把工作打回去。
+LoopSpec 是用于 LLM Agent 的计划驱动、带 Gate 的交付 CLI。每个 Change 由 Agent 用可复用的 Fragment 与 Profile 为完整任务起草一份 Plan，经人确认后逐个节点执行已确认的图；代码 Gate 绑定审查证据，最后由保障节点按完整 Git Diff 做确定性检查。
 
-## 各篇
+## 页面
 
-| 文档 | 覆盖 | 面向 |
+| 页面 | 内容 | 读者 |
 | --- | --- | --- |
-| [总览](overview.md) | LoopSpec 是什么、解决什么问题、核心模型（节点、产物、门禁、回退、状态从文件系统推导），以及手册其余各篇使用的术语表。 | 所有人，第一篇。 |
-| [CLI 参考](cli-reference.md) | 每条命令与选项、每个 `--json` 响应字段、真实响应示例、失败契约，以及全部 15 个错误码。 | 任何查参数或响应结构的人。 |
-| [配置](configuration.md) | `config.yaml` 每个字段的类型、必填性、默认值与校验规则；新建与既有 change 两条不同的 schema 解析路径；四个递进示例。 | 搭建或排查项目配置。 |
-| [Schema 参考](schema-reference.md) | `schema.yaml` 每个字段、schema 目录布局、`tracks` 与门禁语义、全部加载期校验及其错误码，以及一份完整的最小 schema。 | 编写或修复工作流。 |
-| [Agent 协议](agent-protocol.md) | status/instructions 循环、回退支线、每一步该读哪个响应字段，以及 agent 最容易搞错的行为。 | LLM agent，以及为其写提示词的人。 |
-| [secure-spec-driven](workflows/secure-spec-driven.md) | 内置工作流：七个节点、每个节点必须产出什么，以及每个门禁为什么重置它所重置的东西。 | 用默认流程推进变更。 |
+| [概览](overview.md) | 两套层级（Change、Plan、Revision；Node、Fragment、Profile、Plan）、推导状态、目录布局与术语表。 | 所有人，第一篇。 |
+| [工作流组合](workflow-composition.md) | 编写 Fragment、Profile 与 Plan 请求；`on_fail` 如何下放到 Gate；代码证据与保障。 | 工作流作者与负责规划的 Agent。 |
+| [Plan 参考](plan-reference.md) | 逐字段说明 `plan.yaml`、`.workflow.yaml` 与重做记录，附完整示例；修订与重新规划规则。 | 阅读或评审 Plan 的人。 |
+| [配置](configuration.md) | 逐字段说明 `config.yaml` 与保障规则文件；哪些内容实时读取。 | 配置项目的人。 |
+| [CLI 参考](cli-reference.md) | 全部命令与参数、JSON 输出与全部错误码。 | 查命令的人。 |
+| [Agent 协议](agent-protocol.md) | Agent 的循环：规划、确认、执行、返工、修订、重新规划与命令中断后的处理。 | LLM Agent 与编写其提示词的人。 |
+| [版本说明](release-notes.md) | 2.0.0 的变化以及如何从 1.x 升级。 | 升级的用户。 |
 
-## 快速定位
-
-上手：
+## 快速上手
 
 ```bash
-loopspec init ./loopspec
-loopspec new add-payment --json
-loopspec status add-payment
+loopspec init ./loopspec --tools claude
+loopspec change new AFD1111
+loopspec profile show bugfix
+# write changes/AFD1111/plans/request.yaml for the whole task, then:
+loopspec plan validate -c AFD1111 -f changes/AFD1111/plans/request.yaml
+loopspec plan create -c AFD1111 -f changes/AFD1111/plans/request.yaml
+loopspec plan show -c AFD1111 -p 001
+# show it to a human and wait for explicit confirmation, then:
+loopspec plan approve -c AFD1111 -p 001 --digest "<shown digest>"
+loopspec change status AFD1111
 ```
 
-`status` 每一轮都会指名唯一的下一条命令。照它执行，写出 `loopspec instructions` 所描述的产物，再回到 `status`——这就是全部循环。细节见 [Agent 协议](agent-protocol.md)，其余一切见 [CLI 参考](cli-reference.md)。
+按问题查找：
 
-带着具体问题去哪里找：
-
-- *这个参数是干什么的？*——[CLI 参考](cli-reference.md)
-- *`config.yaml` 里能写什么？*——[配置](configuration.md)
-- *怎么编写自己的工作流？*——[Schema 参考](schema-reference.md)
-- *我的 agent 下一步该做什么？*——[Agent 协议](agent-protocol.md)
-- *这个节点应该产出什么？*——[secure-spec-driven](workflows/secure-spec-driven.md)
-- *这个术语是什么意思？*——[总览术语表](overview.md#术语表)
+- *这个命令做什么？* —— [CLI 参考](cli-reference.md)
+- *怎么写 Fragment 或 Plan 请求？* —— [工作流组合](workflow-composition.md)
+- *`plan.yaml` 里有什么？* —— [Plan 参考](plan-reference.md)
+- *`config.yaml` 能写什么？* —— [配置](configuration.md)
+- *Agent 下一步该做什么？* —— [Agent 协议](agent-protocol.md)
+- *这个术语是什么意思？* —— [概览术语表](overview.md#术语表)

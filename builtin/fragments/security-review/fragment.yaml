@@ -1,0 +1,17 @@
+version: 1
+name: security-review
+description: 后端安全审查
+nodes:
+- id: check
+  instruction: check.instruction.md
+  requires: []
+  gate:
+    outputs:
+      pass: check/pass.md
+      fail: check/fail.md
+    templates:
+      pass: check.pass.md
+      fail: check.fail.md
+    evidence:
+      provides: [security-review]
+      paths: [src/backend/**, backend/**, tests/backend/**]

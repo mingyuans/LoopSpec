@@ -25,7 +25,7 @@ def sourceable(tmp_path_factory) -> Path:
     """install.sh with its final `main "$@"` line removed, so it can be sourced."""
     lines = INSTALL_SH.read_text(encoding="utf-8").splitlines(keepends=True)
     kept = [line for line in lines if line.strip() != 'main "$@"']
-    assert len(kept) == len(lines) - 1, "expected exactly one `main \"$@\"` call"
+    assert len(kept) == len(lines) - 1, 'expected exactly one `main "$@"` call'
     path = tmp_path_factory.mktemp("lib") / "install_lib.sh"
     path.write_text("".join(kept), encoding="utf-8")
     return path
@@ -209,9 +209,7 @@ done
 exit 0
 """
 
-LATEST_CHECKSUMS = (
-    f"{WHEEL_SHA}  {WHEEL}\n" "deadbeef  loopspec-0.1.0.tar.gz\n"
-)
+LATEST_CHECKSUMS = f"{WHEEL_SHA}  {WHEEL}\ndeadbeef  loopspec-0.1.0.tar.gz\n"
 
 
 def resolve(

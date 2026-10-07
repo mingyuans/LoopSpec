@@ -1,63 +1,27 @@
-"""Typer CLI entry point."""
+"""loopspec CLI: `version`, `init`, and the `loopspec <resource> <verb>` workflow tree."""
 
 from __future__ import annotations
 
 import json
-import re
-import shutil
-from dataclasses import dataclass
-from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import NoReturn
 
 import typer
 
-from . import config as config_mod
-from . import paths as paths_mod
-from .artifacts import ArtifactReport, discover_artifacts, resolve_requested_schemas
-from .attempts import list_rounds
-from .builtin_resources import builtin_schemas_dir
-from .change_state import create_initial_state
-from .errors import (
-    ArchiveConflictError,
-    ArchiveUnsafeError,
-    ChangeExistsError,
-    ChangeNotFoundError,
-    InvalidChangeNameError,
-    LoopspecError,
-    SchemaSelectionRequiredError,
-)
-from .instructions import build_instructions
-from .models import KEBAB_RE
-from .outputs import resolve_outputs, resolved_output_path
-from .policy import build_next_steps
-from .presentation import (
-    ArtifactLocationSummary,
-    Presenter,
-    render_artifacts_summary,
-    render_init_summary,
-    render_welcome,
-)
-from .rollback import compute_reset_closure, rollback_change
+from . import workflow_cli
+from .errors import LoopspecError
+from .presentation import Presenter, render_init_summary, render_welcome
 from .scaffold import ScaffoldResult, scaffold_tools
-from .schema_loader import load_schema
-from .state import compute_states, is_complete
-from .status_report import render_error_report, render_status_report
-from .task_tracking import progress_summary, read_task_progress
 from .tool_registry import AI_TOOLS
 from .tools_cli import is_interactive, pick_tools, resolve_tools_arg
 
-app = typer.Typer(help="loopspec: a gated artifact workflow CLI.")
-schemas_app = typer.Typer(help="Manage workflow schemas.")
-app.add_typer(schemas_app, name="schemas")
+app = typer.Typer(help="loopspec: a gated, plan-driven workflow CLI.", no_args_is_help=True)
+workflow_cli.register(app)
 
-_KEBAB = re.compile(KEBAB_RE)
 DEFAULT_HOME = Path("./loopspec")
 
-HomeOption = typer.Option(DEFAULT_HOME, "--home", help="Workflow home directory.")
 JsonOption = typer.Option(False, "--json", help="Emit machine-readable JSON.")
 HomePathArgument = typer.Argument(DEFAULT_HOME)
-NoBuiltinOption = typer.Option(False, "--no-builtin", help="Skip copying built-in schemas.")
 ToolsOption = typer.Option(
     None,
     "--tools",
@@ -74,106 +38,32 @@ ProjectRootOption = typer.Option(
         "Defaults to the parent of the workflow home, i.e. your project root."
     ),
 )
+PROJECT_URL = "https://github.com/mingyuans/LoopSpec"
+ISSUES_URL = f"{PROJECT_URL}/issues"
+DEFAULT_CONFIG = "artifacts_dir: changes\nworkflow: {}\n"
 
 
-def _emit(data: dict[str, Any], as_json: bool) -> None:
-    if as_json:
-        typer.echo(json.dumps(data, indent=2, default=str))
-    else:
-        for key, value in data.items():
-            typer.echo(f"{key}: {value}")
-
-
-def _fail(exc: LoopspecError, as_json: bool, extra: dict[str, Any] | None = None) -> NoReturn:
+def _fail(exc: LoopspecError, as_json: bool) -> NoReturn:
     payload = exc.to_dict()
-    if extra:
-        payload.update(extra)
     if as_json:
-        _emit(payload, as_json)
+        typer.echo(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
-        # Same separator form and the same sanitisation entry point as the status
-        # report, for every command rather than just `status`: the two outputs
-        # share an origin (unvalidated change names, filesystem paths) and a
-        # destination (an LLM's context), so they must not have two standards.
-        typer.echo(
-            render_error_report(payload.get("error"), payload.get("message"), payload.get("fix"))
-        )
+        typer.echo(f"Error [{payload['error']}]: {payload['message']}")
+        if payload["fix"]:
+            typer.echo(f"Fix: {payload['fix']}")
     raise typer.Exit(code=1)
-
-
-@dataclass
-class ChangeContext:
-    change_name: str
-    config: Any
-    change_root: Path
-    change_dir: Path
-    artifact_dir: Path
-    schema_name: str
-    loaded: Any
-
-
-def _load_change_context(home: Path, change_name: str) -> ChangeContext:
-    config = config_mod.load_config(home)
-    change_root = paths_mod.change_root(home, config.artifacts_dir, change_name)
-    if not change_root.is_dir() or not paths_mod.contained_in(home, change_root):
-        raise ChangeNotFoundError(f"Change not found: {change_name}")
-
-    metadata = config_mod.read_metadata(change_root)
-    schema_name = config_mod.resolve_schema_for_existing_change(config, metadata, None)
-    schema_dir = paths_mod.schema_dir(home, schema_name)
-    loaded = load_schema(schema_dir)
-    schema_path = config_mod.schema_workspace_path_for(config, schema_name)
-    workspace_dir = paths_mod.artifact_root(change_root, schema_path)
-    # New multi-schema changes keep metadata, state and attempts inside their
-    # schema workspace.  Old changes have those files at the change root and
-    # continue to load without migration.
-    change_dir = (
-        workspace_dir
-        if workspace_dir != change_root
-        and (workspace_dir / config_mod.METADATA_FILENAME).is_file()
-        else change_root
-    )
-    artifact_dir = workspace_dir if workspace_dir != change_root else change_dir
-    artifact_dir.mkdir(parents=True, exist_ok=True)
-
-    return ChangeContext(
-        change_name=change_name,
-        config=config,
-        change_root=change_root,
-        change_dir=change_dir,
-        artifact_dir=artifact_dir,
-        schema_name=schema_name,
-        loaded=loaded,
-    )
-
-
-# --------------------------------------------------------------------------- #
-# version
-# --------------------------------------------------------------------------- #
 
 
 @app.command()
 def version(as_json: bool = JsonOption) -> None:
     """Print the installed loopspec version."""
 
-    # The package already resolves this from the distribution metadata, with the
-    # dev-version fallback for a source tree that was never installed.
     from . import __version__ as installed_version
 
     if as_json:
         typer.echo(json.dumps({"version": installed_version}))
     else:
         typer.echo(installed_version)
-
-
-# --------------------------------------------------------------------------- #
-# init
-# --------------------------------------------------------------------------- #
-
-
-DEFAULT_SCHEMA_NAME = "secure-spec-driven"
-PROJECT_URL = "https://github.com/mingyuans/LoopSpec"
-ISSUES_URL = f"{PROJECT_URL}/issues"
 
 
 def _display_path(path: Path) -> str:
@@ -227,7 +117,6 @@ def _init_counts(result: ScaffoldResult) -> tuple[int, int]:
 @app.command()
 def init(
     path: Path = HomePathArgument,
-    no_builtin: bool = NoBuiltinOption,
     tools: str | None = ToolsOption,
     project_root: Path | None = ProjectRootOption,
     as_json: bool = JsonOption,
@@ -237,26 +126,20 @@ def init(
     presenter = None if as_json else Presenter()
 
     path.mkdir(parents=True, exist_ok=True)
-    (path / "schemas").mkdir(exist_ok=True)
     (path / "changes").mkdir(exist_ok=True)
 
     config_path = path / "config.yaml"
     created_files = []
     if not config_path.is_file():
-        config_path.write_text(
-            f"artifacts_dir: changes\nschema: {DEFAULT_SCHEMA_NAME}\n", encoding="utf-8"
-        )
+        config_path.write_text(DEFAULT_CONFIG, encoding="utf-8")
         created_files.append("config.yaml")
 
-    copied_schemas: list[str] = []
-    if not no_builtin:
-        source = builtin_schemas_dir()
-        if source.is_dir():
-            for candidate in sorted(p for p in source.iterdir() if p.is_dir()):
-                destination = path / "schemas" / candidate.name
-                if not destination.exists():
-                    shutil.copytree(candidate, destination)
-                    copied_schemas.append(candidate.name)
+    from .workflow_resources import install_resources
+
+    try:
+        copied_workflows = install_resources(path)
+    except LoopspecError as exc:
+        _fail(exc, as_json)
 
     if presenter is not None:
         presenter.line(presenter.ready(f"Workflow home ready at {_display_path(path)}"))
@@ -289,19 +172,17 @@ def init(
         "workflowHome": str(path.resolve()),
         "projectRoot": str(scaffold_root),
         "createdFiles": created_files,
-        "copiedSchemas": copied_schemas,
+        "copiedWorkflowResources": copied_workflows,
         "toolsConfigured": tool_ids,
         "scaffoldedFiles": scaffold_result.written_files,
         "skippedCommandGeneration": scaffold_result.skipped_command_generation,
         "createdTools": scaffold_result.created,
         "refreshedTools": scaffold_result.refreshed,
-        "nextSteps": [
-            f"Run `loopspec schemas list --home {path} --json` to see available schemas."
-        ],
+        "nextSteps": [f"loopspec change new <change-name> --home {path}"],
     }
 
     if presenter is None:
-        _emit(result, as_json)
+        typer.echo(json.dumps(result, ensure_ascii=False, indent=2, default=str))
         return
 
     skill_count, command_count = _init_counts(scaffold_result)
@@ -315,686 +196,8 @@ def init(
         tool_dirs=list(dict.fromkeys(AI_TOOLS[tool_id].skills_dir for tool_id in tool_ids)),
         skipped_command_generation=scaffold_result.skipped_command_generation,
         config_path=_display_path(config_path),
-        schema_name=DEFAULT_SCHEMA_NAME if "config.yaml" in created_files else None,
-        getting_started=f"loopspec new <change-name>{home_suffix}",
+        config_created="config.yaml" in created_files,
+        getting_started=f"loopspec change new <change-name>{home_suffix}",
         project_url=PROJECT_URL,
         issues_url=ISSUES_URL,
     )
-
-
-# --------------------------------------------------------------------------- #
-# schemas list / show / validate
-# --------------------------------------------------------------------------- #
-
-
-@schemas_app.command("list")
-def schemas_list(home: Path = HomeOption, as_json: bool = JsonOption) -> None:
-    schemas_dir = home / "schemas"
-    entries = []
-    if schemas_dir.is_dir():
-        for candidate in sorted(p for p in schemas_dir.iterdir() if p.is_dir()):
-            if not (candidate / "schema.yaml").is_file():
-                continue
-            try:
-                loaded = load_schema(candidate)
-            except LoopspecError:
-                continue
-            entries.append(
-                {
-                    "name": loaded.schema.name,
-                    "version": loaded.schema.version,
-                    "source": "local",
-                    "path": str(candidate.resolve()),
-                    "nodes": loaded.graph.node_ids(),
-                }
-            )
-    _emit({"schemas": entries}, as_json)
-
-
-@schemas_app.command("show")
-def schemas_show(name: str, home: Path = HomeOption, as_json: bool = JsonOption) -> None:
-    try:
-        loaded = load_schema(paths_mod.schema_dir(home, name))
-    except LoopspecError as exc:
-        _fail(exc, as_json)
-
-    nodes = []
-    for node_id in loaded.graph.build_order():
-        node = loaded.node(node_id)
-        nodes.append(
-            {
-                "id": node.id,
-                "requires": node.requires,
-                "generates": node.generates,
-                "isGate": node.gate is not None,
-            }
-        )
-    _emit({"name": loaded.schema.name, "version": loaded.schema.version, "nodes": nodes}, as_json)
-
-
-@schemas_app.command("validate")
-def schemas_validate(name: str, home: Path = HomeOption, as_json: bool = JsonOption) -> None:
-    try:
-        loaded = load_schema(paths_mod.schema_dir(home, name))
-    except LoopspecError as exc:
-        _fail(exc, as_json)
-
-    _emit(
-        {"valid": True, "name": loaded.schema.name, "buildOrder": loaded.graph.build_order()},
-        as_json,
-    )
-
-
-# --------------------------------------------------------------------------- #
-# new
-# --------------------------------------------------------------------------- #
-
-
-@app.command()
-def new(
-    change_name: str,
-    schema: str | None = typer.Option(None, "--schema"),
-    home: Path = HomeOption,
-    as_json: bool = JsonOption,
-) -> None:
-    if not _KEBAB.match(change_name):
-        _fail(InvalidChangeNameError(f"Invalid change name: {change_name}"), as_json)
-
-    try:
-        config = config_mod.load_config(home)
-    except LoopspecError as exc:
-        _fail(exc, as_json)
-
-    try:
-        schema_name = config_mod.resolve_schema_for_new_change(config, schema)
-    except SchemaSelectionRequiredError as exc:
-        payload: dict[str, Any] = exc.to_dict()
-        payload.update(
-            {
-                "changeName": change_name,
-                "artifactsDir": config.artifacts_dir,
-                "schemas": [
-                    {
-                        "name": ref.name,
-                        "path": ref.path,
-                        "description": ref.description,
-                        "when": ref.when,
-                    }
-                    for ref in config.schemas
-                ],
-                "selectionInstruction": (
-                    config.schema_selection.instruction if config.schema_selection else None
-                ),
-            }
-        )
-        _emit(payload, as_json)
-        raise typer.Exit(code=1) from None
-    except LoopspecError as exc:
-        _fail(exc, as_json)
-
-    try:
-        load_schema(paths_mod.schema_dir(home, schema_name))
-    except LoopspecError as exc:
-        _fail(exc, as_json)
-
-    canonical_name = paths_mod.reusable_change_name(
-        home, config.artifacts_dir, change_name, schema_name
-    )
-    change_dir = paths_mod.change_root(home, config.artifacts_dir, canonical_name)
-    reused_change = change_dir.exists()
-    if reused_change and (
-        not change_dir.is_dir() or not paths_mod.contained_in(home, change_dir)
-    ):
-        _fail(ChangeExistsError(f"Change path is not reusable: {canonical_name}"), as_json)
-    schema_path = config_mod.schema_workspace_path_for(config, schema_name)
-    workspace_dir = paths_mod.artifact_root(change_dir, schema_path)
-    if workspace_dir.exists():
-        _fail(
-            ChangeExistsError(
-                f"Schema '{schema_name}' already exists for change: {canonical_name}"
-            ),
-            as_json,
-        )
-
-    change_dir.mkdir(parents=True, exist_ok=True)
-    if workspace_dir != change_dir:
-        workspace_dir.mkdir(parents=True)
-    created = date.today().isoformat()
-    # Root metadata is the active-schema pointer consumed by commands that do
-    # not take --schema.  Automatically nested multi-schema workspaces also own
-    # durable metadata, state and rollback history of their own; an explicit
-    # schemas[*].path retains its historical artifact-only meaning.
-    active_metadata_path = config_mod.write_metadata(change_dir, schema_name, created)
-    owns_schema_workspace = (
-        len(config.schemas) > 1
-        and config_mod.schema_path_for(config, schema_name) is None
-    )
-    metadata_path = (
-        config_mod.write_metadata(workspace_dir, schema_name, created)
-        if owns_schema_workspace
-        else active_metadata_path
-    )
-    state_path = create_initial_state(workspace_dir if owns_schema_workspace else change_dir)
-
-    written_paths = [active_metadata_path]
-    if metadata_path not in written_paths:
-        written_paths.append(metadata_path)
-    written_paths.append(state_path)
-    created_files = [str(path.relative_to(change_dir)) for path in written_paths]
-
-    result = {
-        "changeName": canonical_name,
-        "requestedChangeName": change_name,
-        "reusedChange": reused_change,
-        "schemaName": schema_name,
-        "artifactsDir": config.artifacts_dir,
-        "schemaPath": schema_path,
-        "changeRoot": str(change_dir.resolve()),
-        "artifactRoot": str(workspace_dir.resolve()),
-        "statePath": str(state_path.resolve()),
-        "metadataPath": str(metadata_path.resolve()),
-        "activeMetadataPath": str(active_metadata_path.resolve()),
-        "created": created,
-        "createdFiles": created_files,
-        "nextSteps": [f'Run `loopspec status {canonical_name}` to see the first node.'],
-    }
-    _emit(result, as_json)
-
-
-# --------------------------------------------------------------------------- #
-# status
-# --------------------------------------------------------------------------- #
-
-
-def _node_output_summary(loaded, node_id: str, artifact_dir: Path) -> dict[str, Any]:
-    node = loaded.node(node_id)
-    summary: dict[str, Any]
-    if node.gate is None:
-        # Through resolve_outputs, so a glob reports the files it actually matched
-        # rather than a path with `**` in it, and so `.attempts/` and the reserved
-        # change files are filtered out here the same way they are everywhere else.
-        summary = {
-            "outputPath": node.generates,
-            "resolvedOutputPath": resolved_output_path(artifact_dir, node.generates),
-            "existingOutputPaths": [
-                str(path) for path in resolve_outputs(artifact_dir, node.generates)
-            ],
-        }
-    else:
-        pass_path = artifact_dir / node.gate.outputs.pass_
-        fail_path = artifact_dir / node.gate.outputs.fail
-        existing = [str(p.resolve()) for p in (pass_path, fail_path) if p.is_file()]
-        summary = {
-            "outputPath": {"pass": node.gate.outputs.pass_, "fail": node.gate.outputs.fail},
-            "resolvedOutputPath": {
-                "pass": str(pass_path.resolve()),
-                "fail": str(fail_path.resolve()),
-            },
-            "existingOutputPaths": existing,
-        }
-
-    if node.tracks is not None:
-        # Counts only -- the per-task list stays in `loopspec instructions`, since
-        # `status` is called on every turn of the loop and must stay compact.
-        summary["taskProgress"] = progress_summary(read_task_progress(artifact_dir, node.tracks))
-    return summary
-
-
-@app.command()
-def status(change_name: str, home: Path = HomeOption, as_json: bool = JsonOption) -> None:
-    try:
-        ctx = _load_change_context(home, change_name)
-    except LoopspecError as exc:
-        _fail(exc, as_json)
-
-    states = compute_states(ctx.loaded.graph, ctx.change_dir, ctx.artifact_dir)
-    nodes = []
-    pending_rollback = None
-    for node_id in ctx.loaded.graph.build_order():
-        state = states[node_id]
-        entry: dict[str, Any] = {"id": node_id, "status": state.status}
-        entry.update(_node_output_summary(ctx.loaded, node_id, ctx.artifact_dir))
-        if state.status in ("failed", "exhausted"):
-            node = ctx.loaded.node(node_id)
-            assert node.gate is not None and state.verdict is not None
-            closure = compute_reset_closure(ctx.loaded.graph, node_id)
-            entry["gate"] = {
-                "verdict": state.verdict.status,
-                "summary": state.verdict.summary,
-                "blockingIssues": state.verdict.blocking_issues,
-                "rollbacksUsed": state.rollbacks_used,
-                "maxRetries": state.max_retries,
-                "resetDeclared": node.gate.on_fail.reset,
-                "resetClosure": closure,
-            }
-            if state.status == "failed" and pending_rollback is None:
-                pending_rollback = {
-                    "gate": node_id,
-                    "closure": closure,
-                    "command": f"loopspec rollback {change_name} --json",
-                }
-        elif state.status == "blocked":
-            entry["missingDeps"] = state.missing_deps
-        nodes.append(entry)
-
-    state_path = ctx.change_dir / "state.md"
-    result = {
-        "changeName": change_name,
-        "schemaName": ctx.schema_name,
-        "artifactsDir": ctx.config.artifacts_dir,
-        "schemaPath": config_mod.schema_workspace_path_for(ctx.config, ctx.schema_name),
-        "changeRoot": str(ctx.change_root.resolve()),
-        "artifactRoot": str(ctx.artifact_dir.resolve()),
-        "statePath": str(state_path.resolve()),
-        "stateExists": state_path.is_file(),
-        "isComplete": is_complete(states),
-        "nodes": nodes,
-        "pendingRollback": pending_rollback,
-        "nextSteps": build_next_steps(change_name, ctx.loaded.graph, states),
-    }
-    if as_json:
-        _emit(result, as_json)
-    else:
-        # Not `_emit`'s `key: value` branch: it `str()`s `nodes` into a single
-        # line of Python repr. The caller here is the LLM running the loop, so
-        # the default output is the plain-text report instead.
-        typer.echo(render_status_report(result))
-
-
-# --------------------------------------------------------------------------- #
-# instructions
-# --------------------------------------------------------------------------- #
-
-
-@app.command()
-def instructions(
-    node_id: str,
-    change: str = typer.Option(..., "--change"),
-    home: Path = HomeOption,
-    as_json: bool = JsonOption,
-) -> None:
-    try:
-        ctx = _load_change_context(home, change)
-    except LoopspecError as exc:
-        _fail(exc, as_json)
-
-    try:
-        response = build_instructions(
-            ctx.loaded,
-            node_id,
-            ctx.change_dir,
-            ctx.artifact_dir,
-            context=ctx.config.context,
-            rules_by_node=ctx.config.rules,
-        )
-    except LoopspecError as exc:
-        _fail(exc, as_json)
-
-    response = {
-        "changeName": change,
-        "schemaName": ctx.schema_name,
-        "changeDir": str(ctx.change_dir.resolve()),
-        "artifactRoot": str(ctx.artifact_dir.resolve()),
-        **response,
-    }
-    _emit(response, as_json)
-
-
-# --------------------------------------------------------------------------- #
-# rollback
-# --------------------------------------------------------------------------- #
-
-
-@app.command()
-def rollback(change_name: str, home: Path = HomeOption, as_json: bool = JsonOption) -> None:
-    try:
-        ctx = _load_change_context(home, change_name)
-    except LoopspecError as exc:
-        _fail(exc, as_json)
-
-    try:
-        result = rollback_change(ctx.loaded.graph, ctx.change_dir, ctx.artifact_dir)
-    except LoopspecError as exc:
-        _fail(exc, as_json)
-
-    payload = {
-        "changeName": change_name,
-        "gate": result.gate,
-        "round": result.round,
-        "closure": result.closure,
-        "archivedFiles": result.archived,
-        "archiveDir": str(result.archive_dir.resolve()),
-        "rollbacksUsed": result.rollbacks_used,
-        "maxRetries": result.max_retries,
-        "nextSteps": [f"Run `loopspec status {change_name}` to see the next node."],
-    }
-    _emit(payload, as_json)
-
-
-# --------------------------------------------------------------------------- #
-# history
-# --------------------------------------------------------------------------- #
-
-
-@app.command()
-def history(change_name: str, home: Path = HomeOption, as_json: bool = JsonOption) -> None:
-    try:
-        ctx = _load_change_context(home, change_name)
-    except LoopspecError as exc:
-        _fail(exc, as_json)
-
-    rounds = []
-    for meta in list_rounds(ctx.change_dir):
-        round_dir: Path = meta["_dir"]
-        rounds.append(
-            {
-                "round": meta.get("round"),
-                "gate": meta.get("gate"),
-                "verdict": meta.get("verdict"),
-                "summary": meta.get("summary"),
-                "resetClosure": meta.get("reset_closure"),
-                "archivedFiles": meta.get("archived_files"),
-                "archiveDir": str(round_dir.resolve()),
-                "archivedAt": meta.get("archived_at"),
-            }
-        )
-    _emit({"changeName": change_name, "rounds": rounds}, as_json)
-
-
-# --------------------------------------------------------------------------- #
-# artifacts
-# --------------------------------------------------------------------------- #
-
-
-SchemasOption = typer.Option(
-    None,
-    "--schemas",
-    help=(
-        "Comma-separated schema names to report artifacts for (e.g. "
-        "secure-spec-driven,docs-only). Omit to report every known schema."
-    ),
-)
-
-
-def _artifacts_payload(report: ArtifactReport) -> dict[str, Any]:
-    """The `--json` view of a report. Field names are the published contract."""
-
-    return {
-        "changeName": report.change_name,
-        "artifactsDir": report.artifacts_dir,
-        "requestedSchemas": report.requested_schemas,
-        "schemasSeen": report.schemas_seen,
-        "locations": [
-            {
-                "kind": location.kind,
-                "archiveMonth": location.archive_month,
-                "changeRoot": str(location.change_root),
-                "declaredSchema": location.declared_schema,
-                "created": location.created,
-                "statePath": str(location.state_path),
-                "stateExists": location.state_exists,
-                "schemas": [
-                    {
-                        "name": schema.name,
-                        "declared": schema.declared,
-                        "schemaPath": schema.schema_path,
-                        "artifactRoot": str(schema.artifact_root.resolve()),
-                        "nodes": [
-                            {
-                                "id": node.id,
-                                "isGate": node.is_gate,
-                                "outputPatterns": node.output_patterns,
-                                "files": [str(path) for path in node.files],
-                            }
-                            for node in schema.nodes
-                        ],
-                        "files": [str(path) for path in schema.files],
-                    }
-                    for schema in location.schemas
-                ],
-                "attempts": [
-                    {
-                        "round": round_.round,
-                        "gate": round_.gate,
-                        "verdict": round_.verdict,
-                        "archiveDir": str(round_.archive_dir.resolve()),
-                        "files": [str(path) for path in round_.files],
-                    }
-                    for round_ in location.attempts
-                ],
-                "unclassifiedFiles": [str(path) for path in location.unclassified_files],
-                "files": [str(path) for path in location.files],
-            }
-            for location in report.locations
-        ],
-        "files": [str(path) for path in report.files],
-        "warnings": report.warnings,
-        "nextSteps": _artifacts_next_steps(report),
-    }
-
-
-def _artifacts_next_steps(report: ArtifactReport) -> list[str]:
-    """Point at the one command that follows, per the location mix found.
-
-    An archived-only change has nothing for `status` to report -- it fails with
-    `change_not_found` -- so suggesting it there would send the caller into a
-    dead end.
-    """
-
-    if any(location.kind == "active" for location in report.locations):
-        return [
-            f"Run `loopspec status {report.change_name}` to see where the "
-            "active workflow stands."
-        ]
-    return [
-        "Every copy of this change is archived; read the listed paths directly, or "
-        f"run `loopspec new {report.change_name} --schema <name>` to start a new "
-        "stretch of work under this name."
-    ]
-
-
-def _artifacts_summaries(report: ArtifactReport) -> list[ArtifactLocationSummary]:
-    return [
-        ArtifactLocationSummary(
-            title=(
-                f"{location.kind} {location.archive_month}"
-                if location.archive_month
-                else location.kind
-            ),
-            path=_display_path(location.change_root),
-            schema_counts=tuple(
-                (schema.name, len(schema.files))
-                for schema in location.schemas
-                if schema.files
-            ),
-            round_count=len(location.attempts),
-            round_file_count=sum(len(round_.files) for round_ in location.attempts),
-            unclassified_count=len(location.unclassified_files),
-            state_present=location.state_exists,
-        )
-        for location in report.locations
-    ]
-
-
-@app.command()
-def artifacts(
-    change_name: str,
-    schemas: str | None = SchemasOption,
-    home: Path = HomeOption,
-    as_json: bool = JsonOption,
-) -> None:
-    """List every artifact path a change owns, across schemas and archive months."""
-
-    try:
-        requested = resolve_requested_schemas(schemas)
-        config = config_mod.load_config(home)
-        report = discover_artifacts(home, config, change_name, requested)
-    except LoopspecError as exc:
-        _fail(exc, as_json)
-
-    if as_json:
-        _emit(_artifacts_payload(report), as_json)
-        return
-
-    render_artifacts_summary(
-        Presenter(),
-        change_name=report.change_name,
-        locations=_artifacts_summaries(report),
-        total_files=len(report.files),
-        warning_count=len(report.warnings),
-    )
-
-
-# --------------------------------------------------------------------------- #
-# archive / bulk-archive
-# --------------------------------------------------------------------------- #
-
-
-def _change_archive_reason(
-    graph, change_dir: Path, artifact_dir: Path, allow_exhausted: bool, allow_pending_failures: bool
-) -> str:
-    states = compute_states(graph, change_dir, artifact_dir)
-    if is_complete(states):
-        return "complete"
-
-    statuses = {state.status for state in states.values()}
-    if "exhausted" in statuses and allow_exhausted and "failed" not in statuses:
-        return "exhausted"
-    if "failed" in statuses and allow_pending_failures:
-        return "pending-failure"
-
-    raise ArchiveUnsafeError(
-        "This change is not complete and does not qualify for archiving under the "
-        "current flags.",
-        fix="Finish the change, or pass --exhausted / --include-pending-failures "
-        "if that applies.",
-    )
-
-
-def _archive_one(
-    home: Path,
-    change_name: str,
-    *,
-    dry_run: bool,
-    allow_exhausted: bool,
-    allow_pending_failures: bool,
-    today: date,
-) -> dict[str, Any]:
-    ctx = _load_change_context(home, change_name)
-    reason = _change_archive_reason(
-        ctx.loaded.graph, ctx.change_dir, ctx.artifact_dir, allow_exhausted, allow_pending_failures
-    )
-
-    year_month = today.strftime("%Y-%m")
-    destination = (paths_mod.archive_root(home, year_month) / change_name).resolve()
-
-    result: dict[str, Any] = {
-        "dryRun": dry_run,
-        "changeName": change_name,
-        "schemaName": ctx.schema_name,
-        "reason": reason,
-        "source": str(ctx.change_root.resolve()),
-        "destination": str(destination),
-    }
-
-    if dry_run:
-        result["nextSteps"] = ["Re-run without --dry-run to move this change into the archive."]
-        return result
-
-    if destination.exists():
-        raise ArchiveConflictError(f"Archive destination already exists: {destination}")
-
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.move(str(ctx.change_root), str(destination))
-    result["moved"] = True
-    result["nextSteps"] = ["Archiving complete."]
-    return result
-
-
-@app.command()
-def archive(
-    change_name: str,
-    dry_run: bool = typer.Option(False, "--dry-run"),
-    exhausted: bool = typer.Option(False, "--exhausted"),
-    include_pending_failures: bool = typer.Option(False, "--include-pending-failures"),
-    home: Path = HomeOption,
-    as_json: bool = JsonOption,
-) -> None:
-    try:
-        result = _archive_one(
-            home,
-            change_name,
-            dry_run=dry_run,
-            allow_exhausted=exhausted,
-            allow_pending_failures=include_pending_failures,
-            today=datetime.now(UTC).date(),
-        )
-    except LoopspecError as exc:
-        _fail(exc, as_json)
-    _emit(result, as_json)
-
-
-@app.command("bulk-archive")
-def bulk_archive(
-    complete: bool = typer.Option(True, "--complete"),
-    exhausted: bool = typer.Option(False, "--exhausted"),
-    older_than: int | None = typer.Option(None, "--older-than"),
-    dry_run: bool = typer.Option(False, "--dry-run"),
-    home: Path = HomeOption,
-    as_json: bool = JsonOption,
-) -> None:
-    changes_dir = home / "changes"
-    today = datetime.now(UTC).date()
-    year_month = today.strftime("%Y-%m")
-    archive_dir = paths_mod.archive_root(home, year_month)
-
-    candidates: list[dict[str, Any]] = []
-    moved: list[dict[str, Any]] = []
-    if changes_dir.is_dir():
-        for change_path in sorted(p for p in changes_dir.iterdir() if p.is_dir()):
-            if older_than is not None:
-                age_days = (
-                    datetime.now(UTC).timestamp() - change_path.stat().st_mtime
-                ) / 86400
-                if age_days < older_than:
-                    continue
-            try:
-                result = _archive_one(
-                    home,
-                    change_path.name,
-                    dry_run=True,
-                    allow_exhausted=exhausted,
-                    allow_pending_failures=False,
-                    today=today,
-                )
-            except LoopspecError:
-                continue
-            candidates.append(result)
-
-    if not dry_run:
-        for candidate in candidates:
-            result = _archive_one(
-                home,
-                candidate["changeName"],
-                dry_run=False,
-                allow_exhausted=exhausted,
-                allow_pending_failures=False,
-                today=today,
-            )
-            moved.append(result)
-
-    payload: dict[str, Any] = {
-        "dryRun": dry_run,
-        "archiveRoot": str(archive_dir),
-        "candidates": candidates,
-    }
-    if not dry_run:
-        payload["moved"] = moved
-        payload["nextSteps"] = ["Archiving complete."]
-    else:
-        payload["nextSteps"] = ["Re-run without --dry-run to move these changes into the archive."]
-    _emit(payload, as_json)
-
-
-if __name__ == "__main__":
-    app()

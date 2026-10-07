@@ -1,0 +1,54 @@
+round: 2
+gate: approval
+verdict: FAIL
+summary: 'Human Approval: CHANGES REQUESTED'
+blocking_issues:
+- 改变「schema 源」的模型：源是一个 **registry**，即一个 GitHub 仓库，其位置配置在项目的 `loopspec/config.yaml`
+  中（例如 `registry` 字段）。远程 git 源由原方案的非目标变为本次的核心范围；proposal.md 的 What Changes / 非目标、specs/schema-sources、design
+  的 Goals/Non-Goals 均需相应改写。
+- 放弃原方案的「运行时按有序源查找 + local 遮蔽」模型（原 design D1/D6/D7、specs/schema-sources 的「按有序源解析 schema
+  名称」requirement、specs/loopspec-cli 的 `shadowed` / `schemaSource` 字段）。schema 仍然以本地副本的形式存在于
+  `<home>/schemas/`，registry 是这些本地副本的上游。
+- 新增 CLI 命令（例如 `loopspec schemas update`）：从 registry 拉取 schema 的更新，供合并 / 覆盖到当前项目 `<home>/schemas/`
+  下的本地副本。
+- 由于本地副本大概率被项目改过，合并冲突是常态：CLI **不做**自动合并决策。改为新增一个 skill（与现有 lpsx skills 同类，由 `loopspec
+  init` 分发），用户在 LLM 对话中说「更新 schemas」时，LLM 通过 CLI 拉取上游更新并尝试合并；出现冲突时由 LLM 整理冲突并与用户确认后再落盘。specs
+  需要为该 skill 和 CLI 输出（供 LLM 消费的 JSON 契约，如上游版本、本地与上游的差异）定义 requirement。
+- 问题：schema 需在每个仓库复制一份、会漂移；方案为在 `config.yaml` 声明本地目录 `schema_sources`，运行时按 `local`
+  → 声明顺序查找、同名遮蔽。
+- Capability：新增 `schema-sources`；修改 `loopspec-cli`（`schemas list` 的 `source`/`shadowed`、`new`/`status`
+  的 `schemaSource`）与 `usage-docs`。
+- 决策：只支持本地目录源（远程 git/URL、缓存、版本锁定、全局配置为非目标——由 agent 代为默认决定，已向人类说明）；源缺失即 `config_invalid`；`.workflow.yaml`
+  不记录源。
+- 安全：第 1 轮 FAIL（instructions/templates 子目录外链可读任意文件），第 2 轮通过 D9/D10 修复后 PASS。
+- 任务：7 组 31 项。
+- 配置：`config.yaml` 新增 registry 声明（仓库地址 + 可选 ref / 仓库内子目录），不存放凭据，访问私有仓库依赖用户本机已有的 git
+  凭据配置。
+- CLI 职责止于「取数据 + 报告差异 + 按 LLM 明确指令写入」：如 `schemas update --check/--json` 报告上游与本地的三方差异（需要记录上次同步的基线版本，才能区分「本地改过」与「上游改过」），另有一个显式写入步骤；合并判断交给
+  skill 驱动的 LLM + 人类确认。
+- 安全重点将转移到：git 拉取（命令注入、仓库 URL / ref 校验）、拉取内容写入 `<home>/schemas/` 的路径包含性（第 2 轮 D9/D10
+  的包含性与诊断规则仍然适用）、以及上游内容作为 agent 指令的信任边界。
+- 'Decision Log: round 1 - changes requested'
+- 'Rejected Options: 运行时有序源查找 + 遮蔽模型；仅本地目录源；CLI 自动合并'
+- 'Open Questions: registry 配置字段形态、基线版本记录位置、单 schema 还是整个 registry 同步、git 依赖方式'
+- 'Current Focus: redo specs/design per round 1 feedback'
+- 'Artifact Notes: approval/changes-requested.md - changes requested'
+reset_declared:
+- specs
+- design
+reset_closure:
+- design
+- specs
+- tasks
+- security
+- approval
+- apply
+archived_files:
+- design.md
+- specs/loopspec-cli/spec.md
+- specs/schema-sources/spec.md
+- specs/usage-docs/spec.md
+- tasks.md
+- security/pass.md
+- approval/changes-requested.md
+archived_at: '2026-09-29T18:47:54.450333+08:00'

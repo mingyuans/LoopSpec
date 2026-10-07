@@ -144,9 +144,7 @@ def test_nothing_available_yields_the_dev_version(tmp_path: Path):
 
 
 @requires_git
-def test_environment_wins_over_git_and_pkg_info(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_environment_wins_over_git_and_pkg_info(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     git_repo_at(tmp_path, "v3.4.5")
     pkg_info_at(tmp_path, "1.0.0")
     monkeypatch.setenv("LOOPSPEC_BUILD_VERSION", "9.9.9")

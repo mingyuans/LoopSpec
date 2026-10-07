@@ -205,7 +205,7 @@ def test_the_version_is_never_asserted_against_a_declaration(workflow: dict):
 def test_the_build_reads_the_version_from_the_validated_tag(workflow: dict):
     """The export has to happen in the step that validates the tag: a later step
     could otherwise put an unvalidated value in front of the build backend."""
-    assert 'LOOPSPEC_BUILD_VERSION=%s\\n' in version_snippet(workflow)
+    assert "LOOPSPEC_BUILD_VERSION=%s\\n" in version_snippet(workflow)
     build_steps = [
         step
         for step in steps(workflow, "release")
@@ -238,9 +238,7 @@ def test_valid_tags_resolve_to_a_version(workflow: dict, tmp_path: Path, tag: st
         {"GITHUB_REF_NAME": tag, "GITHUB_ENV": str(env_file)},
     )
     assert result.returncode == 0, result.stderr
-    written = dict(
-        line.split("=", 1) for line in env_file.read_text().splitlines() if "=" in line
-    )
+    written = dict(line.split("=", 1) for line in env_file.read_text().splitlines() if "=" in line)
     # LOOPSPEC_BUILD_VERSION is what the build backend reads, so the tag decides
     # the artifact filenames without anything in the tree declaring a version.
     assert written == {

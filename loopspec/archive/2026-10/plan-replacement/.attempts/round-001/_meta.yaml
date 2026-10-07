@@ -1,0 +1,49 @@
+round: 1
+gate: approval
+verdict: FAIL
+summary: 'Human Approval: CHANGES REQUESTED'
+blocking_issues:
+- 删除完整替换模式的复杂机制：`plans create --replace`、`replaces`（reuse/carry/retire）、`validate_replacement`、suspended
+  状态与 `plan_suspended`、`history_boundary`、确认事务中的 copies、RevisionContext.mode 与 Plan
+  快照版本 3。
+- 改为“归档后重新规划”：任务变化时用 `plans archive` 归档当前活动 Plan，Change 回到无活动 Plan 的状态，再按与初次规划相同的草稿创建
+  → 展示 → 确认流程建立新 Plan。引擎只关心当前是否有活动 Plan；没有时，最新 Plan 处于草稿或其他状态。
+- 状态分两层：Change 级状态（`.workflow.yaml` 记录固定基线、仓库身份、唯一活动 Plan 指针、下一个 Plan 编号）与每个 Plan
+  自己的状态（`plans/<NNN>/state.yaml` 记录 draft/active/archived/discarded、活动修订、确认记录、归档原因）；每个
+  Plan 的产物、Gate 证据与返工历史放在自己的目录内。
+- 保留 Revision 层：任务层级为 Change → Plan → Revision；同一 Plan 内的普通修订与安全扩张沿用现有冻结与失效规则并共用该
+  Plan 的运行时数据；任务变化才新建 Plan。
+- 在 design.md 中完整说明两套层级：任务层级 Change → Plan → Revision，工作流组织层级 Node → Fragment → Profile
+  → Plan，以及 Plan 在两套层级中的位置；给出关键流程的顺序说明与 mermaid sequenceDiagram。
+- Change 级与 Plan 级状态分离，Plan 目录自包含运行时数据，使“归档”只是状态变化、无需移动文件；运行时根目录指向 Plan 目录，Diff 控制目录排除与固定基线仍按
+  Change 计算。
+- 新 Plan 强制沿用 Change 固定基线，最终保障覆盖从最初基线开始的全量 Diff，防止通过重新规划遗漏已有改动的审查。
+- 默认决策（待在下一轮审批中确认）：每个 Plan 保留人可读的 `state.md`；`plans archive` 执行前必须取得人的明确同意。
+- 'Decision Log: round 1 - changes requested'
+- 'Rejected Options: 完整替换模式（--replace、replaces、suspended、history_boundary、copies、mode/版本
+  3）'
+- 'Open Questions: Plan 级 state.md 是否需要；plans archive 前是否必须人工同意（暂定均为是）'
+- 'Current Focus: redo specs/design per round 1 feedback'
+- 'Artifact Notes: approval/changes-requested.md - changes requested'
+reset_declared:
+- specs
+- design
+reset_closure:
+- design
+- specs
+- tasks
+- security
+- approval
+- apply
+archived_files:
+- design.md
+- specs/loopspec-cli/spec.md
+- specs/lpsx-skills/spec.md
+- specs/plan-replacement/spec.md
+- specs/workflow-plan-approval/spec.md
+- specs/workflow-planning/spec.md
+- specs/workflow-recovery-assurance/spec.md
+- tasks.md
+- security/pass.md
+- approval/changes-requested.md
+archived_at: '2026-10-07T14:37:14.648230+08:00'

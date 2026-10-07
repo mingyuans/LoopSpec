@@ -1,0 +1,27 @@
+round: 2
+gate: approval
+verdict: FAIL
+summary: 人工审批：要求修改
+blocking_issues:
+- 将 `dynamic-workflow-composition` 变更的当前提案、设计、能力规格、任务清单、安全审查、审批摘要和状态增量全部改用中文表达；命令名、字段名、错误码、文件路径以及协议要求的关键字保留其原始技术标识。
+reset_declared:
+- specs
+- design
+reset_closure:
+- design
+- specs
+- tasks
+- security
+- approval
+- apply
+archived_files:
+- design.md
+- specs/loopspec-cli/spec.md
+- specs/lpsx-skills/spec.md
+- specs/workflow-composition/spec.md
+- specs/workflow-fragment-catalog/spec.md
+- specs/workflow-recomposition/spec.md
+- tasks.md
+- security/pass.md
+- approval/changes-requested.md
+archived_at: '2026-10-05T15:54:05.775337+08:00'

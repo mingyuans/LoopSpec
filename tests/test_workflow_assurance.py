@@ -1,0 +1,263 @@
+import json
+from pathlib import Path
+
+import pytest
+
+from loopspec.errors import WorkflowError
+from loopspec.workflow_assurance import diagnose
+from loopspec.workflow_evidence import begin, record
+from loopspec.workflow_git import git
+from loopspec.workflow_io import atomic_write
+from loopspec.workflow_models import PlanRequest
+from loopspec.workflow_planning import compile_request
+from loopspec.workflow_runtime import status
+from tests.test_workflow_catalog import fragment_path
+from tests.workflow_helpers import create_approved, init_repository, invoke
+
+
+def fixture(tmp_path: Path, backend=False):
+    init_repository(tmp_path)
+    home = tmp_path / "loopspec"
+    home.mkdir()
+    (home / "config.yaml").write_text("workflow: {}\n")
+    for name, capabilities in {
+        "frontend": ["frontend-tests", "pr-review"],
+        "backend": ["backend-tests", "security-review", "pr-review"],
+    }.items():
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "code.py").write_text("original")
+        fragment_path(home, name + "-implementation").write_text(
+            json.dumps(
+                {
+                    "name": name + "-implementation",
+                    "nodes": [
+                        {"id": "implement", "generates": "implementation.md"},
+                        {
+                            "id": "review",
+                            "requires": ["implement"],
+                            "gate": {
+                                "outputs": {"pass": "p.md", "fail": "f.md"},
+                                "evidence": {"provides": capabilities, "paths": [name + "/**"]},
+                            },
+                        },
+                    ],
+                }
+            )
+        )
+    fragment_path(home, "qa").write_text(
+        json.dumps(
+            {
+                "name": "qa",
+                "nodes": [{"id": "test", "gate": {"outputs": {"pass": "p.md", "fail": "f.md"}}}],
+            }
+        )
+    )
+    fragment_path(home, "assurance").write_text(
+        json.dumps(
+            {
+                "name": "assurance",
+                "nodes": [
+                    {
+                        "id": "check",
+                        "gate": {
+                            "outputs": {"pass": "p.md", "fail": "f.md"},
+                            "assurance": "rules.yaml",
+                        },
+                    }
+                ],
+            }
+        )
+    )
+    (home / "fragments/assurance/rules.yaml").write_text(
+        json.dumps(
+            {
+                "rules": [
+                    {
+                        "id": "frontend",
+                        "paths": ["frontend/**"],
+                        "requires": ["frontend-tests", "pr-review"],
+                        "repair_fragment": "frontend-implementation",
+                    },
+                    {
+                        "id": "backend",
+                        "paths": ["backend/**"],
+                        "requires": ["backend-tests", "security-review", "pr-review"],
+                        "repair_fragment": "backend-implementation",
+                    },
+                ]
+            }
+        )
+    )
+    implementations = [{"id": "fe", "use": "frontend-implementation"}]
+    if backend:
+        implementations.append({"id": "be", "use": "backend-implementation"})
+    flow = [
+        *implementations,
+        {"id": "qa", "use": "qa", "requires": [item["id"] for item in implementations]},
+        {"id": "assurance", "use": "assurance", "requires": ["qa"]},
+    ]
+    git(tmp_path, ["add", "."])
+    git(tmp_path, ["commit", "-q", "-m", "assurance fixture"])
+    return home, create_approved(home, flow)
+
+
+def loaded_flow(home: Path) -> list[dict]:
+    from tests.workflow_helpers import loaded
+
+    return [ref.model_dump(exclude_none=True) for ref in loaded(home).spec.flow]
+
+
+def check(loaded):
+    code, result = invoke(loaded.home, "gate", "record", "-c", "AFD1111", "-n", "assurance/check")
+    assert code == 0, result
+    return result
+
+
+def review(loaded, instance: str):
+    atomic_write(loaded.root, f"artifacts/{instance}/implementation.md", "实施结果".encode())
+    context = begin(loaded.home, "AFD1111", instance + "/review")
+    atomic_write(loaded.root, "artifacts/draft.md", b"verdict: PASS\nsummary: actual review\n")
+    record(loaded.home, "AFD1111", instance + "/review", context["roundId"], "artifacts/draft.md")
+
+
+def qa(loaded):
+    atomic_write(loaded.root, "artifacts/qa/p.md", "实际回归测试通过".encode())
+
+
+def test_deterministic_pass_and_code_changes_stale_entire_delivery(tmp_path: Path):
+    _, loaded = fixture(tmp_path)
+    (tmp_path / "frontend/code.py").write_text("first implementation")
+    review(loaded, "fe")
+    qa(loaded)
+    result = check(loaded)
+    assert result["verdict"] == "PASS"
+    assert status(loaded)["isComplete"]
+    before = diagnose(loaded)["diffDigest"]
+    atomic_write(loaded.root, "artifacts/extra-report.md", b"report")
+    assert diagnose(loaded)["diffDigest"] == before
+    (tmp_path / "frontend/code.py").write_text("later unreviewed edit")
+    assert diagnose(loaded)["stale_evidence"]
+    report = status(loaded)
+    assert not report["isComplete"]
+    assert report["nodes"][-1]["status"] == "blocked"
+
+
+def test_frontend_plan_touches_backend_reports_missing_fragment(tmp_path: Path):
+    _, loaded = fixture(tmp_path)
+    (tmp_path / "frontend/code.py").write_text("frontend implementation")
+    (tmp_path / "backend/code.py").write_text("unexpected backend edit")
+    review(loaded, "fe")
+    qa(loaded)
+    result = check(loaded)
+    assert result["verdict"] == "FAIL"
+    assert {item["capability"] for item in result["missing_fragments"]} == {
+        "backend-tests",
+        "security-review",
+        "pr-review",
+    }
+    assert all(
+        item["fragments"] == ["backend-implementation"] for item in result["missing_fragments"]
+    )
+    assert not result["unknown_paths"]
+
+
+def test_unknown_directory_and_handwritten_assurance_pass_are_not_accepted(tmp_path: Path):
+    _, loaded = fixture(tmp_path)
+    review(loaded, "fe")
+    qa(loaded)
+    atomic_write(loaded.root, "artifacts/assurance/p.md", b"handwritten pass")
+    assert not status(loaded)["isComplete"]
+    (tmp_path / "unknown.py").write_text("unknown change")
+    result = check(loaded)
+    assert result["verdict"] == "FAIL"
+    assert result["unknown_paths"] == ["unknown.py"]
+
+
+def test_backend_evidence_cannot_be_substituted_by_frontend_instance(tmp_path: Path):
+    _, loaded = fixture(tmp_path, backend=True)
+    (tmp_path / "backend/code.py").write_text("backend implementation")
+    review(loaded, "fe")
+    result = diagnose(loaded)
+    assert result["missing_evidence"]
+    assert not result["missing_fragments"]
+    assert all(item["gates"] == ["be/review"] for item in result["missing_evidence"])
+    review(loaded, "be")
+    qa(loaded)
+    assert check(loaded)["verdict"] == "PASS"
+
+
+def test_final_assurance_cannot_leave_parallel_branch_uncovered(tmp_path: Path):
+    home, _ = fixture(tmp_path)
+    request = {"flow": [*loaded_flow(home), {"id": "be", "use": "backend-implementation"}]}
+    with pytest.raises(WorkflowError, match="覆盖所有交付分支"):
+        compile_request(home, PlanRequest.model_validate(request))
+
+
+def test_code_review_cannot_be_ordered_after_final_assurance(tmp_path: Path):
+    home, _ = fixture(tmp_path)
+    request = {
+        "flow": [
+            *loaded_flow(home),
+            {"id": "be", "use": "backend-implementation", "requires": ["assurance"]},
+        ]
+    }
+    with pytest.raises(WorkflowError, match="代码审查必须先于"):
+        compile_request(home, PlanRequest.model_validate(request))
+
+
+def test_archive_rechecks_stale_gate_and_assurance(tmp_path: Path):
+    home, loaded = fixture(tmp_path)
+    (tmp_path / "frontend/code.py").write_text("reviewed implementation")
+    review(loaded, "fe")
+    qa(loaded)
+    check(loaded)
+    assert invoke(home, "change", "archive", "AFD1111", "--dry-run")[0] == 0
+    (tmp_path / "frontend/code.py").write_text("unreviewed later edit")
+    code, result = invoke(home, "change", "archive", "AFD1111", "--dry-run")
+    assert code == 1
+    assert result["error"] == "archive_unsafe"
+    assert loaded.root.is_dir()
+
+
+def test_assurance_record_takes_no_round_or_report(tmp_path: Path):
+    home, loaded = fixture(tmp_path)
+    code, result = invoke(
+        home,
+        "gate",
+        "record",
+        "-c",
+        "AFD1111",
+        "-n",
+        "assurance/check",
+        "--round",
+        "x",
+        "--report",
+        "artifacts/x.md",
+    )
+    assert code == 1 and result["error"] == "option_conflict"
+
+
+def test_blocked_assurance_reports_without_recording(tmp_path: Path):
+    _, loaded = fixture(tmp_path)
+    result = check(loaded)
+    assert result["recorded"] is False and result["blockedBy"]
+    assert not (loaded.root / "artifacts/assurance/check/p.md").exists()
+
+
+def test_live_rules_take_effect_immediately(tmp_path: Path):
+    home, loaded = fixture(tmp_path)
+    (tmp_path / "docs.md").write_text("new docs")
+    review(loaded, "fe")
+    qa(loaded)
+    assert check(loaded)["unknown_paths"] == ["docs.md"]
+    rules = json.loads((home / "fragments/assurance/rules.yaml").read_text())
+    rules["rules"].append(
+        {
+            "id": "docs",
+            "paths": ["*.md", "loopspec/**"],
+            "requires": ["pr-review"],
+            "repair_fragment": "frontend-implementation",
+        }
+    )
+    (home / "fragments/assurance/rules.yaml").write_text(json.dumps(rules))
+    assert check(loaded)["unknown_paths"] == []

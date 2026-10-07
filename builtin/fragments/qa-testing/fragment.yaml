@@ -1,0 +1,14 @@
+version: 1
+name: qa-testing
+description: 集成验收测试与故障分类
+nodes:
+- id: test
+  instruction: test.instruction.md
+  requires: []
+  gate:
+    outputs:
+      pass: test/pass.md
+      fail: test/fail.md
+    templates:
+      pass: test.pass.md
+      fail: test.fail.md

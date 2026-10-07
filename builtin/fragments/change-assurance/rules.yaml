@@ -1,0 +1,15 @@
+version: 1
+unknown_paths: fail
+rules:
+- id: frontend
+  paths: [src/frontend/**, frontend/**, tests/frontend/**]
+  requires: [frontend-tests, pr-review]
+  repair_fragment: frontend-implementation
+- id: backend
+  paths: [src/backend/**, backend/**, tests/backend/**]
+  requires: [backend-tests, security-review, pr-review]
+  repair_fragment: backend-implementation
+- id: project-support
+  paths: [docs/**, README*, '*.md']
+  requires: [pr-review]
+  repair_fragment: backend-implementation

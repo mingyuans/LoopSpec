@@ -1,0 +1,22 @@
+version: 1
+name: frontend-small-change
+description: 仅前端小需求
+flow:
+- id: requirements
+  use: requirements
+  requires: []
+- id: fe
+  use: frontend-implementation
+  requires: [requirements]
+- id: qa
+  use: qa-testing
+  requires: [fe]
+  on_fail:
+    reset: [fe]
+    max_retries: 3
+- id: assurance
+  use: change-assurance
+  requires: [qa]
+guidance:
+- 此模板供选择或参考；为完整任务编写请求，plan create 生成草稿后须经人明确确认才能执行。
+- 先核对代码路径与审查范围；保障诊断提示缺少的 Fragment 时，用修订请求补充并经人确认。

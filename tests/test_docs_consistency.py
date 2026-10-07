@@ -8,8 +8,9 @@ Two independent kinds of assertion, per `specs/usage-docs`:
    things the CLI surface does not expose (`NO_COLOR`, directory conventions,
    glossary terms), so a reverse check would false-positive forever.
 2. **Language vs language, two-way.** Limited to closed sets -- file lists,
-   command section titles, field names, error codes -- plus byte-identical
-   example blocks. Set equality is exact here because both sides are docs.
+   command section titles, field names, error codes -- plus equivalent example
+   blocks. Configuration examples are byte-identical; workflow examples may
+   localize descriptive text while keeping their structure and identifiers identical.
 
 Everything is text parsing plus Pydantic validation. Shell blocks in the docs
 are never executed, and the one check that materialises files does so only under
@@ -29,32 +30,43 @@ from typer.main import get_command
 
 from loopspec import cli as cli_mod
 from loopspec import errors as errors_mod
-from loopspec.models import (
-    ConfigSchemaRef,
-    GateOutputs,
-    GateSpec,
-    GateTemplates,
-    NodeSpec,
-    OnFailSpec,
-    SchemaSelectionSpec,
-    WorkflowConfig,
-    WorkflowSchema,
+from loopspec.builtin_resources import builtin_root
+from loopspec.models import GateOutputs, GateTemplates, WorkflowConfig
+from loopspec.workflow_attempts import AttemptRecord, Move
+from loopspec.workflow_models import (
+    AssuranceRule,
+    AssuranceRules,
+    ChangeState,
+    CodeEvidence,
+    FailurePolicy,
+    Fragment,
+    FragmentRef,
+    Node,
+    PlanDocument,
+    PlanMeta,
+    PlanRequest,
+    PlanSpec,
+    Profile,
+    ProjectWorkflow,
+    ResolvedGate,
+    ResolvedNode,
+    WorkflowGate,
 )
-from loopspec.paths import is_safe_relative_path
-from loopspec.schema_loader import load_schema
+from loopspec.workflow_planning import compile_request, spec_digest
 
 DOCS = Path(__file__).resolve().parent.parent / "docs"
 LANGUAGES = ("en", "zh")
 
-#: The seven files every language version must provide, relative to its dir.
+#: The files every language version must provide, relative to its dir.
 REQUIRED_PAGES = (
     "README.md",
     "overview.md",
-    "cli-reference.md",
+    "workflow-composition.md",
+    "plan-reference.md",
     "configuration.md",
-    "schema-reference.md",
+    "cli-reference.md",
     "agent-protocol.md",
-    "workflows/secure-spec-driven.md",
+    "release-notes.md",
 )
 
 #: Field-table headers per language. Field *names* are located by column
@@ -67,16 +79,55 @@ FIELD_TABLE_HEADERS = {
 
 #: Which pages carry the field tables for which models.
 MODEL_PAGES = {
-    "configuration.md": (WorkflowConfig, ConfigSchemaRef, SchemaSelectionSpec),
-    "schema-reference.md": (
-        WorkflowSchema,
-        NodeSpec,
-        GateSpec,
+    "configuration.md": (WorkflowConfig, ProjectWorkflow, AssuranceRules, AssuranceRule),
+    "workflow-composition.md": (
+        Fragment,
+        Node,
+        WorkflowGate,
         GateOutputs,
         GateTemplates,
-        OnFailSpec,
+        CodeEvidence,
+        FailurePolicy,
+        Profile,
+        FragmentRef,
+        PlanRequest,
+    ),
+    "plan-reference.md": (
+        PlanDocument,
+        PlanMeta,
+        PlanSpec,
+        ResolvedNode,
+        ResolvedGate,
+        ChangeState,
+        AttemptRecord,
+        Move,
     ),
 }
+
+#: Text that must not survive anywhere in the manual or README except the release notes.
+REMOVED_SURFACE = (
+    "loopspec schemas",
+    "loopspec new ",
+    "loopspec status",
+    "loopspec instructions",
+    "loopspec rollback",
+    "loopspec bulk-archive",
+    "loopspec recover",
+    "loopspec plans",
+    "loopspec fragments",
+    "loopspec profiles",
+    "loopspec assurance",
+    "--expected-digest",
+    "--safety-expansion",
+    "manual-v1",
+    "secure-spec-driven",
+    "schema.yaml",
+    "min_engine_version",
+    "`interrupted`",
+    "open_plan",
+    "active_plan",
+    "next_plan",
+)
 
 EXAMPLE_MARKER = re.compile(r"<!--\s*loopspec:example=([a-z-]+)\s*-->")
 FENCE = re.compile(r"^```(\S*)\s*$")
@@ -271,6 +322,10 @@ def leaf_commands() -> dict[str, list[str]]:
 
 
 def error_codes() -> set[str]:
+    """Class-level codes plus every literal code passed to `WorkflowError`."""
+
+    import ast
+
     codes: set[str] = set()
     stack = [errors_mod.LoopspecError]
     while stack:
@@ -278,6 +333,16 @@ def error_codes() -> set[str]:
         for subclass in current.__subclasses__():
             codes.add(subclass.code)
             stack.append(subclass)
+    source = Path(errors_mod.__file__).parent
+    for path in source.glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if (
+                isinstance(node, ast.Call)
+                and getattr(node.func, "id", None) == "WorkflowError"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+            ):
+                codes.add(node.args[0].value)
     return codes
 
 
@@ -285,7 +350,8 @@ def external_field_names(model: type[BaseModel]) -> set[str]:
     """Field names as they appear in YAML: alias first, attribute name second."""
 
     return {
-        (info.alias or name) for name, info in model.model_fields.items()  # type: ignore[misc]
+        (info.alias or name)
+        for name, info in model.model_fields.items()  # type: ignore[misc]
     }
 
 
@@ -355,6 +421,17 @@ def test_first_screen_declares_scope_audience_and_language(lang: str) -> None:
         depth = len(relative.parts) - 1
         expected = f"{'../' * (depth + 1)}{other}/{relative.as_posix()}"
         assert expected in head, f"{path}: first screen must link {expected}"
+
+
+def test_english_pages_do_not_contain_chinese_content() -> None:
+    """Only the Chinese-language navigation label may contain Han characters."""
+    language_link = re.compile(r"\[中文\]\((?:\.\./)+zh/[^)]+\)")
+    han = re.compile("[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U0002fa1f]")
+    for path in language_pages("en"):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if number <= FIRST_SCREEN_LINES:
+                line = language_link.sub("[Chinese]", line)
+            assert not han.search(line), f"{path}:{number}: Chinese content in English docs"
 
 
 @pytest.mark.parametrize("lang", LANGUAGES)
@@ -447,79 +524,84 @@ def test_every_error_code_is_documented(lang: str) -> None:
 def test_documented_defaults_match_the_code(lang: str) -> None:
     cli_text = read(lang, "cli-reference.md")
     config_text = read(lang, "configuration.md")
+    composition = read(lang, "workflow-composition.md")
 
-    assert f"`{cli_mod.DEFAULT_HOME}`" in cli_text, "default workflow home not documented"
-    assert cli_mod.DEFAULT_SCHEMA_NAME in config_text, "default schema name not documented"
-
+    assert f"`./{cli_mod.DEFAULT_HOME}`" in cli_text, "default workflow home not documented"
     artifacts_default = WorkflowConfig.model_fields["artifacts_dir"].default
     assert f"`{artifacts_default}`" in config_text, "artifacts_dir default not documented"
-
-    schema_text = read(lang, "schema-reference.md")
-    retries_default = OnFailSpec.model_fields["max_retries"].default
-    assert f"`{retries_default}`" in schema_text, "max_retries default not documented"
-    exhausted_default = OnFailSpec.model_fields["on_exhausted"].default
-    assert f"`{exhausted_default.value}`" in schema_text, "on_exhausted default not documented"
+    retries_default = FailurePolicy.model_fields["max_retries"].default
+    assert f"`{retries_default}`" in composition, "max_retries default not documented"
 
 
 # --------------------------------------------------------------------------- #
 # examples really validate
 # --------------------------------------------------------------------------- #
 
-
-@pytest.mark.parametrize("lang", LANGUAGES)
-def test_marked_config_examples_validate(lang: str) -> None:
-    examples = marked_examples(lang, "config")
-    assert examples, f"docs/{lang}: no config examples marked for validation"
-    for _path, block in examples:
-        WorkflowConfig.model_validate(yaml.safe_load(block.body))
-
-
-@pytest.mark.parametrize("lang", LANGUAGES)
-def test_marked_schema_examples_validate(lang: str) -> None:
-    for _path, block in marked_examples(lang, "schema"):
-        WorkflowSchema.model_validate(yaml.safe_load(block.body))
+EXAMPLE_MODELS: dict[str, type[BaseModel]] = {
+    "config": WorkflowConfig,
+    "assurance-rules": AssuranceRules,
+    "fragment": Fragment,
+    "profile": Profile,
+    "plan": PlanRequest,
+    "plan-file": PlanDocument,
+    "change-state": ChangeState,
+}
 
 
 @pytest.mark.parametrize("lang", LANGUAGES)
-def test_marked_schema_dir_examples_load(lang: str, tmp_path: Path) -> None:
-    """Materialise a full schema directory under tmp_path and load it for real.
+def test_marked_examples_validate(lang: str) -> None:
+    seen: set[str] = set()
+    for path in language_pages(lang):
+        for block in code_blocks(path.read_text(encoding="utf-8")):
+            if block.marker is None:
+                continue
+            assert block.marker in EXAMPLE_MODELS, f"{path}: unknown example kind {block.marker}"
+            EXAMPLE_MODELS[block.marker].model_validate(yaml.safe_load(block.body))
+            seen.add(block.marker)
+    assert seen == set(EXAMPLE_MODELS), (
+        f"docs/{lang}: missing examples {set(EXAMPLE_MODELS) - seen}"
+    )
 
-    Filenames come from the example, so each one is checked for relative-path
-    safety *before* anything is written -- an example edited to say `../../x.md`
-    must fail the test rather than escape tmp_path.
-    """
 
-    examples = marked_examples(lang, "schema-dir")
-    assert examples, f"docs/{lang}: no schema-dir examples marked for validation"
-    for index, (path, block) in enumerate(examples):
-        raw = yaml.safe_load(block.body)
-        schema = WorkflowSchema.model_validate(raw)
+@pytest.mark.parametrize("lang", LANGUAGES)
+def test_plan_file_example_is_a_real_compilation(lang: str, tmp_path: Path) -> None:
+    """The documented plan.yaml has a correct digest and is what the compiler produces."""
 
-        templates: set[str] = set()
-        instructions: set[str] = set()
-        for node in schema.nodes:
-            if node.template:
-                templates.add(node.template)
-            if node.gate is not None:
-                templates.add(node.gate.templates.pass_)
-                templates.add(node.gate.templates.fail)
-            if node.instruction is not None and not isinstance(node.instruction, str):
-                instructions.add(node.instruction.file)
+    import shutil
 
-        for name in templates | instructions:
-            assert is_safe_relative_path(name), f"{path}: unsafe example filename {name!r}"
+    home = tmp_path / "home"
+    home.mkdir()
+    for kind in ("fragments", "profiles"):
+        shutil.copytree(builtin_root() / kind, home / kind)
+    (home / "config.yaml").write_text("workflow: {}\n", encoding="utf-8")
+    for _path, block in marked_examples(lang, "plan-file"):
+        document = PlanDocument.model_validate(yaml.safe_load(block.body))
+        assert spec_digest(document.spec) == document.meta.digest
+        request = PlanRequest(based_on=document.spec.based_on, flow=document.spec.flow)
+        assert compile_request(home, request).spec == document.spec
 
-        root = tmp_path / f"{lang}-{index}"
-        (root / "templates").mkdir(parents=True)
-        (root / "instructions").mkdir(parents=True)
-        (root / "schema.yaml").write_text(block.body, encoding="utf-8")
-        for name in templates:
-            (root / "templates" / name).write_text("placeholder\n", encoding="utf-8")
-        for name in instructions:
-            (root / "instructions" / name).write_text("placeholder\n", encoding="utf-8")
 
-        loaded = load_schema(root)
-        assert loaded.graph.build_order()
+@pytest.mark.parametrize("lang", LANGUAGES)
+def test_plan_requests_compile_against_the_builtin_catalog(lang: str, tmp_path: Path) -> None:
+    import shutil
+
+    home = tmp_path / "home"
+    home.mkdir()
+    for kind in ("fragments", "profiles"):
+        shutil.copytree(builtin_root() / kind, home / kind)
+    (home / "config.yaml").write_text("workflow: {}\n", encoding="utf-8")
+    for _path, block in marked_examples(lang, "plan"):
+        compile_request(home, PlanRequest.model_validate(yaml.safe_load(block.body)))
+
+
+@pytest.mark.parametrize("lang", LANGUAGES)
+def test_removed_commands_and_fields_are_gone(lang: str) -> None:
+    for path in [*language_pages(lang), DOCS.parent / "README.md"]:
+        if path.name == "release-notes.md":
+            continue
+        text = path.read_text(encoding="utf-8")
+        for removed in REMOVED_SURFACE:
+            assert removed not in text, f"{path}: still mentions {removed!r}"
 
 
 @pytest.mark.parametrize("lang", LANGUAGES)
@@ -559,9 +641,7 @@ def test_language_versions_hold_the_same_files() -> None:
 
 
 def test_command_sections_match_across_languages() -> None:
-    titles = {
-        lang: set(command_sections(read(lang, "cli-reference.md"))) for lang in LANGUAGES
-    }
+    titles = {lang: set(command_sections(read(lang, "cli-reference.md"))) for lang in LANGUAGES}
     assert titles["en"] == titles["zh"]
 
 
@@ -579,24 +659,40 @@ def test_error_codes_match_across_languages() -> None:
     assert documented["en"] == documented["zh"]
 
 
-def test_marked_examples_are_byte_identical_across_languages() -> None:
-    """Marked examples are identifiers, not prose, so they must not diverge."""
+LOCALIZED_KEYS = {"description", "guidance", "note", "archive_note"}
+
+
+def four_layer_example_structure(value: object) -> object:
+    """Localize only descriptive fields; identifiers and structure must match."""
+    if isinstance(value, dict):
+        return {
+            key: "<localized text>" if key in LOCALIZED_KEYS else four_layer_example_structure(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [four_layer_example_structure(item) for item in value]
+    return value
+
+
+def test_marked_examples_match_across_languages() -> None:
+    """Keep configuration bytes identical and workflow execution structures equal."""
 
     for relative in REQUIRED_PAGES:
         per_lang = {
-            lang: [
-                block
-                for block in code_blocks(read(lang, relative))
-                if block.marker is not None
-            ]
+            lang: [block for block in code_blocks(read(lang, relative)) if block.marker is not None]
             for lang in LANGUAGES
         }
         assert len(per_lang["en"]) == len(per_lang["zh"]), (
-            f"{relative}: {len(per_lang['en'])} marked examples in en, "
-            f"{len(per_lang['zh'])} in zh"
+            f"{relative}: {len(per_lang['en'])} marked examples in en, {len(per_lang['zh'])} in zh"
         )
         for index, (left, right) in enumerate(zip(per_lang["en"], per_lang["zh"], strict=True)):
             assert left.marker == right.marker, f"{relative}: example {index} marker differs"
+            assert left.language == right.language, f"{relative}: example {index} language differs"
+            if left.marker in {"fragment", "profile", "plan", "plan-file"}:
+                assert four_layer_example_structure(yaml.safe_load(left.body)) == (
+                    four_layer_example_structure(yaml.safe_load(right.body))
+                ), f"{relative}: example {index} execution structure differs"
+                continue
             if left.body == right.body:
                 continue
             left_lines = left.body.splitlines()

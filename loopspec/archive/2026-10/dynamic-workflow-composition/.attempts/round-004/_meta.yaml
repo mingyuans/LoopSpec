@@ -1,0 +1,37 @@
+round: 4
+gate: approval
+verdict: FAIL
+summary: 人工审批：要求修改
+blocking_issues:
+- Fragment 配置取消独立 includes 列表，统一在 nodes 中混合直接定义 Node 与通过 use 引用 Fragment；引用节点通过 id/requires
+  与直接定义节点共同编排，执行时递归展开。
+- 引用节点可声明 on_fail.reset 指向同一 Fragment 中的上游直接定义节点或引用节点；失败重置目标及其下游，包含引用节点的内部产物与 Gate
+  证据，但不回退业务代码。
+- 引用节点由内部有效结果汇总状态：全部完成才成功，内部未处理 Gate FAIL 才失败，未执行不等于失败，损坏或冲突结果作为系统错误阻塞。内部恢复优先，无处理规则或重试耗尽后向外传播；同一失败只由一条规则处理，嵌套重试不能清零绕过限额。
+- 同步提案、设计示例、五份规格、任务清单、中文评审摘要和安全复审；保留四层模型、旧格式兼容和 V1/V2 边界，不开始实现代码。
+- Decision Log：第 3 轮要求修改；采用统一 nodes 和引用节点状态/失败传播。
+- Rejected Options：否决 nodes/includes 分离编排与要求额外 Fragment 成败接口。
+- Open Questions：没有新增需由用户决定的开放问题。
+- Current Focus：按第 3 轮反馈重做规格、设计、任务和安全复审；仅修改材料。
+- Artifact Notes：approval/changes-requested.md——要求修改。
+reset_declared:
+- specs
+- design
+reset_closure:
+- design
+- specs
+- tasks
+- security
+- approval
+- apply
+archived_files:
+- design.md
+- specs/loopspec-cli/spec.md
+- specs/lpsx-skills/spec.md
+- specs/workflow-fragments/spec.md
+- specs/workflow-planning/spec.md
+- specs/workflow-recovery-assurance/spec.md
+- tasks.md
+- security/pass.md
+- approval/changes-requested.md
+archived_at: '2026-10-05T18:11:10.660144+08:00'
