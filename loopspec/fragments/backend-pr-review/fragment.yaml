@@ -1,0 +1,17 @@
+version: 1
+name: backend-pr-review
+description: 后端代码审查
+nodes:
+- id: check
+  instruction: check.instruction.md
+  requires: []
+  gate:
+    outputs:
+      pass: check/pass.md
+      fail: check/fail.md
+    templates:
+      pass: check.pass.md
+      fail: check.fail.md
+    evidence:
+      provides: [pr-review]
+      paths: [src/**, tests/**, builtin/**, Makefile, pyproject.toml, install.sh, hatch_version.py, uv.lock]

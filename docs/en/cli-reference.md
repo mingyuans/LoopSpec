@@ -156,7 +156,7 @@ For a code Gate, `--round` and `--report` are required. The report lives under t
 
 ## loopspec fragment list
 
-Lists the Fragments in the workflow home. Options: `--home`.
+Lists the Fragments in the workflow home. Each entry carries `registry`: `{syncedTag, syncedCommit}` for a definition recorded in `registry.lock.yaml`, otherwise `null` (also when the lock is missing or malformed). Options: `--home`.
 
 ## loopspec fragment show
 
@@ -168,7 +168,7 @@ Lists the Fragments in the workflow home. Options: `--home`.
 
 ## loopspec profile list
 
-Lists the Profiles in the workflow home. Options: `--home`.
+Lists the Profiles in the workflow home. Each entry carries `registry`: `{syncedTag, syncedCommit}` for a definition recorded in `registry.lock.yaml`, otherwise `null` (also when the lock is missing or malformed). Options: `--home`.
 
 ## loopspec profile show
 
@@ -185,6 +185,22 @@ loopspec profile save <name> -c <change>
 ```
 
 Saves the active Plan's `spec.flow`, `on_fail` included, as `profiles/<name>.yaml`. No execution state is saved and an existing Profile is never overwritten. Options: `--change`, `--home`.
+
+## loopspec registry update
+
+```bash
+loopspec registry update [--full]
+```
+
+Plans a sync of `fragments/` and `profiles/` from the `registry` in `config.yaml`; it writes only `<home>/.cache/registry/`. First `git ls-remote` resolves the target (`latest` or the fixed tag). When that commit equals the lock's and no definition lags behind, it returns `upToDate: true` without fetching; a fixed tag that is already synced runs no git at all. Otherwise it fetches the commit into a private bare repository (never checked out), compares every registry definition with the local copies against the lock, and stages upstream and base contents for review. Each file gets a `status`: `upstream-added`, `upstream-modified`, `upstream-deleted` (pending, need confirmation), `conflict` (must be resolved), `local-modified`, `local-deleted`, `local-only` (kept as they are). Symlinks and submodules are listed in `unsupported` and never written. Returns `registry`, `upToDate`, `baseCommit`, `baseTag`, `upstreamCommit`, `upstreamTag`, `baseAvailable`, `planId`, `definitions` (each with `kind`, `name`, `deletedUpstream`, `baseTag`, `baseCommit`, `upstreamTag`, `upstreamCommit`), `files` (each with `path`, `status`, `localPath`, `upstreamPath`, `basePath`), `unsupported`, `warnings` and `nextSteps`. `--full` skips the version check and always compares. Requires `git` on `PATH`. Options: `--full`, `--home`.
+
+## loopspec registry apply
+
+```bash
+loopspec registry apply --plan <planId> [--resolve <path>=local|upstream]... [--skip <path>]...
+```
+
+Writes the latest `registry update` plan after the human confirmed it. Every `conflict` needs exactly one `--resolve`: `local` keeps the current local file (including a merge written there after confirmation), `upstream` takes the registry version. `--skip` leaves a pending change out; its base and its definition's version stay as they were, so it appears again next time. Refused with `registry_plan_stale` when the plan is not the latest, the staged contents changed, or a local file changed after the plan. The result is built and loaded in a preview first; any Fragment or Profile that fails validation stops the command before anything is written. Then files are written atomically, deletions remove only listed files, and `registry.lock.yaml` is updated. Returns `applied`, `upstreamCommit`, `upstreamTag`, `written`, `deleted`, `skipped`, `kept` and `lock`. Applying takes effect immediately for running Plans. Options: `--plan`, `--resolve`, `--skip`, `--home`.
 
 ## Error codes
 
@@ -252,3 +268,9 @@ Saves the active Plan's `spec.flow`, `on_fail` included, as `profiles/<name>.yam
 | `concurrent_source_change` | A file changed while it was being read. |
 | `concurrent_path_change` | A directory was replaced during an operation. |
 | `concurrent_write` | Another command holds the Change's write lock. |
+| `registry_not_configured` | `config.yaml` has no `registry`. |
+| `registry_unavailable` | `git` is not installed or not on `PATH`. |
+| `registry_fetch_failed` | `ls-remote` or fetch failed, timed out, the tag does not exist, or the registry moved between check and fetch. |
+| `registry_invalid` | The registry tree is unreadable, `path` is missing, or a size or count limit was exceeded. |
+| `registry_plan_stale` | No current plan, the plan id differs, or staged or local files changed since `registry update`. |
+| `registry_conflict_unresolved` | A conflict has no `--resolve`. |

@@ -184,7 +184,7 @@ def test_init_human_output_leaks_no_json_field_names_or_python_reprs(tmp_path: P
 
 def test_init_human_output_summarizes_instead_of_listing_paths(tmp_path: Path):
     output = human_init("init", str(tmp_path / "wf"), "--tools", "claude")
-    assert "4 skills and 4 commands in .claude" in output
+    assert "5 skills and 5 commands in .claude" in output
     assert "SKILL.md" not in output
     assert "commands/lpsx" not in output
 
@@ -239,8 +239,9 @@ def test_aggregated_path_details_remain_available_via_json(tmp_path: Path):
     code, data = run("init", str(home), "--tools", "claude", "--json")
     assert code == 0
     claude_files = data["scaffoldedFiles"]["claude"]
-    assert len(claude_files) == 8
+    assert len(claude_files) == 10
     assert any(path.endswith("loopspec-new/SKILL.md") for path in claude_files)
+    assert any(path.endswith("loopspec-update-registry/SKILL.md") for path in claude_files)
     assert data["refreshedTools"] == ["claude"]
 
 

@@ -24,6 +24,12 @@ PLAN = typer.Option(..., "-p", "--plan", help="Plan number, e.g. 001.")
 NODE = typer.Option(..., "-n", "--node", help="Leaf node or Gate path in the active Plan.")
 FILE = typer.Option(..., "-f", "--file", help="Request file, relative to the workflow home.")
 NOTE = typer.Option(None, "--note", help="Optional note recorded on the Plan.")
+FULL = typer.Option(False, "--full", help="Skip the ls-remote version check and always compare.")
+REGISTRY_PLAN = typer.Option(..., "--plan", help="planId from `registry update`.")
+RESOLVE = typer.Option(
+    [], "--resolve", help="Resolve a conflict: <path>=local|upstream. Repeatable."
+)
+SKIP = typer.Option([], "--skip", help="Leave a pending upstream change out. Repeatable.")
 
 
 def emit(value: Any) -> None:
@@ -50,12 +56,17 @@ def register(app: typer.Typer) -> None:
     gate = typer.Typer(help="Record review evidence for Gates.", no_args_is_help=True)
     fragment = typer.Typer(help="Browse and validate Fragments.", no_args_is_help=True)
     profile = typer.Typer(help="Browse, validate and save Profiles.", no_args_is_help=True)
+    registry = typer.Typer(
+        help="Sync fragments and profiles from the configured git registry.",
+        no_args_is_help=True,
+    )
     app.add_typer(change, name="change")
     app.add_typer(plan, name="plan")
     app.add_typer(node, name="node")
     app.add_typer(gate, name="gate")
     app.add_typer(fragment, name="fragment")
     app.add_typer(profile, name="profile")
+    app.add_typer(registry, name="registry")
 
     # ------------------------------------------------------------------ change
 
@@ -235,14 +246,21 @@ def register(app: typer.Typer) -> None:
 
     @fragment.command("list")
     def fragment_list(home: Path = HOME) -> None:
-        run(
-            lambda: {
+        def action() -> dict:
+            from .registry_sync import synced_versions
+
+            versions = synced_versions(home)
+            return {
                 "fragments": [
-                    item.model_dump(by_alias=True)
+                    {
+                        **item.model_dump(by_alias=True),
+                        "registry": versions.get("fragments/" + item.name),
+                    }
                     for item in WorkflowCatalog(home).entries("fragments")
                 ]
             }
-        )
+
+        run(action)
 
     @fragment.command("show")
     def fragment_show(name: str, home: Path = HOME) -> None:
@@ -264,14 +282,21 @@ def register(app: typer.Typer) -> None:
 
     @profile.command("list")
     def profile_list(home: Path = HOME) -> None:
-        run(
-            lambda: {
+        def action() -> dict:
+            from .registry_sync import synced_versions
+
+            versions = synced_versions(home)
+            return {
                 "profiles": [
-                    item.model_dump(by_alias=True, exclude_none=True)
+                    {
+                        **item.model_dump(by_alias=True, exclude_none=True),
+                        "registry": versions.get("profiles/" + item.name),
+                    }
                     for item in WorkflowCatalog(home).entries("profiles")
                 ]
             }
-        )
+
+        run(action)
 
     @profile.command("show")
     def profile_show(name: str, home: Path = HOME) -> None:
@@ -312,3 +337,24 @@ def register(app: typer.Typer) -> None:
             return {"saved": path, "includesRuntimeState": False}
 
         run(action)
+
+    # ---------------------------------------------------------------- registry
+
+    @registry.command("update")
+    def registry_update(full: bool = FULL, home: Path = HOME) -> None:
+        """Fetch the registry and plan a three-way sync; writes only the cache."""
+        from .registry_sync import update
+
+        run(lambda: update(home, full=full))
+
+    @registry.command("apply")
+    def registry_apply(
+        plan_id: str = REGISTRY_PLAN,
+        resolve: list[str] = RESOLVE,
+        skip: list[str] = SKIP,
+        home: Path = HOME,
+    ) -> None:
+        """Write a confirmed plan into fragments/ and profiles/ and update the lock."""
+        from .registry_sync import apply
+
+        run(lambda: apply(home, plan_id, resolve, skip))

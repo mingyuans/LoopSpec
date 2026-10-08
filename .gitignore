@@ -245,3 +245,4 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+/repos/

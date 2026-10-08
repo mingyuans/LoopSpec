@@ -1,0 +1,104 @@
+version: 1
+registry:
+  url: git@github.com:mingyuans/loopspec-fragments.git
+  version: latest
+  path: null
+commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+tag: v0.1.0
+definitions:
+  fragments/backend-code:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  fragments/backend-implementation:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  fragments/backend-pr-review:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  fragments/backend-tests:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  fragments/change-assurance:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  fragments/design:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  fragments/frontend-code:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  fragments/frontend-implementation:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  fragments/frontend-pr-review:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  fragments/frontend-tests:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  fragments/qa-testing:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  fragments/requirements:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  fragments/security-review:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  profiles/bugfix:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  profiles/frontend-small-change:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+  profiles/large-feature:
+    tag: v0.1.0
+    commit: 4a2fccf86ff6d3dd9b85e46eb1df0164691e2080
+held: []
+files:
+  fragments/backend-code/fragment.yaml: 74df4e3b5db80b48323447fad631f835e4d42627a28ecc85fb828e280c46fad6
+  fragments/backend-code/implement.instruction.md: 72a8aea4017fc7a866d8dcb50fdb9dca53598827acef02f24973c9cc697c83d2
+  fragments/backend-code/implement.template.md: d9a2d4657ef829765d5e3101b03c4ea6c02f65020be393c4363400cbd0005ede
+  fragments/backend-implementation/fragment.yaml: d69464da0dd5d57a37b1e80b8539123d57e964c170e1341740212125a01d3f17
+  fragments/backend-pr-review/check.fail.md: a516113cb301158568cd4a3631ad995096506ea43dab1bacf9fc601024cf9d98
+  fragments/backend-pr-review/check.instruction.md: 3e95d7e4c73d2e82ecc0bf514fef849c24018d7b6a8d4621692fa94f5ced3c19
+  fragments/backend-pr-review/check.pass.md: 1430d80bac7d20a75d4a19079d4a45e2cea7469ed82951b210cefb83e5315d48
+  fragments/backend-pr-review/fragment.yaml: 628d39fbe7235bffcf6e2cc9c71801b719c7fb3886f7e0a229782e4d71ef6c95
+  fragments/backend-tests/check.fail.md: ee0d290348434d065f8f4443655dec57e4aa24dc05f07d8414e8acbcb33e633f
+  fragments/backend-tests/check.instruction.md: 892766073184b67591e0f156e9342828abdc91f1ffabd8ff4d587cf27a24d431
+  fragments/backend-tests/check.pass.md: ac0b20c6277badf24b0ae9b99a812e8f59244e4cc50f6af17ec7d0d23ce1c552
+  fragments/backend-tests/fragment.yaml: f8a0177605026bd8ea7f5004a9e1add651a7183d3a39e32560909cbdf540d164
+  fragments/change-assurance/check.instruction.md: d48be404cd6369506be2c0f180fc735ff46d3a7d1a8937f723c9edb203c5038d
+  fragments/change-assurance/fragment.yaml: 3de190223f40a8b514316923991d44913a81d1dd0150b2882fc59c1a3c126edc
+  fragments/change-assurance/rules.yaml: 007f7dd6dbf27b00748440dcca63201265061e523cbd8f5e2033fad8e6088a73
+  fragments/design/design.instruction.md: 80cdc24173be49d7ffb525298c30f6d77c19f314d6ed43bbbfc75ef24a5dedc1
+  fragments/design/design.template.md: 917efab5fa477cdb384db1a23c2f1f1dda22689454acbf12348b66ed0d6c0d49
+  fragments/design/fragment.yaml: ba2a46d918e0bae6553768e9848542fd4c60120d1e73d7b2b562f2748151c5d6
+  fragments/design/tasks.instruction.md: f210140c06775a69452c084aafe16c12b4b7dab3e3cd3b916e2b7304d086db60
+  fragments/design/tasks.template.md: d7e6a536ea1b8999f4bb2c153ee9260aa5c5ff0c7f521bd356c5cdef5d76e367
+  fragments/frontend-code/fragment.yaml: dd78bca9f7642fe1361d9971a3fb343f899335d7eafe419245b9e89308f5a8a5
+  fragments/frontend-code/implement.instruction.md: 380792794457e852ca9e4dd2b0d0bcc410ee80310a4271e6967fbc44b9424ee2
+  fragments/frontend-code/implement.template.md: d9a2d4657ef829765d5e3101b03c4ea6c02f65020be393c4363400cbd0005ede
+  fragments/frontend-implementation/fragment.yaml: 0027a0562d1d5bec2eb7acb5c17542cdb50c6cea4cb8c57e2bc4df7babd02463
+  fragments/frontend-pr-review/check.fail.md: 483e2f387ee0dcc92adf5dd5a8bbb1261f76055597c4fff2376b521a68902de4
+  fragments/frontend-pr-review/check.instruction.md: 376a579d4ae73b37a61e0778769178800d6b6fc8a3a6316c8479c8b0f9e76781
+  fragments/frontend-pr-review/check.pass.md: 1a0dabb4b6e50a5d5387ea36fce2f0aa3c565292b4ed64c4148dd6b3105710d9
+  fragments/frontend-pr-review/fragment.yaml: f082b87cab992885cc01588612b5bd63228cc45c96fd659e569286715eb6e441
+  fragments/frontend-tests/check.fail.md: f8f85a140eb7e434c1d3487314fa8f3d5c2f764003e3a85df2ff0e930a1c7716
+  fragments/frontend-tests/check.instruction.md: 8e7975bb82dd29c07bfebaebd5e47e7a55b0657466a680077690e580c42c6827
+  fragments/frontend-tests/check.pass.md: 3fee0577495b4b000a9a0a55d1fb9d1f8ed82a92c889ec692535d8f916878b88
+  fragments/frontend-tests/fragment.yaml: 96d17d17e2c95bb3c28df10e53047e3da5d45a8ad99325129b405e8cee5742c6
+  fragments/qa-testing/fragment.yaml: d117da847b815f896c32f83e9d10ad372709cc7262aca4744cd3ca6b5f654b7e
+  fragments/qa-testing/test.fail.md: 8831d8bae23f9560eb8cf88d6237c3d983eb8b8c16214bd87455712e4c48892f
+  fragments/qa-testing/test.instruction.md: 1442847c55936c8e35af16c7da63ee2191f4c723b64dea8f51482a364392068c
+  fragments/qa-testing/test.pass.md: f2c12ec0edf5f58e5c32ffc74debf5107993cfbb1f4373b9f7a4bb1cc01404b8
+  fragments/requirements/fragment.yaml: 0290fcc67972f2d2bf0bfbda1855c80eaa239646917f69a2a0eef7f18ba3c5ad
+  fragments/requirements/proposal.instruction.md: 49d9c2531133b1d5b7cbd7519612dfc59b5e5f01d26b7c8e678dbbcf39ac0511
+  fragments/requirements/proposal.template.md: d8457be781432d2cf1aa22fb8acd14613ade8f7e6428a80eb5cf90dc0a96b15d
+  fragments/security-review/check.fail.md: 1852b0b188e8f4a0c594d826423eb12757272dcb6de202abd9bc31b67ec283e9
+  fragments/security-review/check.instruction.md: 0b12f9602313abb2920e6d3c0084328746366c8f2184fe1bc043d6d25ec16a4d
+  fragments/security-review/check.pass.md: 467bfc7364a2043c530739d0baa63674ba852d87c0c16d3144545b558efe409c
+  fragments/security-review/fragment.yaml: 6122c5399bf4e62b8aac93f8c9bbc8683110f16eb077e5fced1a44c963e68586
+  profiles/bugfix.yaml: 4f1efcef12d3a4bb111b7cf07e20d8a1e2960d4404bf490c8619e76a1e291487
+  profiles/frontend-small-change.yaml: 09c2e4ee62285afa953fd17b01ae1ea2003d2a7f3a54d4f71026cd54039de4be
+  profiles/large-feature.yaml: 938751a02a3be29be3457768c8b52c2acbb239fba0d3e8c2418f47ccec620b50

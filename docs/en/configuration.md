@@ -23,6 +23,7 @@ workflow:
 | --- | --- | --- | --- | --- |
 | `artifacts_dir` | relative path | no | `changes` | Directory under the workflow home that holds Changes. |
 | `workflow` | mapping | no | - | Project constraints, below. |
+| `registry` | mapping | no | - | Upstream git registry for fragments and profiles, below. |
 
 ### workflow fields
 
@@ -31,6 +32,70 @@ workflow:
 | `required_fragments` | list of Fragment names | no | `[]` | Every Plan must instantiate each of them somewhere in its flow. |
 | `assurance_rules` | home path | no | - | Project assurance rules. When set, every Plan needs an assurance node, and these rules are merged with the node's own. |
 | `generated_dirs` | list of names | no | `[]` | Tool-generated directories left out of the Git diff. Only `.venv`, `node_modules`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache` and `__pycache__` are accepted; anything else fails with `unsafe_exclusion`. |
+
+### registry fields
+
+An optional git repository (usually on GitHub) that maintains shared fragments and profiles. Fragments and profiles are still loaded only from `<home>/fragments/` and `<home>/profiles/`; the registry is their upstream, synced by `loopspec registry update` and `loopspec registry apply` (see the [CLI reference](cli-reference.md)). Only one registry per project, synced in full.
+
+<!-- loopspec:example=config -->
+```yaml
+artifacts_dir: changes
+workflow: {}
+registry:
+  url: git@github.com:acme/loopspec-workflows.git
+  version: latest
+  path: workflows
+```
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `url` | git URL | yes | - | `https://host/...`, `ssh://[user@]host/...`, `user@host:path` or `file:///abs/path`. `http://`, `git://`, transport syntax such as `ext::` and credentials inside the URL are rejected; authentication uses the local git setup (SSH agent or credential helper). |
+| `version` | `latest` or tag | no | `latest` | `latest` follows the highest release tag (`v1.2.3`, pre-releases ignored), or the default branch when there is none. A fixed tag such as `v1.3.0` is not updated and, once synced, needs no network. |
+| `path` | relative path | no | - | Directory inside the registry that holds `fragments/` and `profiles/`; the repository root when omitted. |
+
+`latest` follows whatever higher tag the registry publishes; projects that need tighter supply-chain control pin a tag and protect the registry's branches and tags.
+
+### registry.lock.yaml
+
+`loopspec registry apply` writes `<home>/registry.lock.yaml`; commit it with `config.yaml`. It is the base of the three-way comparison and records which upstream version each definition came from. `loopspec init` never creates it and built-in resources carry no version. It is validated as untrusted input; a malformed lock fails with `config_invalid`.
+
+<!-- loopspec:example=registry-lock -->
+```yaml
+version: 1
+registry:
+  url: git@github.com:acme/loopspec-workflows.git
+  version: latest
+  path: workflows
+commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1
+tag: v1.4.0
+definitions:
+  fragments/qa-testing: {tag: v1.3.0, commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1}
+  profiles/bugfix: {tag: v1.4.0, commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1}
+files:
+  fragments/qa-testing/fragment.yaml: 9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7
+  profiles/bugfix.yaml: 51ab7d4f60a8e2c3b1d9f7a6e5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7c6
+```
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `version` | integer | no | `1` | Format version. |
+| `registry` | registry mapping | yes | - | The registry the lock was synced from. |
+| `commit` | commit id | yes | - | Upstream commit of the last apply. |
+| `tag` | tag or null | no | - | Release tag of that commit. |
+| `definitions` | mapping | no | `{}` | `fragments/<name>` or `profiles/<name>` to the version that definition actually holds. A definition with a skipped file keeps its old version. |
+| `held` | list of definitions | no | `[]` | Definitions with a skipped file. While any is held, `registry update` compares again even if the registry has not moved, so a skipped change is never forgotten. |
+| `files` | mapping | no | `{}` | Each synced file to the SHA-256 of its upstream content, the base for telling local from upstream changes. |
+
+A conflict resolved with `local` still counts as decided against that upstream version: the definition advances, and the file shows up as `local-modified` from then on. When `url` or `path` changes, the old lock is not used as a base: every difference is reported as a conflict and no deletion is planned.
+
+Each `definitions` entry:
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `tag` | tag or null | no | - | Release tag the definition was synced at. |
+| `commit` | commit id | yes | - | Upstream commit the definition was synced at. |
+
+The cache `<home>/.cache/registry/` (private bare repository, plans and staged files) ignores itself through its own `.gitignore` and can be deleted at any time.
 
 ### When it is read
 

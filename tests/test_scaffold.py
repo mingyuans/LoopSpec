@@ -5,18 +5,20 @@ from loopspec.tool_registry import AI_TOOLS, ToolSpec
 from loopspec.tools_cli import tool_is_detected
 
 
-def test_single_tool_writes_four_skills_and_four_commands(tmp_path: Path):
+def test_single_tool_writes_five_skills_and_five_commands(tmp_path: Path):
     result = scaffold_tools(tmp_path, ["claude"])
 
     skill_dirs = sorted((tmp_path / ".claude" / "skills").iterdir())
-    assert len(skill_dirs) == 4
+    assert len(skill_dirs) == 5
+    assert (tmp_path / ".claude" / "skills" / "loopspec-update-registry").is_dir()
     for d in skill_dirs:
         assert (d / "SKILL.md").is_file()
 
     command_files = sorted((tmp_path / ".claude" / "commands" / "lpsx").glob("*.md"))
-    assert len(command_files) == 4
+    assert len(command_files) == 5
+    assert (tmp_path / ".claude" / "commands" / "lpsx" / "update-registry.md").is_file()
 
-    assert len(result.written_files["claude"]) == 8
+    assert len(result.written_files["claude"]) == 10
     assert result.skipped_command_generation == []
 
 
@@ -46,10 +48,10 @@ def test_tool_without_command_adapter_skips_commands_but_writes_skills(tmp_path:
     result = scaffold_tools(tmp_path, ["no-adapter-tool"])
 
     skill_dirs = list((tmp_path / ".noadapter" / "skills").iterdir())
-    assert len(skill_dirs) == 4
+    assert len(skill_dirs) == 5
     assert not (tmp_path / ".noadapter" / "commands").exists()
     assert result.skipped_command_generation == ["no-adapter-tool"]
-    assert len(result.written_files["no-adapter-tool"]) == 4
+    assert len(result.written_files["no-adapter-tool"]) == 5
 
 
 def test_first_run_reports_tool_as_created(tmp_path: Path):

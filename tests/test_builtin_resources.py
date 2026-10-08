@@ -49,6 +49,7 @@ def test_the_repo_ships_workflow_resources_and_no_schemas():
         "bulk-archive.md",
         "continue.md",
         "new.md",
+        "update-registry.md",
     ]
 
 

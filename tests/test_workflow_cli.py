@@ -40,6 +40,7 @@ TREE = {
     "gate": {"begin", "record"},
     "fragment": {"list", "show", "validate"},
     "profile": {"list", "show", "validate", "save"},
+    "registry": {"update", "apply"},
 }
 
 
@@ -270,3 +271,87 @@ def test_removed_modules_cannot_be_imported(module):
 
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("loopspec." + module)
+
+
+# ---------------------------------------------------------------- registry
+
+
+def registry_home(tmp_path: Path) -> Path:
+    from tests.registry_helpers import commit, make_registry, url
+
+    registry = make_registry(tmp_path / "registry")
+    commit(registry, "release", tag="v1.0.0")
+    (tmp_path / "project").mkdir()
+    return home_fixture(
+        tmp_path / "project", f"workflow: {{}}\nregistry:\n  url: {url(registry)}\n"
+    )
+
+
+def test_registry_not_configured(tmp_path: Path):
+    home = home_fixture(tmp_path)
+    for args in (["registry", "update"], ["registry", "apply", "--plan", "0" * 64]):
+        code, body = invoke(home, *args)
+        assert code == 1 and body["error"] == "registry_not_configured"
+
+
+def test_registry_update_apply_cli(tmp_path: Path):
+    home = registry_home(tmp_path)
+    (home / "fragments/qa-testing/test.instruction.md").write_text("mine\n")
+    code, plan = invoke(home, "registry", "update")
+    assert code == 0
+    assert {
+        "registry",
+        "upToDate",
+        "baseCommit",
+        "baseTag",
+        "upstreamCommit",
+        "upstreamTag",
+        "baseAvailable",
+        "planId",
+        "definitions",
+        "files",
+        "unsupported",
+        "warnings",
+        "nextSteps",
+    } <= set(plan)
+    code, body = invoke(home, "registry", "apply", "--plan", plan["planId"])
+    assert code == 1 and body["error"] == "registry_conflict_unresolved"
+    code, body = invoke(
+        home,
+        "registry",
+        "apply",
+        "--plan",
+        plan["planId"],
+        "--resolve",
+        "fragments/qa-testing/test.instruction.md=local",
+    )
+    assert code == 0 and body["applied"] is True
+    assert body["kept"] == ["fragments/qa-testing/test.instruction.md"]
+    code, body = invoke(home, "registry", "update", "--full")
+    assert code == 0 and body["upToDate"] is False
+    assert invoke(home, "registry", "update")[1]["upToDate"] is True
+
+
+def test_list_reports_registry_source(tmp_path: Path):
+    home = registry_home(tmp_path)
+    (home / "fragments" / "local-only").mkdir()
+    (home / "fragments" / "local-only" / "fragment.yaml").write_text(
+        (home / "fragments" / "requirements" / "fragment.yaml")
+        .read_text()
+        .replace("name: requirements", "name: local-only")
+    )
+    for item in invoke(home, "fragment", "list")[1]["fragments"]:
+        assert item["registry"] is None
+    plan = invoke(home, "registry", "update")[1]
+    invoke(home, "registry", "apply", "--plan", plan["planId"])
+    fragments = {i["name"]: i for i in invoke(home, "fragment", "list")[1]["fragments"]}
+    assert fragments["design"]["registry"] == {
+        "syncedTag": "v1.0.0",
+        "syncedCommit": plan["upstreamCommit"],
+    }
+    assert fragments["local-only"]["registry"] is None
+    profiles = {i["name"]: i for i in invoke(home, "profile", "list")[1]["profiles"]}
+    assert profiles["bugfix"]["registry"]["syncedTag"] == "v1.0.0"
+    (home / "registry.lock.yaml").write_text(":::")
+    code, body = invoke(home, "profile", "list")
+    assert code == 0 and all(i["registry"] is None for i in body["profiles"])

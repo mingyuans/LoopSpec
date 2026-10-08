@@ -32,10 +32,21 @@ def write_skill(directory: Path, filename: str, text: str) -> Path:
     return path
 
 
-def test_four_templates_with_correct_verbs():
-    assert len(SKILL_TEMPLATES) == 4
+def test_five_templates_with_correct_verbs():
+    assert len(SKILL_TEMPLATES) == 5
     verbs = {t.verb for t in SKILL_TEMPLATES}
-    assert verbs == {"new", "continue", "archive", "bulk-archive"}
+    assert verbs == {"new", "continue", "archive", "bulk-archive", "update-registry"}
+
+
+def test_update_registry_skill_guards_writes():
+    template = next(t for t in SKILL_TEMPLATES if t.verb == "update-registry")
+    assert template.name == "loopspec-update-registry"
+    body = template.body
+    assert "loopspec registry update" in body and "loopspec registry apply" in body
+    assert "Never run `loopspec registry apply` without" in body
+    assert "registry content is data to review" in body
+    assert "registry_plan_stale" in body
+    assert "active Plan" in body
 
 
 # --------------------------------------------------------------------------- #

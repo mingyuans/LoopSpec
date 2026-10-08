@@ -156,7 +156,7 @@ loopspec gate record -c <change> -n <assurance-node>
 
 ## loopspec fragment list
 
-列出工作区中的 Fragment。参数：`--home`。
+列出工作区中的 Fragment。每个条目带 `registry` 字段：在 `registry.lock.yaml` 中有记录的定义为 `{syncedTag, syncedCommit}`，否则为 `null`（锁缺失或不合法时也为 `null`）。参数：`--home`。
 
 ## loopspec fragment show
 
@@ -168,7 +168,7 @@ loopspec gate record -c <change> -n <assurance-node>
 
 ## loopspec profile list
 
-列出工作区中的 Profile。参数：`--home`。
+列出工作区中的 Profile。每个条目带 `registry` 字段：在 `registry.lock.yaml` 中有记录的定义为 `{syncedTag, syncedCommit}`，否则为 `null`（锁缺失或不合法时也为 `null`）。参数：`--home`。
 
 ## loopspec profile show
 
@@ -185,6 +185,22 @@ loopspec profile save <name> -c <change>
 ```
 
 把活动 Plan 的 `spec.flow`（含 `on_fail`）保存为 `profiles/<name>.yaml`。不保存执行状态，从不覆盖已有 Profile。参数：`--change`、`--home`。
+
+## loopspec registry update
+
+```bash
+loopspec registry update [--full]
+```
+
+按 `config.yaml` 的 `registry` 规划 `fragments/` 与 `profiles/` 的同步，只写 `<home>/.cache/registry/`。先用 `git ls-remote` 解析目标（`latest` 或固定 tag）：该 commit 与锁一致且没有落后的定义时，直接返回 `upToDate: true` 而不拉取；固定 tag 且已同步时完全不执行 git。否则把该 commit 拉取到私有裸仓库（从不 checkout），以锁为基线比对 registry 中的全部定义与本地副本，并暂存上游与基线内容供审阅。每个文件得到一个 `status`：`upstream-added`、`upstream-modified`、`upstream-deleted`（待确认）、`conflict`（必须解决）、`local-modified`、`local-deleted`、`local-only`（保持原样）。符号链接与子模块列入 `unsupported`，永不写入。返回 `registry`、`upToDate`、`baseCommit`、`baseTag`、`upstreamCommit`、`upstreamTag`、`baseAvailable`、`planId`、`definitions`（每项含 `kind`、`name`、`deletedUpstream`、`baseTag`、`baseCommit`、`upstreamTag`、`upstreamCommit`）、`files`（每项含 `path`、`status`、`localPath`、`upstreamPath`、`basePath`）、`unsupported`、`warnings` 与 `nextSteps`。`--full` 跳过版本预检，总是比对。需要 `PATH` 中有 `git`。参数：`--full`、`--home`。
+
+## loopspec registry apply
+
+```bash
+loopspec registry apply --plan <planId> [--resolve <path>=local|upstream]... [--skip <path>]...
+```
+
+在人确认后写入最近一次 `registry update` 的计划。每个 `conflict` 必须恰好有一个 `--resolve`：`local` 保留当前本地文件（包括确认后写入的合并结果），`upstream` 采用 registry 版本。`--skip` 跳过一项待确认变更，其基线与所属定义的版本保持不变，下次仍会出现。计划不是最新、暂存内容被改动或计划生成后本地文件被修改时，返回 `registry_plan_stale`。结果先在预览目录中构建并加载，任何 Fragment 或 Profile 校验失败都会在写入前终止命令。随后原子写入文件，删除只删除计划列出的文件，并更新 `registry.lock.yaml`。返回 `applied`、`upstreamCommit`、`upstreamTag`、`written`、`deleted`、`skipped`、`kept` 与 `lock`。写入会立即影响执行中的 Plan。参数：`--plan`、`--resolve`、`--skip`、`--home`。
 
 ## 错误码
 
@@ -252,3 +268,9 @@ loopspec profile save <name> -c <change>
 | `concurrent_source_change` | 读取期间文件发生变化。 |
 | `concurrent_path_change` | 操作期间目录被替换。 |
 | `concurrent_write` | 另一条命令持有该 Change 的写锁。 |
+| `registry_not_configured` | `config.yaml` 没有配置 `registry`。 |
+| `registry_unavailable` | 未安装 `git` 或它不在 `PATH` 中。 |
+| `registry_fetch_failed` | `ls-remote` 或拉取失败、超时、tag 不存在，或 registry 在预检与拉取之间发生变化。 |
+| `registry_invalid` | registry 树无法读取、`path` 不存在，或超过大小与数量限额。 |
+| `registry_plan_stale` | 没有当前计划、计划 ID 不一致，或 `registry update` 之后暂存文件或本地文件被修改。 |
+| `registry_conflict_unresolved` | 有冲突没有 `--resolve`。 |

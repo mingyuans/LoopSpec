@@ -31,7 +31,8 @@ from typer.main import get_command
 from loopspec import cli as cli_mod
 from loopspec import errors as errors_mod
 from loopspec.builtin_resources import builtin_root
-from loopspec.models import GateOutputs, GateTemplates, WorkflowConfig
+from loopspec.models import GateOutputs, GateTemplates, RegistrySpec, WorkflowConfig
+from loopspec.registry_sync import DefinitionVersion, RegistryLock
 from loopspec.workflow_attempts import AttemptRecord, Move
 from loopspec.workflow_models import (
     AssuranceRule,
@@ -79,7 +80,15 @@ FIELD_TABLE_HEADERS = {
 
 #: Which pages carry the field tables for which models.
 MODEL_PAGES = {
-    "configuration.md": (WorkflowConfig, ProjectWorkflow, AssuranceRules, AssuranceRule),
+    "configuration.md": (
+        WorkflowConfig,
+        ProjectWorkflow,
+        RegistrySpec,
+        RegistryLock,
+        DefinitionVersion,
+        AssuranceRules,
+        AssuranceRule,
+    ),
     "workflow-composition.md": (
         Fragment,
         Node,
@@ -545,6 +554,7 @@ EXAMPLE_MODELS: dict[str, type[BaseModel]] = {
     "plan": PlanRequest,
     "plan-file": PlanDocument,
     "change-state": ChangeState,
+    "registry-lock": RegistryLock,
 }
 
 

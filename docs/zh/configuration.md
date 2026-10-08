@@ -23,6 +23,7 @@ workflow:
 | --- | --- | --- | --- | --- |
 | `artifacts_dir` | 相对路径 | 否 | `changes` | 工作区内存放 Change 的目录。 |
 | `workflow` | 映射 | 否 | - | 项目约束，见下。 |
+| `registry` | 映射 | 否 | - | fragments 与 profiles 的上游 git registry，见下。 |
 
 ### workflow 字段
 
@@ -31,6 +32,70 @@ workflow:
 | `required_fragments` | Fragment 名称列表 | 否 | `[]` | 每份 Plan 的 flow 中都必须实例化这些 Fragment。 |
 | `assurance_rules` | 工作区路径 | 否 | - | 项目保障规则。设置后每份 Plan 都需要保障节点，且这些规则与保障节点自带规则合并。 |
 | `generated_dirs` | 名称列表 | 否 | `[]` | 不计入 Git Diff 的工具生成目录。只接受 `.venv`、`node_modules`、`.pytest_cache`、`.mypy_cache`、`.ruff_cache` 与 `__pycache__`，其他值返回 `unsafe_exclusion`。 |
+
+### registry 字段
+
+可选的 git 仓库（通常在 GitHub），用于单独维护共享的 fragments 与 profiles。fragments 与 profiles 仍只从 `<home>/fragments/` 与 `<home>/profiles/` 加载；registry 是它们的上游，由 `loopspec registry update` 与 `loopspec registry apply` 同步（见 [CLI 参考](cli-reference.md)）。每个项目只配置一个 registry，并全量同步。
+
+<!-- loopspec:example=config -->
+```yaml
+artifacts_dir: changes
+workflow: {}
+registry:
+  url: git@github.com:acme/loopspec-workflows.git
+  version: latest
+  path: workflows
+```
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `url` | git URL | 是 | - | `https://host/...`、`ssh://[user@]host/...`、`user@host:path` 或 `file:///abs/path`。拒绝 `http://`、`git://`、`ext::` 等传输语法以及 URL 内嵌的凭据；认证使用本机 git 配置（SSH agent 或 credential helper）。 |
+| `version` | `latest` 或 tag | 否 | `latest` | `latest` 跟踪最高的 release tag（`v1.2.3`，忽略预发布），没有 tag 时跟踪默认分支。固定 tag（如 `v1.3.0`）不会更新，同步后无需联网。 |
+| `path` | 相对路径 | 否 | - | registry 中存放 `fragments/` 与 `profiles/` 的目录；缺省为仓库根。 |
+
+`latest` 会跟随 registry 发布的更高 tag；对供应链更敏感的项目应固定 tag，并为 registry 的分支与 tag 开启保护。
+
+### registry.lock.yaml
+
+`loopspec registry apply` 写出 `<home>/registry.lock.yaml`，与 `config.yaml` 一起提交。它是三方比对的基线，并记录每个定义来自哪个上游版本。`loopspec init` 不会创建它，内置资源也不带版本号。它作为不可信输入严格校验，不合法时返回 `config_invalid`。
+
+<!-- loopspec:example=registry-lock -->
+```yaml
+version: 1
+registry:
+  url: git@github.com:acme/loopspec-workflows.git
+  version: latest
+  path: workflows
+commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1
+tag: v1.4.0
+definitions:
+  fragments/qa-testing: {tag: v1.3.0, commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1}
+  profiles/bugfix: {tag: v1.4.0, commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1}
+files:
+  fragments/qa-testing/fragment.yaml: 9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7
+  profiles/bugfix.yaml: 51ab7d4f60a8e2c3b1d9f7a6e5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7c6
+```
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `version` | 整数 | 否 | `1` | 格式版本。 |
+| `registry` | registry 映射 | 是 | - | 本次锁对应的 registry。 |
+| `commit` | commit id | 是 | - | 上次 apply 的上游 commit。 |
+| `tag` | tag 或 null | 否 | - | 该 commit 的 release tag。 |
+| `definitions` | 映射 | 否 | `{}` | `fragments/<name>` 或 `profiles/<name>` 到该定义实际所处的版本。有文件被跳过的定义保留旧版本。 |
+| `held` | 定义列表 | 否 | `[]` | 有文件被跳过的定义。只要存在这样的定义，即使 registry 没有变化，`registry update` 也会重新比对，被跳过的变更不会被遗忘。 |
+| `files` | 映射 | 否 | `{}` | 每个已同步文件到其上游内容的 SHA-256，用于区分本地修改与上游修改。 |
+
+冲突选择 `local` 同样算作基于该上游版本作出了决定：该定义的版本会推进，此后这个文件显示为 `local-modified`。`url` 或 `path` 变化后不再使用旧锁作为基线：所有差异按冲突报告，不会规划任何删除。
+
+`definitions` 的每一项：
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | tag 或 null | 否 | - | 同步该定义时的 release tag。 |
+| `commit` | commit id | 是 | - | 同步该定义时的上游 commit。 |
+
+缓存目录 `<home>/.cache/registry/`（私有裸仓库、计划与暂存文件）通过自带的 `.gitignore` 忽略自身，可随时删除。
 
 ### 何时读取
 

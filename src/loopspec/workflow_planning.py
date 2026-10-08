@@ -85,9 +85,10 @@ def load_config(home: Path) -> WorkflowConfig:
         raise WorkflowError(
             "config_invalid",
             "config.yaml 结构不合法",
-            "config.yaml 只接受 artifacts_dir 与 workflow（required_fragments、assurance_rules、"
-            "generated_dirs）；删除 schema、schemas、schema_selection、context、rules、"
-            "default_profile 等旧字段。",
+            "config.yaml 只接受 artifacts_dir、workflow（required_fragments、assurance_rules、"
+            "generated_dirs）与 registry（url、version、path）；registry.url 只接受 https、ssh、"
+            "user@host:path 与 file:/// 形式且不能内嵌凭据；"
+            "删除 schema、schemas、schema_selection、context、rules、default_profile 等旧字段。",
         ) from exc
 
 

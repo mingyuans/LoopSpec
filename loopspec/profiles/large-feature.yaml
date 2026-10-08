@@ -1,0 +1,28 @@
+version: 1
+name: large-feature
+description: 大型前后端需求
+flow:
+- id: requirements
+  use: requirements
+  requires: []
+- id: design
+  use: design
+  requires: [requirements]
+- id: fe
+  use: frontend-implementation
+  requires: [design]
+- id: be
+  use: backend-implementation
+  requires: [design]
+- id: qa
+  use: qa-testing
+  requires: [fe, be]
+  on_fail:
+    reset: [fe, be]
+    max_retries: 3
+- id: assurance
+  use: change-assurance
+  requires: [qa]
+guidance:
+- 此模板供选择或参考；为完整任务编写请求，plan create 生成草稿后须经人明确确认才能执行。
+- 先核对代码路径与审查范围；保障诊断提示缺少的 Fragment 时，用修订请求补充并经人确认。
