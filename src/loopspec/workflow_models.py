@@ -142,7 +142,8 @@ class AssuranceRule(StrictModel):
 
 class AssuranceRules(StrictModel):
     version: Literal[1] = 1
-    unknown_paths: Literal["fail"] = "fail"
+    # "warn" keeps paths matching no rule out of the verdict; they are reported as warnings.
+    unknown_paths: Literal["fail", "warn"] = "fail"
     rules: list[AssuranceRule] = Field(min_length=1, max_length=256)
 
 

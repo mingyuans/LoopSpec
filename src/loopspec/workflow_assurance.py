@@ -6,6 +6,7 @@ import fnmatch
 from typing import Literal
 
 from .errors import WorkflowError
+from .workflow_diff import MAX_IGNORED_WARNINGS as MAX_LISTED_WARNINGS
 from .workflow_diff import DiffSnapshot, collect_diff
 from .workflow_evidence import Evidence, evidence_path, next_round, rounds_dir, valid_evidence
 from .workflow_io import (
@@ -96,33 +97,49 @@ def diagnose(loaded: LoadedPlan, snapshot: DiffSnapshot | None = None) -> dict:
                         "gates": sorted(node.id for node in candidates),
                     }
                 )
-    result["passed"] = not any(
-        result[category]
-        for category in ("unknown_paths", "missing_evidence", "stale_evidence", "missing_fragments")
-    )
+    gaps = ["missing_evidence", "stale_evidence", "missing_fragments"]
+    if rules.unknown_paths == "warn":
+        if result["unknown_paths"]:
+            result["warnings"] = {
+                **(result["warnings"] or {}),
+                "unknownPaths": result["unknown_paths"][:MAX_LISTED_WARNINGS],
+                "unknownTotal": len(result["unknown_paths"]),
+            }
+    else:
+        gaps.append("unknown_paths")
+    result["passed"] = not any(result[category] for category in gaps)
     return result
 
 
 # Room left for warnings in a system report summary, well under FailureReport's limit.
 MAX_WARNING_CHARS = 8000
 
+WARNING_KINDS = (
+    ("ignoredPaths", "ignoredTotal", "以下路径被 Git 忽略但未在 workflow.excluded_paths 中声明"),
+    ("unknownPaths", "unknownTotal", "以下改动路径没有匹配任何保障规则"),
+)
+
 
 def warning_text(warnings: dict | None) -> str:
     if not warnings:
         return ""
-    listed: list[str] = []
+    text = ""
     used = 0
-    for path in warnings["ignoredPaths"]:
-        if used + len(path) + 1 > MAX_WARNING_CHARS:
-            break
-        listed.append(path)
-        used += len(path) + 1
-    rest = warnings["ignoredTotal"] - len(listed)
-    return (
-        f"；{warnings['ignoredTotal']} 条告警：以下路径被 Git 忽略但未在 "
-        f"workflow.excluded_paths 中声明，未纳入审查：{'、'.join(listed)}"
-        + (f"（另有 {rest} 条未列出）" if rest else "")
-    )
+    # Both kinds share one budget, ignored paths first, so the summary always stays parseable.
+    for paths_key, total_key, label in WARNING_KINDS:
+        if paths_key not in warnings:
+            continue
+        listed: list[str] = []
+        for path in warnings[paths_key]:
+            if used + len(path) + 1 > MAX_WARNING_CHARS:
+                break
+            listed.append(path)
+            used += len(path) + 1
+        rest = warnings[total_key] - len(listed)
+        text += f"；{warnings[total_key]} 条告警：{label}，未纳入审查：{'、'.join(listed)}" + (
+            f"（另有 {rest} 条未列出）" if rest else ""
+        )
+    return text
 
 
 def check(loaded: LoadedPlan, node: ResolvedNode) -> dict:
@@ -145,7 +162,7 @@ def check(loaded: LoadedPlan, node: ResolvedNode) -> dict:
         else "全量 Diff 保障存在缺口，请按诊断补齐审查或修订 Plan"
     )
     report = (
-        canonical({"verdict": verdict, "summary": summary + warning_text(snapshot.warnings())})
+        canonical({"verdict": verdict, "summary": summary + warning_text(diagnostics["warnings"])})
         + b"\n"
     )
     round_number = next_round(root, node.id)

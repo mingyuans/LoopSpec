@@ -15,11 +15,28 @@ from tests.test_workflow_catalog import fragment_path
 from tests.workflow_helpers import create_approved, init_repository, invoke
 
 
-def fixture(tmp_path: Path, backend=False):
+def fixture(tmp_path: Path, backend=False, unknown=None, project_unknown=None):
     init_repository(tmp_path)
     home = tmp_path / "loopspec"
     home.mkdir()
     (home / "config.yaml").write_text("workflow: {}\n")
+    if project_unknown is not None:
+        (home / "config.yaml").write_text("workflow:\n  assurance_rules: project-rules.yaml\n")
+        (home / "project-rules.yaml").write_text(
+            json.dumps(
+                {
+                    "unknown_paths": project_unknown,
+                    "rules": [
+                        {
+                            "id": "project-docs",
+                            "paths": ["docs/**"],
+                            "requires": ["pr-review"],
+                            "repair_fragment": "frontend-implementation",
+                        }
+                    ],
+                }
+            )
+        )
     for name, capabilities in {
         "frontend": ["frontend-tests", "pr-review"],
         "backend": ["backend-tests", "security-review", "pr-review"],
@@ -71,6 +88,7 @@ def fixture(tmp_path: Path, backend=False):
     (home / "fragments/assurance/rules.yaml").write_text(
         json.dumps(
             {
+                **({"unknown_paths": unknown} if unknown is not None else {}),
                 "rules": [
                     {
                         "id": "frontend",
@@ -84,7 +102,7 @@ def fixture(tmp_path: Path, backend=False):
                         "requires": ["backend-tests", "security-review", "pr-review"],
                         "repair_fragment": "backend-implementation",
                     },
-                ]
+                ],
             }
         )
     )
@@ -333,3 +351,98 @@ def test_warning_text_keeps_failure_summary_within_report_limit():
     assert paths[0] in text
     assert paths[-1] not in text
     assert "未列出" in text
+
+
+@pytest.mark.parametrize(
+    ("unknown", "project_unknown", "expected"),
+    [
+        (None, None, "fail"),
+        ("warn", None, "warn"),
+        ("warn", "fail", "fail"),
+        ("warn", "warn", "warn"),
+    ],
+)
+def test_unknown_paths_mode_survives_merge_and_fail_wins(
+    tmp_path: Path, unknown, project_unknown, expected
+):
+    from loopspec.workflow_assurance import live_rules
+
+    _, loaded = fixture(tmp_path, unknown=unknown, project_unknown=project_unknown)
+    assert live_rules(loaded).unknown_paths == expected
+
+
+def test_unknown_paths_rejects_other_values():
+    from pydantic import ValidationError
+
+    from loopspec.workflow_models import AssuranceRules
+
+    rule = {"id": "x", "paths": ["x/**"], "requires": ["pr-review"], "repair_fragment": "x"}
+    assert AssuranceRules.model_validate({"unknown_paths": "warn", "rules": [rule]})
+    with pytest.raises(ValidationError):
+        AssuranceRules.model_validate({"unknown_paths": "ignore", "rules": [rule]})
+
+
+def test_warn_mode_passes_with_unknown_path_warning(tmp_path: Path):
+    _, loaded = fixture(tmp_path, unknown="warn")
+    (tmp_path / "frontend/code.py").write_text("implementation")
+    (tmp_path / "unknown.py").write_text("unmatched change")
+    review(loaded, "fe")
+    qa(loaded)
+    result = check(loaded)
+    assert result["verdict"] == "PASS"
+    assert result["unknown_paths"] == ["unknown.py"]
+    assert result["warnings"] == {"unknownPaths": ["unknown.py"], "unknownTotal": 1}
+    report = (loaded.root / "artifacts/assurance/p.md").read_text()
+    assert "1 条告警" in report and "unknown.py" in report and "没有匹配任何保障规则" in report
+    assert status(loaded)["isComplete"]
+
+
+def test_warn_mode_still_fails_on_other_gaps(tmp_path: Path):
+    _, loaded = fixture(tmp_path, unknown="warn")
+    (tmp_path / "frontend/code.py").write_text("implementation")
+    (tmp_path / "backend/code.py").write_text("backend edit no Gate covers")
+    (tmp_path / "unknown.py").write_text("unmatched change")
+    review(loaded, "fe")
+    qa(loaded)
+    result = check(loaded)
+    assert result["verdict"] == "FAIL"
+    assert result["missing_fragments"]
+    assert "unknown.py" in (loaded.root / "artifacts/assurance/f.md").read_text()
+    assert status(loaded)["nodes"][-1]["status"] in {"failed", "exhausted"}
+
+
+def test_fail_mode_has_no_unknown_warning(tmp_path: Path):
+    _, loaded = fixture(tmp_path)
+    (tmp_path / "unknown.py").write_text("unmatched change")
+    result = diagnose(loaded)
+    assert not result["passed"]
+    assert result["unknown_paths"] == ["unknown.py"]
+    assert result["warnings"] is None
+
+
+def test_unknown_warning_list_is_capped(tmp_path: Path):
+    _, loaded = fixture(tmp_path, unknown="warn")
+    names = [f"u{index:02d}.py" for index in range(25)]
+    for name in reversed(names):
+        (tmp_path / name).write_text(name)
+    result = diagnose(loaded)
+    assert result["unknown_paths"] == names
+    assert result["warnings"] == {"unknownPaths": names[:20], "unknownTotal": 25}
+
+
+def test_combined_long_warnings_keep_failure_summary_within_limit():
+    from loopspec.workflow_assurance import warning_text
+    from loopspec.workflow_models import FailureReport
+
+    long = [f"{index:02d}/" + "d" * 4000 for index in range(20)]
+    text = warning_text(
+        {
+            "ignoredPaths": long,
+            "ignoredTotal": 30,
+            "unknownPaths": [path + ".py" for path in long],
+            "unknownTotal": 40,
+        }
+    )
+    summary = "全量 Diff 保障存在缺口，请按诊断补齐审查或修订 Plan" + text
+    FailureReport.model_validate({"verdict": "FAIL", "summary": summary})
+    assert "30 条告警" in text and "40 条告警" in text

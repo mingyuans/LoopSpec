@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from .errors import WorkflowError
 from .models import KEBAB_RE, WorkflowConfig
@@ -117,8 +118,13 @@ def assurance_rules(
     if project.assurance_rules:
         paths.add(project.assurance_rules)
     by_id: dict[str, AssuranceRule] = {}
+    unknown: Literal["fail", "warn"] = "warn"
     for path in sorted(paths):
-        for rule in bundle.model(path, AssuranceRules).rules:
+        loaded = bundle.model(path, AssuranceRules)
+        # Any file that fails unknown paths wins, so a Fragment cannot relax the project.
+        if loaded.unknown_paths == "fail":
+            unknown = "fail"
+        for rule in loaded.rules:
             for pattern in rule.paths:
                 relative_path(pattern, glob=True)
             if any(not re.fullmatch(KEBAB_RE, capability) for capability in rule.requires):
@@ -126,7 +132,7 @@ def assurance_rules(
             if rule.id in by_id and by_id[rule.id] != rule:
                 raise WorkflowError("rule_conflict", "项目与模板保障规则同名但内容冲突")
             by_id[rule.id] = rule
-    return AssuranceRules(rules=list(by_id.values())) if by_id else None
+    return AssuranceRules(unknown_paths=unknown, rules=list(by_id.values())) if by_id else None
 
 
 def check_assurance(nodes: list[ResolvedNode], rules: AssuranceRules | None) -> None:

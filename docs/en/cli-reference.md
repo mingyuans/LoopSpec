@@ -152,7 +152,7 @@ loopspec gate record -c <change> -n <gate> --round <roundId> --report <artifacts
 loopspec gate record -c <change> -n <assurance-node>
 ```
 
-For a code Gate, `--round` and `--report` are required. The report lives under the Plan's `artifacts/` and its header holds only `verdict` and `summary`. The round must be unused and the pinned code unchanged; then the PASS or FAIL report and evidence bound to the Plan digest are written, and the same `warnings` are returned. For the assurance node both options are refused: the CLI checks the full diff against the assurance rules and writes the system PASS or FAIL with diagnostics. Warnings never change the verdict; they go into the system report's `summary` and the diagnostics' `warnings`. Ignored files never count toward the diff or evidence digests. Options: `--change`, `--node`, `--round`, `--report`, `--home`.
+For a code Gate, `--round` and `--report` are required. The report lives under the Plan's `artifacts/` and its header holds only `verdict` and `summary`. The round must be unused and the pinned code unchanged; then the PASS or FAIL report and evidence bound to the Plan digest are written, and the same `warnings` are returned. For the assurance node both options are refused: the CLI checks the full diff against the assurance rules and writes the system PASS or FAIL with diagnostics. Warnings never change the verdict; they go into the system report's `summary` and the diagnostics' `warnings`. With `unknown_paths: warn` in the assurance rules, changed paths matching no rule are reported there as warnings too. Ignored files never count toward the diff or evidence digests. Options: `--change`, `--node`, `--round`, `--report`, `--home`.
 
 ## loopspec fragment list
 

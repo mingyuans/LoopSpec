@@ -123,7 +123,7 @@ rules:
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
 | `version` | 整数 | 否 | `1` | 格式版本。 |
-| `unknown_paths` | `fail` | 否 | `fail` | 不匹配任何规则的改动路径使保障失败。 |
+| `unknown_paths` | `fail` 或 `warn` | 否 | `fail` | 改动路径不匹配任何规则时的处理。`fail` 使保障失败；`warn` 不影响结论，这些路径仍列在诊断的 `unknown_paths` 中，并作为告警（`warnings.unknownPaths`，最多 20 条，附 `unknownTotal`）写进诊断与系统报告的 `summary`。合并多份规则文件时，任一文件为 `fail` 即按 `fail`，Fragment 自带的规则不能放宽项目规则。 |
 | `rules` | 规则列表 | 是 | - | 1 到 256 条规则。 |
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |

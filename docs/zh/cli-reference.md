@@ -152,7 +152,7 @@ loopspec gate record -c <change> -n <gate> --round <roundId> --report <artifacts
 loopspec gate record -c <change> -n <assurance-node>
 ```
 
-代码 Gate 必须带 `--round` 与 `--report`。报告位于 Plan 的 `artifacts/` 下，头部只含 `verdict` 与 `summary`。轮次未被使用且固定的代码未变化时，写出 PASS 或 FAIL 报告与绑定 Plan 摘要的证据，并返回同样的 `warnings`。保障节点拒绝这两个参数：CLI 按保障规则检查完整 Diff，写出带诊断的系统 PASS 或 FAIL；告警不影响结论，会写进系统报告的 `summary` 与诊断的 `warnings`。被忽略的文件从不计入 Diff 与证据摘要。参数：`--change`、`--node`、`--round`、`--report`、`--home`。
+代码 Gate 必须带 `--round` 与 `--report`。报告位于 Plan 的 `artifacts/` 下，头部只含 `verdict` 与 `summary`。轮次未被使用且固定的代码未变化时，写出 PASS 或 FAIL 报告与绑定 Plan 摘要的证据，并返回同样的 `warnings`。保障节点拒绝这两个参数：CLI 按保障规则检查完整 Diff，写出带诊断的系统 PASS 或 FAIL；告警不影响结论，会写进系统报告的 `summary` 与诊断的 `warnings`；保障规则的 `unknown_paths` 为 `warn` 时，不匹配任何规则的路径也作为告警写入。被忽略的文件从不计入 Diff 与证据摘要。参数：`--change`、`--node`、`--round`、`--report`、`--home`。
 
 ## loopspec fragment list
 

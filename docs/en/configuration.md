@@ -123,7 +123,7 @@ rules:
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
 | `version` | integer | no | `1` | Format version. |
-| `unknown_paths` | `fail` | no | `fail` | A changed path matching no rule fails assurance. |
+| `unknown_paths` | `fail` or `warn` | no | `fail` | What happens to a changed path matching no rule. `fail` fails assurance; `warn` leaves the verdict alone: such paths are still listed in the diagnostics' `unknown_paths` and are reported as warnings (`warnings.unknownPaths`, at most 20, with `unknownTotal`) in the diagnostics and the system report's `summary`. When several rule files are merged, any file with `fail` makes it `fail`, so rules shipped with a Fragment cannot relax the project's. |
 | `rules` | list of rules | yes | - | 1 to 256 rules. |
 
 | Field | Type | Required | Default | Description |

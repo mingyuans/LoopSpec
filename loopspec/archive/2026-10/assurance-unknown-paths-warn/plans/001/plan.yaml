@@ -1,0 +1,159 @@
+meta:
+  plan: '001'
+  status: approved
+  revision: 1
+  digest: e2093548064838abffda70fea6d48f6d2af0d97febf8ffa013c02a079d3d6e97
+  approved_at: '2026-10-08T09:24:39+00:00'
+  note: unknown_paths 支持 warn，修复规则合并丢字段
+  created: '2026-10-08T09:22:39+00:00'
+  archived_at: null
+  archive_note: null
+spec:
+  based_on: bugfix
+  flow:
+  - id: requirements
+    use: requirements
+    requires: []
+  - id: be
+    use: backend-implementation
+    requires:
+    - requirements
+  - id: qa
+    use: qa-testing
+    requires:
+    - be
+    on_fail:
+      reset:
+      - be
+      max_retries: 3
+  - id: assurance
+    use: change-assurance
+    requires:
+    - qa
+  nodes:
+  - id: requirements/proposal
+    fragment: requirements
+    requires: []
+    generates: artifacts/requirements/proposal.md
+    instruction: fragments/requirements/proposal.instruction.md
+    template: fragments/requirements/proposal.template.md
+  - id: be/code/implement
+    fragment: be/code
+    requires:
+    - requirements/proposal
+    generates: artifacts/be/code/implementation.md
+    instruction: fragments/backend-code/implement.instruction.md
+    template: fragments/backend-code/implement.template.md
+  - id: be/tests/check
+    fragment: be/tests
+    requires:
+    - be/code/implement
+    instruction: fragments/backend-tests/check.instruction.md
+    gate:
+      outputs:
+        pass: artifacts/be/tests/check/pass.md
+        fail: artifacts/be/tests/check/fail.md
+      templates:
+        pass: fragments/backend-tests/check.pass.md
+        fail: fragments/backend-tests/check.fail.md
+      evidence:
+        provides:
+        - backend-tests
+        paths:
+        - src/**
+        - tests/**
+        - builtin/**
+        - Makefile
+        - pyproject.toml
+        - install.sh
+        - hatch_version.py
+        - uv.lock
+      on_fail:
+        reset:
+        - be/code/implement
+        max_retries: 3
+  - id: be/security/check
+    fragment: be/security
+    requires:
+    - be/tests/check
+    instruction: fragments/security-review/check.instruction.md
+    gate:
+      outputs:
+        pass: artifacts/be/security/check/pass.md
+        fail: artifacts/be/security/check/fail.md
+      templates:
+        pass: fragments/security-review/check.pass.md
+        fail: fragments/security-review/check.fail.md
+      evidence:
+        provides:
+        - security-review
+        paths:
+        - src/**
+        - tests/**
+        - builtin/**
+        - Makefile
+        - pyproject.toml
+        - install.sh
+        - hatch_version.py
+        - uv.lock
+      on_fail:
+        reset:
+        - be/code/implement
+        max_retries: 3
+  - id: be/review/check
+    fragment: be/review
+    requires:
+    - be/security/check
+    instruction: fragments/backend-pr-review/check.instruction.md
+    gate:
+      outputs:
+        pass: artifacts/be/review/check/pass.md
+        fail: artifacts/be/review/check/fail.md
+      templates:
+        pass: fragments/backend-pr-review/check.pass.md
+        fail: fragments/backend-pr-review/check.fail.md
+      evidence:
+        provides:
+        - pr-review
+        paths:
+        - src/**
+        - tests/**
+        - builtin/**
+        - Makefile
+        - pyproject.toml
+        - install.sh
+        - hatch_version.py
+        - uv.lock
+      on_fail:
+        reset:
+        - be/code/implement
+        max_retries: 3
+  - id: qa/test
+    fragment: qa
+    requires:
+    - be/review/check
+    instruction: fragments/qa-testing/test.instruction.md
+    gate:
+      outputs:
+        pass: artifacts/qa/test/pass.md
+        fail: artifacts/qa/test/fail.md
+      templates:
+        pass: fragments/qa-testing/test.pass.md
+        fail: fragments/qa-testing/test.fail.md
+      on_fail:
+        reset:
+        - be/code/implement
+        - be/review/check
+        - be/security/check
+        - be/tests/check
+        max_retries: 3
+  - id: assurance/check
+    fragment: assurance
+    requires:
+    - qa/test
+    instruction: fragments/change-assurance/check.instruction.md
+    gate:
+      outputs:
+        pass: artifacts/assurance/check/pass.md
+        fail: artifacts/assurance/check/fail.md
+      assurance: fragments/change-assurance/rules.yaml
