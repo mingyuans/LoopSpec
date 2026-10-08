@@ -13,7 +13,7 @@
 - **删除 Schema 工作流。** `loopspec schemas ...`、`builtin/schemas/` 与 `secure-spec-driven` Schema 已删除。1.x 创建的 Change（`.workflow.yaml` 含 `schema`）或开发版本创建的 Change（format 3）返回 `unsupported_format`。
 - **命令树。** 命令改为 `loopspec <资源> <动作>`：`change`、`plan`、`node`、`gate`、`fragment`、`profile`。平铺命令（`new`、`status`、`next`、`instructions`、`rollback`、`history`、`artifacts`、`archive`、`bulk-archive`）、复数分组（`plans`、`fragments`、`profiles`）、`assurance check` 与 `recover` 已删除。参数显式指定：`-c/--change`、`-p/--plan`、`-n/--node`、`-f/--file`、`--digest`、`--note`。
 - **只输出 JSON。** 工作流命令总是输出 JSON，不再接受 `--json`；`version` 与 `init` 保留人类可读输出，并支持 `--json`。
-- **config.yaml。** 只接受 `artifacts_dir` 与 `workflow`（`required_fragments`、`assurance_rules`、`generated_dirs`）。删除 `schema`、`schemas`、`schema_selection`、`context`、`rules` 与 `workflow.default_profile`。
+- **config.yaml。** 只接受 `artifacts_dir` 与 `workflow`（`required_fragments`、`assurance_rules`、`excluded_paths`）。`workflow.generated_dirs` 已删除：把其中的名称原样移到 `excluded_paths`。删除 `schema`、`schemas`、`schema_selection`、`context`、`rules` 与 `workflow.default_profile`。
 - **init。** 不再创建 `schemas/`，删除 `--no-builtin`；只补齐缺失的 Fragment 与 Profile，不覆盖已有文件。
 - **归档。** `change archive` 取代 `archive` 与 `bulk-archive`（`--all`、`--older-than`）；`--force` 取代 `--exhausted` 与 `--include-pending-failures`。
 
@@ -23,6 +23,7 @@
 - 每份 Plan 一个 `plan.yaml`（`meta` + `spec`），带摘要完整性校验；产物、证据与重做记录按 Plan 隔离。
 - 原地修订：`plan validate -f` 预览，`plan approve -f --digest` 确认。
 - 每条命令只有一次生效写入：命令中断后 Change 要么是之前、要么是之后的状态，不再有事务文件、恢复命令或中断状态。
+- `workflow.excluded_paths` 按名称或完整路径把任意路径排除出 Diff；被 Git 忽略但未排除的路径只作为告警写进保障报告，不再中止命令。
 - `on_fail` 编译进每个 Gate；每个 Gate 一条策略，冲突即报错。
 
 ### 升级步骤

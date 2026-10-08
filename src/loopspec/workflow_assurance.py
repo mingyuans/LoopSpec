@@ -46,6 +46,7 @@ def diagnose(loaded: LoadedPlan, snapshot: DiffSnapshot | None = None) -> dict:
     result: dict = {
         "diffDigest": snapshot.diff_digest,
         "baseline": snapshot.baseline,
+        "warnings": snapshot.warnings(),
         "unknown_paths": [],
         "missing_evidence": [],
         "stale_evidence": [],
@@ -102,6 +103,28 @@ def diagnose(loaded: LoadedPlan, snapshot: DiffSnapshot | None = None) -> dict:
     return result
 
 
+# Room left for warnings in a system report summary, well under FailureReport's limit.
+MAX_WARNING_CHARS = 8000
+
+
+def warning_text(warnings: dict | None) -> str:
+    if not warnings:
+        return ""
+    listed: list[str] = []
+    used = 0
+    for path in warnings["ignoredPaths"]:
+        if used + len(path) + 1 > MAX_WARNING_CHARS:
+            break
+        listed.append(path)
+        used += len(path) + 1
+    rest = warnings["ignoredTotal"] - len(listed)
+    return (
+        f"；{warnings['ignoredTotal']} 条告警：以下路径被 Git 忽略但未在 "
+        f"workflow.excluded_paths 中声明，未纳入审查：{'、'.join(listed)}"
+        + (f"（另有 {rest} 条未列出）" if rest else "")
+    )
+
+
 def check(loaded: LoadedPlan, node: ResolvedNode) -> dict:
     """Run under the caller's write lock; only the system writes the assurance PASS/FAIL."""
     from .workflow_runtime import status
@@ -114,16 +137,15 @@ def check(loaded: LoadedPlan, node: ResolvedNode) -> dict:
     if entry["status"] == "blocked":
         return {**diagnostics, "recorded": False, "blockedBy": entry.get("missingDeps", [])}
     verdict: Literal["PASS", "FAIL"] = "PASS" if diagnostics["passed"] else "FAIL"
-    # The report holds only the deterministic verdict; diagnostics are stored separately.
+    # The report holds only the deterministic verdict and summary; warnings never change the
+    # verdict and are written into the summary, full diagnostics are stored separately.
+    summary = (
+        "全量 Diff 保障通过"
+        if verdict == "PASS"
+        else "全量 Diff 保障存在缺口，请按诊断补齐审查或修订 Plan"
+    )
     report = (
-        canonical(
-            {
-                "verdict": verdict,
-                "summary": "全量 Diff 保障通过"
-                if verdict == "PASS"
-                else "全量 Diff 保障存在缺口，请按诊断补齐审查或修订 Plan",
-            }
-        )
+        canonical({"verdict": verdict, "summary": summary + warning_text(snapshot.warnings())})
         + b"\n"
     )
     round_number = next_round(root, node.id)

@@ -6,7 +6,7 @@
 
 ## config.yaml
 
-`loopspec init` 写出 `<home>/config.yaml`，记录 Change 存放位置与项目的最低工作流约束。未知字段一律拒绝，因此 LoopSpec 1.x 的字段（`schema`、`schemas`、`schema_selection`、`context`、`rules`）与 `workflow.default_profile` 会返回 `config_invalid`，需要删除。
+`loopspec init` 写出 `<home>/config.yaml`，记录 Change 存放位置与项目的最低工作流约束。未知字段一律拒绝，因此 LoopSpec 1.x 的字段（`schema`、`schemas`、`schema_selection`、`context`、`rules`）与 `workflow.default_profile` 会返回 `config_invalid`，需要删除。`workflow.generated_dirs` 已删除，把其中的名称原样移到 `workflow.excluded_paths` 即可，含义不变。
 
 <!-- loopspec:example=config -->
 ```yaml
@@ -14,7 +14,7 @@ artifacts_dir: changes
 workflow:
   required_fragments: [qa-testing, change-assurance]
   assurance_rules: fragments/change-assurance/rules.yaml
-  generated_dirs: [node_modules, .venv]
+  excluded_paths: [node_modules, .venv, .DS_Store, docs/**]
 ```
 
 ### 顶层字段
@@ -31,7 +31,7 @@ workflow:
 | --- | --- | --- | --- | --- |
 | `required_fragments` | Fragment 名称列表 | 否 | `[]` | 每份 Plan 的 flow 中都必须实例化这些 Fragment。 |
 | `assurance_rules` | 工作区路径 | 否 | - | 项目保障规则。设置后每份 Plan 都需要保障节点，且这些规则与保障节点自带规则合并。 |
-| `generated_dirs` | 名称列表 | 否 | `[]` | 不计入 Git Diff 的工具生成目录。只接受 `.venv`、`node_modules`、`.pytest_cache`、`.mypy_cache`、`.ruff_cache` 与 `__pycache__`，其他值返回 `unsafe_exclusion`。 |
+| `excluded_paths` | 模式列表 | 否 | `[]` | 不计入 Git Diff 的路径，最多 128 项。不含 `/` 的模式匹配路径中任意一级名字（包括文件名），例如 `.DS_Store`、`__pycache__`、`*.log`；含 `/` 的模式用 fnmatch 匹配仓库相对完整路径，`*` 可跨目录，例如 `docs/**`、`loopspec/config.yaml`。命中的路径不需要任何审查，被忽略时也不产生告警。模式必须是安全相对路径：不能为空、不能以 `/` 开头、不能含 `.` 或 `..` 分量。 |
 
 ### registry 字段
 
@@ -99,7 +99,7 @@ files:
 
 ### 何时读取
 
-创建 Plan 时检查约束，确认或修订时按当时的文件再次检查。执行期间 Diff 排除项与保障规则也实时读取。因此修改 `config.yaml` 会立即影响正在执行的 Plan（包括放宽规则），应当作需要评审的项目代码对待。
+创建 Plan 时检查约束，确认或修订时按当时的文件再次检查。执行期间 Diff 排除项与保障规则也实时读取。`<home>/.cache/`（registry 同步缓存）与当前 Change 的 `.workflow.yaml`、`state.md`、`plans/` 始终不计入 Diff，无需配置。因此修改 `config.yaml` 会立即影响正在执行的 Plan（包括放宽规则），应当作需要评审的项目代码对待。
 
 ## 保障规则
 
@@ -133,4 +133,4 @@ rules:
 | `requires` | 能力列表 | 是 | - | 每个命中路径都必须由带有效证据的代码 Gate 提供的能力。 |
 | `repair_fragment` | Fragment 名称 | 是 | - | Plan 中没有 Gate 能提供某项能力时建议补充的 Fragment。 |
 
-Fragment 中 Gate 的 `evidence.paths` 与规则的 `paths` 必须描述同一批目录。没人审查的路径会出现在 `unknown_paths` 或 `missing_fragments` 中；不要用扩大 `generated_dirs` 的方式隐藏业务代码。
+Fragment 中 Gate 的 `evidence.paths` 与规则的 `paths` 必须描述同一批目录。没人审查的路径会出现在 `unknown_paths` 或 `missing_fragments` 中；`excluded_paths` 不限制取值，写进去的路径就不再经过任何 Gate；不要用它隐藏业务代码，修改它应当作需要评审的项目代码对待。

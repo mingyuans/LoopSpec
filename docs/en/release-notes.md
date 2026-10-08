@@ -13,7 +13,7 @@
 - **Schema workflow removed.** `loopspec schemas ...`, `builtin/schemas/` and the `secure-spec-driven` Schema are gone. A Change created by 1.x (its `.workflow.yaml` names a `schema`) or by a development build (format 3) reports `unsupported_format`.
 - **Command tree.** Commands are `loopspec <resource> <verb>`: `change`, `plan`, `node`, `gate`, `fragment`, `profile`. Flat commands (`new`, `status`, `next`, `instructions`, `rollback`, `history`, `artifacts`, `archive`, `bulk-archive`), the plural groups (`plans`, `fragments`, `profiles`), `assurance check` and `recover` are removed. Options are explicit: `-c/--change`, `-p/--plan`, `-n/--node`, `-f/--file`, `--digest`, `--note`.
 - **JSON only.** Workflow commands always print JSON and no longer take `--json`; `version` and `init` keep human output with `--json` available.
-- **config.yaml.** Only `artifacts_dir` and `workflow` (`required_fragments`, `assurance_rules`, `generated_dirs`) are accepted. Delete `schema`, `schemas`, `schema_selection`, `context`, `rules` and `workflow.default_profile`.
+- **config.yaml.** Only `artifacts_dir` and `workflow` (`required_fragments`, `assurance_rules`, `excluded_paths`) are accepted. `workflow.generated_dirs` was removed: move its names unchanged into `excluded_paths`. Delete `schema`, `schemas`, `schema_selection`, `context`, `rules` and `workflow.default_profile`.
 - **init.** No `schemas/` directory and no `--no-builtin`; missing Fragments and Profiles are copied without overwriting.
 - **Archive.** `change archive` replaces `archive` and `bulk-archive` (`--all`, `--older-than`); `--force` replaces `--exhausted` and `--include-pending-failures`.
 
@@ -23,6 +23,7 @@
 - One `plan.yaml` per Plan (`meta` + `spec`) with digest integrity, per-Plan artifacts, evidence and rework records.
 - In-place revisions previewed with `plan validate -f` and confirmed with `plan approve -f --digest`.
 - Every command takes effect in a single write: an interrupted command leaves the Change as before or as after, with no transaction file, no recovery command and no interrupted status.
+- `workflow.excluded_paths` keeps any path out of the diff, by name or by full path; paths ignored by Git but not excluded only warn in the assurance report instead of stopping commands.
 - `on_fail` is compiled into each Gate; one policy per Gate, conflicts are errors.
 
 ### Upgrading

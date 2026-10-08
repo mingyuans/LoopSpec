@@ -37,7 +37,7 @@ loopspec change new <change>
 loopspec change status <change>
 ```
 
-返回 `status`（`unplanned`、`planning`、`active`、`complete`）、`baseline`、`repository`、`activePlan`、`openPlan`、全部 Plan 摘要，以及给出唯一下一条命令的 `nextSteps`。有活动 Plan 时还返回 `plan`、`revision`、`digest`、`nodes`（每个节点的 `status`、输出路径、证据过期时的 `reason`、失败时的 `gate` 详情、跟踪节点的 `taskProgress`）、`instances`（引用汇总）与 `pendingRollback`。参数：`--home`。
+返回 `status`（`unplanned`、`planning`、`active`、`complete`）、`baseline`、`repository`、`activePlan`、`openPlan`、全部 Plan 摘要，以及给出唯一下一条命令的 `nextSteps`。有活动 Plan 时还返回 `plan`、`revision`、`digest`、`nodes`（每个节点的 `status`、输出路径、证据过期时的 `reason`、失败时的 `gate` 详情、跟踪节点的 `taskProgress`）、`instances`（引用汇总）与 `pendingRollback`；为复核已有证据计算了 Diff 且存在被忽略、未排除的路径时，还返回 `warnings`。参数：`--home`。
 
 ## loopspec change next
 
@@ -143,7 +143,7 @@ loopspec node instructions -c <change> -n <node>
 loopspec gate begin -c <change> -n <gate>
 ```
 
-只用于就绪的代码 Gate。以基线为准固定其 `evidence.paths` 范围内的内容，返回一次性的 `roundId` 与范围内的文件（路径、类型与摘要，不含内容）。参数：`--change`、`--node`、`--home`。
+只用于就绪的代码 Gate。以基线为准固定其 `evidence.paths` 范围内的内容，返回一次性的 `roundId` 与范围内的文件（路径、类型与摘要，不含内容）。存在被 Git 忽略、但不在 `workflow.excluded_paths` 中的路径时，返回 `warnings`（`ignoredPaths` 最多 20 条与 `ignoredTotal`）；审查者应把这些告警写进报告摘要。参数：`--change`、`--node`、`--home`。
 
 ## loopspec gate record
 
@@ -152,7 +152,7 @@ loopspec gate record -c <change> -n <gate> --round <roundId> --report <artifacts
 loopspec gate record -c <change> -n <assurance-node>
 ```
 
-代码 Gate 必须带 `--round` 与 `--report`。报告位于 Plan 的 `artifacts/` 下，头部只含 `verdict` 与 `summary`。轮次未被使用且固定的代码未变化时，写出 PASS 或 FAIL 报告与绑定 Plan 摘要的证据。保障节点拒绝这两个参数：CLI 按保障规则检查完整 Diff，写出带诊断的系统 PASS 或 FAIL。参数：`--change`、`--node`、`--round`、`--report`、`--home`。
+代码 Gate 必须带 `--round` 与 `--report`。报告位于 Plan 的 `artifacts/` 下，头部只含 `verdict` 与 `summary`。轮次未被使用且固定的代码未变化时，写出 PASS 或 FAIL 报告与绑定 Plan 摘要的证据，并返回同样的 `warnings`。保障节点拒绝这两个参数：CLI 按保障规则检查完整 Diff，写出带诊断的系统 PASS 或 FAIL；告警不影响结论，会写进系统报告的 `summary` 与诊断的 `warnings`。被忽略的文件从不计入 Diff 与证据摘要。参数：`--change`、`--node`、`--round`、`--report`、`--home`。
 
 ## loopspec fragment list
 
@@ -252,7 +252,6 @@ loopspec registry apply --plan <planId> [--resolve <path>=local|upstream]... [--
 | `output_conflict` | 两个输出路径重叠。 |
 | `unsafe_output` | 输出指向控制路径。 |
 | `unsafe_path` | 路径为绝对路径、越出根目录，或是链接或特殊文件。 |
-| `unsafe_exclusion` | `generated_dirs` 中出现工具目录以外的名称。 |
 | `resource_limit` | 超过大小、深度或数量限制。 |
 | `profile_exists` | `profile save` 会覆盖已有 Profile。 |
 | `archive_unsafe` | Change 未完成；完成它，或在明确要求时使用 `--force`。 |
@@ -262,7 +261,6 @@ loopspec registry apply --plan <planId> [--resolve <path>=local|upstream]... [--
 | `repository_changed` | Git 仓库不是 Change 固定的仓库。 |
 | `git_input_error` | Git 输出无法安全解析。 |
 | `unsupported_input` | Diff 中有不支持的路径、模式、子模块或冲突。 |
-| `ignored_input` | 允许的排除项之外存在被忽略的文件。 |
 | `index_worktree_mismatch` | 暂存区与工作树内容不一致；先决定交付哪个版本。 |
 | `concurrent_input_change` | 读取代码期间代码发生变化。 |
 | `concurrent_source_change` | 读取期间文件发生变化。 |

@@ -7,7 +7,7 @@ import hashlib
 import os
 import re
 import stat
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .errors import WorkflowError
@@ -23,11 +23,24 @@ from .workflow_io import (
 )
 from .workflow_state import LoadedPlan
 
+# Ignored paths only warn; the list is capped so reports and outputs stay small.
+MAX_IGNORED_WARNINGS = 20
+
 
 @dataclass
 class DiffSnapshot:
     baseline: str
     entries: list[dict]
+    # Ignored, not excluded paths: never part of any digest, reported as warnings only.
+    ignored: list[str] = field(default_factory=list)
+
+    def warnings(self) -> dict | None:
+        if not self.ignored:
+            return None
+        return {
+            "ignoredPaths": self.ignored[:MAX_IGNORED_WARNINGS],
+            "ignoredTotal": len(self.ignored),
+        }
 
     @property
     def diff_digest(self) -> str:
@@ -91,20 +104,33 @@ def _objects(data: bytes, *, index: bool) -> dict[str, tuple[str, str]]:
 def _exclusions(loaded: LoadedPlan, repository: Path):
     from .workflow_planning import project_constraints
 
-    generated = project_constraints(loaded.home).generated_dirs
+    patterns = project_constraints(loaded.home).excluded_paths
+    names = [pattern for pattern in patterns if "/" not in pattern]
+    paths = [pattern for pattern in patterns if "/" in pattern]
     try:
         change = loaded.change.root.absolute().relative_to(repository).as_posix()
     except ValueError as exc:
         raise WorkflowError("repository_changed", "需求目录不属于固定仓库") from exc
     relative_path(change)
+    try:
+        home = loaded.home.absolute().relative_to(repository).as_posix()
+    except ValueError:
+        home = None
+    # The registry sync cache lives under <home>/.cache and is never delivery input.
+    cache = ".cache" if home == "." else f"{home}/.cache"
 
-    def excluded(path: str) -> bool:
-        # Only this Change's exact control paths: never Fragments, Profiles or business code.
+    def excluded(path: str, *, directory: bool = False) -> bool:
+        # This Change's own control paths and the workflow cache are always out of the Diff.
         if path in {change + "/.workflow.yaml", change + "/state.md"}:
             return True
         if path == change + "/plans" or path.startswith(change + "/plans/"):
             return True
-        return any(part in generated for part in path.split("/")[:-1])
+        if home is not None and (path == cache or path.startswith(cache + "/")):
+            return True
+        if any(fnmatch.fnmatchcase(part, name) for part in path.split("/") for name in names):
+            return True
+        target = path + "/" if directory else path
+        return any(fnmatch.fnmatchcase(target, pattern) for pattern in paths)
 
     return excluded
 
@@ -204,10 +230,23 @@ def collect_diff(loaded: LoadedPlan) -> DiffSnapshot:
             repository,
             ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
         )
-        for item in _records(ignored_raw):
-            path = _decode_path(item.removesuffix(b"/"))
-            if not excluded(path + "/placeholder" if item.endswith(b"/") else path):
-                raise WorkflowError("ignored_input", "存在未明确允许排除的忽略文件或目录")
+        listed = [
+            (_decode_path(item.removesuffix(b"/")), item.endswith(b"/"))
+            for item in _records(ignored_raw)
+        ]
+        # Git also lists a directory that merely holds ignored entries, followed by those
+        # entries; only the entries themselves are judged.
+        containers = {
+            "/".join(parts[:end])
+            for parts in (path.split("/") for path, _ in listed)
+            for end in range(1, len(parts))
+        }
+        ignored = []
+        for path, is_directory in listed:
+            if is_directory and path in containers:
+                continue
+            if not excluded(path, directory=is_directory):
+                ignored.append(path + "/" if is_directory else path)
         paths = sorted(set(base) | set(index) | others)
         if len(paths) > 4096:
             raise WorkflowError("resource_limit", "输入文件超过数量限制")
@@ -253,10 +292,10 @@ def collect_diff(loaded: LoadedPlan) -> DiffSnapshot:
                 entry["renamed_from"] = prior["path"]
                 prior["renamed_to"] = entry["path"]
                 removed.remove(prior)
-        return entries, index_raw, others_raw, ignored_raw, head
+        return entries, index_raw, others_raw, sorted(ignored), head
 
     first = scan()
     second = scan()
     if first != second:
         raise WorkflowError("concurrent_input_change", "连续扫描结果不一致")
-    return DiffSnapshot(baseline, second[0])
+    return DiffSnapshot(baseline, second[0], second[3])

@@ -116,8 +116,21 @@ class PlanRequest(StrictModel):
 class ProjectWorkflow(StrictModel):
     required_fragments: list[str] = Field(default_factory=list, max_length=64)
     assurance_rules: str | None = None
-    # Only tool-generated directories the engine recognises, never arbitrary business excludes.
-    generated_dirs: list[str] = Field(default_factory=list, max_length=64)
+    # Paths kept out of the Git Diff: a pattern without "/" matches any one path component
+    # (file names included), a pattern with "/" matches the whole repository-relative path.
+    excluded_paths: list[str] = Field(default_factory=list, max_length=128)
+
+    @model_validator(mode="after")
+    def safe_exclusions(self) -> ProjectWorkflow:
+        from .errors import WorkflowError
+        from .workflow_io import relative_path
+
+        for pattern in self.excluded_paths:
+            try:
+                relative_path(pattern, glob=True)
+            except WorkflowError as exc:
+                raise ValueError("excluded_paths 必须是安全的相对路径或名称模式") from exc
+        return self
 
 
 class AssuranceRule(StrictModel):

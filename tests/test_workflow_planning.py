@@ -145,10 +145,33 @@ def test_config_rejects_removed_fields(tmp_path: Path, config):
     assert error.value.code == "config_invalid"
 
 
-def test_generated_dirs_cannot_name_business_directories(tmp_path: Path):
-    (tmp_path / "config.yaml").write_text("workflow:\n  generated_dirs: [backend]\n")
-    with pytest.raises(WorkflowError, match="业务目录"):
+def test_removed_generated_dirs_fails_with_migration_hint(tmp_path: Path):
+    (tmp_path / "config.yaml").write_text("workflow:\n  generated_dirs: [node_modules]\n")
+    with pytest.raises(WorkflowError) as error:
         project_constraints(tmp_path)
+    assert error.value.code == "config_invalid"
+    assert "excluded_paths" in error.value.fix
+
+
+def test_excluded_paths_accept_any_safe_name_or_path(tmp_path: Path):
+    (tmp_path / "config.yaml").write_text(
+        "workflow:\n  excluded_paths: [src, .DS_Store, '*.log', docs/**, loopspec/config.yaml]\n"
+    )
+    assert project_constraints(tmp_path).excluded_paths == [
+        "src",
+        ".DS_Store",
+        "*.log",
+        "docs/**",
+        "loopspec/config.yaml",
+    ]
+
+
+@pytest.mark.parametrize("pattern", ["''", "'.'", "'..'", "/abs/**", "a/../b", "a//b"])
+def test_excluded_paths_reject_unsafe_patterns(tmp_path: Path, pattern: str):
+    (tmp_path / "config.yaml").write_text(f"workflow:\n  excluded_paths: [{pattern}]\n")
+    with pytest.raises(WorkflowError) as error:
+        project_constraints(tmp_path)
+    assert error.value.code == "config_invalid"
 
 
 def test_spec_holds_only_based_on_flow_and_nodes(tmp_path: Path):

@@ -1,11 +1,11 @@
 meta:
   plan: '001'
-  status: draft
-  revision: 0
+  status: approved
+  revision: 1
   digest: e2093548064838abffda70fea6d48f6d2af0d97febf8ffa013c02a079d3d6e97
-  approved_at: null
+  approved_at: '2026-10-08T07:30:07+00:00'
   note: 修复 ignored_input：自动排除 registry 缓存、报错指明路径、配置排除 IDE/构建目录
-  created: '2026-10-08T06:58:31+00:00'
+  created: '2026-10-08T06:59:39+00:00'
   archived_at: null
   archive_note: null
 spec:

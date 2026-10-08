@@ -261,3 +261,75 @@ def test_live_rules_take_effect_immediately(tmp_path: Path):
     )
     (home / "fragments/assurance/rules.yaml").write_text(json.dumps(rules))
     assert check(loaded)["unknown_paths"] == []
+
+
+def ignore_local_files(tmp_path: Path) -> None:
+    # Inside frontend/ so the ignore file itself is covered by the frontend review.
+    (tmp_path / "frontend/.gitignore").write_text("*.local\n")
+    git(tmp_path, ["add", "frontend/.gitignore"])
+    git(tmp_path, ["commit", "-q", "-m", "ignore local files"])
+
+
+def test_ignored_paths_are_warned_in_assurance_report_and_outputs(tmp_path: Path):
+    _, loaded = fixture(tmp_path)
+    ignore_local_files(tmp_path)
+    (tmp_path / "frontend/code.py").write_text("implementation")
+    (tmp_path / "frontend/secret.local").write_text("ignored")
+    atomic_write(loaded.root, "artifacts/fe/implementation.md", "实施结果".encode())
+    context = begin(loaded.home, "AFD1111", "fe/review")
+    expected = {"ignoredPaths": ["frontend/secret.local"], "ignoredTotal": 1}
+    assert context["warnings"] == expected
+    atomic_write(loaded.root, "artifacts/draft.md", b"verdict: PASS\nsummary: actual review\n")
+    recorded = record(loaded.home, "AFD1111", "fe/review", context["roundId"], "artifacts/draft.md")
+    assert recorded["warnings"] == expected
+    assert status(loaded)["warnings"] == expected
+    qa(loaded)
+    result = check(loaded)
+    assert result["verdict"] == "PASS"
+    assert result["warnings"] == expected
+    report = (loaded.root / "artifacts/assurance/p.md").read_text()
+    assert "1 条告警" in report
+    assert "frontend/secret.local" in report
+    diagnostics = (loaded.root / ".gates/assurance/check/assurance.yaml").read_text()
+    assert "frontend/secret.local" in diagnostics
+    assert status(loaded)["isComplete"]
+
+
+def test_assurance_report_without_warnings_is_unchanged(tmp_path: Path):
+    _, loaded = fixture(tmp_path)
+    (tmp_path / "frontend/code.py").write_text("implementation")
+    review(loaded, "fe")
+    qa(loaded)
+    result = check(loaded)
+    assert result["warnings"] is None
+    report = (loaded.root / "artifacts/assurance/p.md").read_text()
+    assert "告警" not in report
+    assert "warnings" not in status(loaded)
+
+
+def test_failed_assurance_with_warnings_can_be_rolled_back(tmp_path: Path):
+    home, loaded = fixture(tmp_path)
+    ignore_local_files(tmp_path)
+    (tmp_path / "frontend/code.py").write_text("implementation")
+    (tmp_path / "frontend/notes.local").write_text("ignored")
+    review(loaded, "fe")
+    qa(loaded)
+    (tmp_path / "unknown.py").write_text("unknown change")
+    result = check(loaded)
+    assert result["verdict"] == "FAIL"
+    assert "告警" in (loaded.root / "artifacts/assurance/f.md").read_text()
+    assert status(loaded)["nodes"][-1]["status"] in {"failed", "exhausted"}
+
+
+def test_warning_text_keeps_failure_summary_within_report_limit():
+    from loopspec.workflow_assurance import warning_text
+    from loopspec.workflow_models import FailureReport
+
+    paths = [f"{index:02d}/" + "d" * 4000 for index in range(20)]
+    text = warning_text({"ignoredPaths": paths, "ignoredTotal": 37})
+    summary = "全量 Diff 保障存在缺口，请按诊断补齐审查或修订 Plan" + text
+    FailureReport.model_validate({"verdict": "FAIL", "summary": summary})
+    assert "37 条告警" in text
+    assert paths[0] in text
+    assert paths[-1] not in text
+    assert "未列出" in text

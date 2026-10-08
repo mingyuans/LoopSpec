@@ -37,7 +37,7 @@ Creates an unplanned Change: `.workflow.yaml` (format 4, no Plan, no baseline), 
 loopspec change status <change>
 ```
 
-Returns `status` (`unplanned`, `planning`, `active`, `complete`), `baseline`, `repository`, `activePlan`, `openPlan`, a summary of every Plan, and `nextSteps` with the single next command. With an active Plan it adds `plan`, `revision`, `digest`, `nodes` (each with `status`, output paths, `reason` for stale evidence, `gate` details for failures and `taskProgress` for tracked nodes), `instances` (reference summaries) and `pendingRollback`. Options: `--home`.
+Returns `status` (`unplanned`, `planning`, `active`, `complete`), `baseline`, `repository`, `activePlan`, `openPlan`, a summary of every Plan, and `nextSteps` with the single next command. With an active Plan it adds `plan`, `revision`, `digest`, `nodes` (each with `status`, output paths, `reason` for stale evidence, `gate` details for failures and `taskProgress` for tracked nodes), `instances` (reference summaries) and `pendingRollback`, plus `warnings` when the diff was computed to recheck evidence and ignored paths are not excluded. Options: `--home`.
 
 ## loopspec change next
 
@@ -143,7 +143,7 @@ Returns what an agent needs to execute one ready (or done) leaf node of the acti
 loopspec gate begin -c <change> -n <gate>
 ```
 
-Only for a ready code Gate. Pins the content of its `evidence.paths` relative to the baseline and returns a one-time `roundId` and the files in scope (paths, kinds and digests, never content). Options: `--change`, `--node`, `--home`.
+Only for a ready code Gate. Pins the content of its `evidence.paths` relative to the baseline and returns a one-time `roundId` and the files in scope (paths, kinds and digests, never content). When paths ignored by Git are not listed in `workflow.excluded_paths`, it also returns `warnings` (`ignoredPaths`, at most 20, and `ignoredTotal`); reviewers should record them in the report summary. Options: `--change`, `--node`, `--home`.
 
 ## loopspec gate record
 
@@ -152,7 +152,7 @@ loopspec gate record -c <change> -n <gate> --round <roundId> --report <artifacts
 loopspec gate record -c <change> -n <assurance-node>
 ```
 
-For a code Gate, `--round` and `--report` are required. The report lives under the Plan's `artifacts/` and its header holds only `verdict` and `summary`. The round must be unused and the pinned code unchanged; then the PASS or FAIL report and evidence bound to the Plan digest are written. For the assurance node both options are refused: the CLI checks the full diff against the assurance rules and writes the system PASS or FAIL with diagnostics. Options: `--change`, `--node`, `--round`, `--report`, `--home`.
+For a code Gate, `--round` and `--report` are required. The report lives under the Plan's `artifacts/` and its header holds only `verdict` and `summary`. The round must be unused and the pinned code unchanged; then the PASS or FAIL report and evidence bound to the Plan digest are written, and the same `warnings` are returned. For the assurance node both options are refused: the CLI checks the full diff against the assurance rules and writes the system PASS or FAIL with diagnostics. Warnings never change the verdict; they go into the system report's `summary` and the diagnostics' `warnings`. Ignored files never count toward the diff or evidence digests. Options: `--change`, `--node`, `--round`, `--report`, `--home`.
 
 ## loopspec fragment list
 
@@ -252,7 +252,6 @@ Writes the latest `registry update` plan after the human confirmed it. Every `co
 | `output_conflict` | Two outputs overlap. |
 | `unsafe_output` | An output points into a control path. |
 | `unsafe_path` | A path is absolute, escapes its root, or is a link or special file. |
-| `unsafe_exclusion` | `generated_dirs` names something other than a tool directory. |
 | `resource_limit` | A size, depth or count limit was exceeded. |
 | `profile_exists` | `profile save` would overwrite an existing Profile. |
 | `archive_unsafe` | The Change is not complete; finish it or use `--force` on explicit request. |
@@ -262,7 +261,6 @@ Writes the latest `registry update` plan after the human confirmed it. Every `co
 | `repository_changed` | The Git repository is not the one fixed for the Change. |
 | `git_input_error` | Git returned output that could not be parsed safely. |
 | `unsupported_input` | The diff contains an unsupported path, mode, submodule or conflict. |
-| `ignored_input` | Ignored files exist outside the allowed exclusions. |
 | `index_worktree_mismatch` | Staged and working tree content differ; decide which one to deliver. |
 | `concurrent_input_change` | Code changed while it was being read. |
 | `concurrent_source_change` | A file changed while it was being read. |

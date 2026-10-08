@@ -6,7 +6,7 @@
 
 ## config.yaml
 
-`loopspec init` writes `<home>/config.yaml`. It holds where Changes live and the project's minimum workflow constraints. Unknown fields are rejected, so fields of LoopSpec 1.x (`schema`, `schemas`, `schema_selection`, `context`, `rules`) and `workflow.default_profile` fail with `config_invalid` and must be deleted.
+`loopspec init` writes `<home>/config.yaml`. It holds where Changes live and the project's minimum workflow constraints. Unknown fields are rejected, so fields of LoopSpec 1.x (`schema`, `schemas`, `schema_selection`, `context`, `rules`) and `workflow.default_profile` fail with `config_invalid` and must be deleted. `workflow.generated_dirs` was removed: move its names unchanged into `workflow.excluded_paths`, which means the same for them.
 
 <!-- loopspec:example=config -->
 ```yaml
@@ -14,7 +14,7 @@ artifacts_dir: changes
 workflow:
   required_fragments: [qa-testing, change-assurance]
   assurance_rules: fragments/change-assurance/rules.yaml
-  generated_dirs: [node_modules, .venv]
+  excluded_paths: [node_modules, .venv, .DS_Store, docs/**]
 ```
 
 ### Top-level fields
@@ -31,7 +31,7 @@ workflow:
 | --- | --- | --- | --- | --- |
 | `required_fragments` | list of Fragment names | no | `[]` | Every Plan must instantiate each of them somewhere in its flow. |
 | `assurance_rules` | home path | no | - | Project assurance rules. When set, every Plan needs an assurance node, and these rules are merged with the node's own. |
-| `generated_dirs` | list of names | no | `[]` | Tool-generated directories left out of the Git diff. Only `.venv`, `node_modules`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache` and `__pycache__` are accepted; anything else fails with `unsafe_exclusion`. |
+| `excluded_paths` | list of patterns | no | `[]` | Paths left out of the Git diff, up to 128. A pattern without `/` matches any single path component, file names included, such as `.DS_Store`, `__pycache__` or `*.log`. A pattern with `/` is matched with fnmatch against the whole repository-relative path, where `*` crosses directories, such as `docs/**` or `loopspec/config.yaml`. Matching paths need no review and raise no warning when ignored. Patterns must be safe relative paths: not empty, not starting with `/`, and without `.` or `..` components. |
 
 ### registry fields
 
@@ -99,7 +99,7 @@ The cache `<home>/.cache/registry/` (private bare repository, plans and staged f
 
 ### When it is read
 
-Constraints are checked when a Plan is created and again when it is approved or revised, against the file as it is at that moment. During execution the diff exclusions and assurance rules are also read live. Changing `config.yaml` therefore affects running Plans immediately, including relaxing a rule; treat it as reviewed project code.
+Constraints are checked when a Plan is created and again when it is approved or revised, against the file as it is at that moment. During execution the diff exclusions and assurance rules are also read live. `<home>/.cache/` (the registry sync cache) and the current Change's `.workflow.yaml`, `state.md` and `plans/` are always left out of the diff without any configuration. Changing `config.yaml` therefore affects running Plans immediately, including relaxing a rule; treat it as reviewed project code.
 
 ## Assurance rules
 
@@ -133,4 +133,4 @@ rules:
 | `requires` | list of capabilities | yes | - | Capabilities a code Gate must provide with valid evidence for every matching path. |
 | `repair_fragment` | Fragment name | yes | - | Suggested Fragment when no Gate of the Plan can provide a capability. |
 
-Gate `evidence.paths` in your Fragments and the rule `paths` must describe the same directories. A path nobody reviews either appears as `unknown_paths` or as `missing_fragments`; never widen `generated_dirs` to hide business code.
+Gate `evidence.paths` in your Fragments and the rule `paths` must describe the same directories. A path nobody reviews either appears as `unknown_paths` or as `missing_fragments`; `excluded_paths` accepts any value and a listed path no longer passes any Gate; never use it to hide business code, and review changes to it like project code.

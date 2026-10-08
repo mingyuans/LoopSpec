@@ -102,27 +102,132 @@ def test_evidence_outputs_do_not_self_invalidate_sources_remain_visible(tmp_path
     assert collect_diff(loaded).diff_digest != before
 
 
-def test_ignored_business_input_is_not_silently_hidden(tmp_path: Path):
-    home = fixture(tmp_path)
-    (tmp_path / ".gitignore").write_text("hidden/\n")
+def ignore(tmp_path: Path, *patterns: str) -> None:
+    (tmp_path / ".gitignore").write_text("".join(item + "\n" for item in patterns))
     execute(tmp_path, "add", ".gitignore")
     execute(tmp_path, "commit", "-m", "ignore fixture")
+
+
+def configure(home: Path, *patterns: str) -> None:
+    (home / "config.yaml").write_text(
+        "workflow:\n  excluded_paths: " + json.dumps(list(patterns)) + "\n"
+    )
+    execute(home.parent, "add", ".")
+    execute(home.parent, "commit", "-m", "exclusion fixture")
+
+
+def test_ignored_input_is_reported_as_warning_not_hidden(tmp_path: Path):
+    home = fixture(tmp_path)
+    ignore(tmp_path, "hidden/", "*.local")
     loaded = activate(home)
     (tmp_path / "hidden").mkdir()
-    (tmp_path / "hidden/business.py").write_text("must not disappear")
-    with pytest.raises(WorkflowError, match="忽略文件"):
-        collect_diff(loaded)
+    (tmp_path / "hidden/business.py").write_text("must stay visible")
+    (tmp_path / "notes.local").write_text("ignored file")
+    snapshot = collect_diff(loaded)
+    assert snapshot.entries == []
+    assert snapshot.warnings() == {
+        "ignoredPaths": ["hidden/", "notes.local"],
+        "ignoredTotal": 2,
+    }
 
 
-def test_supported_generated_directory_exclusion_is_read_from_config(tmp_path: Path):
+def test_ignored_warning_list_is_capped_and_sorted(tmp_path: Path):
     home = fixture(tmp_path)
-    (home / "config.yaml").write_text("workflow:\n  generated_dirs: [node_modules]\n")
-    (tmp_path / ".gitignore").write_text("node_modules/\n")
-    execute(tmp_path, "add", ".")
-    execute(tmp_path, "commit", "-m", "allow generated directory")
+    ignore(tmp_path, "*.tmp")
     loaded = activate(home)
-    (tmp_path / "node_modules").mkdir()
-    (tmp_path / "node_modules/generated.js").write_text("generated")
+    names = [f"f{index:02d}.tmp" for index in range(25)]
+    for name in reversed(names):
+        (tmp_path / name).write_text(name)
+    warnings = collect_diff(loaded).warnings()
+    assert warnings == {"ignoredPaths": names[:20], "ignoredTotal": 25}
+
+
+def test_ignored_files_do_not_change_digests(tmp_path: Path):
+    home = fixture(tmp_path)
+    ignore(tmp_path, "*.tmp")
+    loaded = activate(home)
+    (tmp_path / "initial.md").write_text("reviewed change")
+    before = collect_diff(loaded)
+    (tmp_path / "late.tmp").write_text("ignored later")
+    after = collect_diff(loaded)
+    assert after.warnings() == {"ignoredPaths": ["late.tmp"], "ignoredTotal": 1}
+    assert after.diff_digest == before.diff_digest
+    assert after.scope_digest(["**"]) == before.scope_digest(["**"])
+    assert before.warnings() is None
+
+
+def test_excluded_names_match_any_component_including_file_name(tmp_path: Path):
+    home = fixture(tmp_path)
+    configure(home, ".DS_Store", "__pycache__", "*.log")
+    ignore(tmp_path, ".DS_Store", "__pycache__/")
+    loaded = activate(home)
+    for path in [
+        ".DS_Store",
+        "a/b/.DS_Store",
+        "__pycache__/x.pyc",
+        "pkg/__pycache__/y.pyc",
+        "a/b/x.log",
+        "a.DS_Store",
+        "foo__pycache__/x",
+        "x.log.bak",
+    ]:
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_text(path)
+    snapshot = collect_diff(loaded)
+    assert sorted(entry["path"] for entry in snapshot.entries) == [
+        "a.DS_Store",
+        "foo__pycache__/x",
+        "x.log.bak",
+    ]
+    assert snapshot.warnings() is None
+
+
+def test_excluded_paths_with_slash_match_the_whole_path(tmp_path: Path):
+    home = fixture(tmp_path)
+    configure(home, "docs/**", "loopspec/config.yaml")
+    loaded = activate(home)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs/a.md").write_text("doc")
+    (tmp_path / "src/loopspec").mkdir(parents=True)
+    (tmp_path / "src/loopspec/config.yaml").write_text("not excluded")
+    (home / "config.yaml").write_text(
+        (home / "config.yaml").read_text() + "  required_fragments: []\n"
+    )
+    paths = [entry["path"] for entry in collect_diff(loaded).entries]
+    assert paths == ["src/loopspec/config.yaml"]
+
+
+def test_ignored_path_matching_excluded_paths_is_not_warned(tmp_path: Path):
+    home = fixture(tmp_path)
+    configure(home, ".idea", "repos/**")
+    ignore(tmp_path, ".idea/", "/repos/")
+    loaded = activate(home)
+    for path in [".idea/workspace.xml", "repos/clone/file.txt"]:
+        (tmp_path / path).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / path).write_text(path)
+    snapshot = collect_diff(loaded)
+    assert snapshot.entries == []
+    assert snapshot.warnings() is None
+
+
+def test_home_cache_is_always_excluded_but_other_caches_are_not(tmp_path: Path):
+    home = fixture(tmp_path)
+    ignore(tmp_path, ".cache/", "loopspec/.cache/")
+    loaded = activate(home)
+    (home / ".cache/registry").mkdir(parents=True)
+    (home / ".cache/registry/x").write_text("registry cache")
+    (tmp_path / ".cache").mkdir()
+    (tmp_path / ".cache/x").write_text("other cache")
+    snapshot = collect_diff(loaded)
+    assert snapshot.entries == []
+    assert snapshot.warnings() == {"ignoredPaths": [".cache/"], "ignoredTotal": 1}
+
+
+def test_untracked_home_cache_is_not_a_diff_entry(tmp_path: Path):
+    home = fixture(tmp_path)
+    loaded = activate(home)
+    (home / ".cache/registry").mkdir(parents=True)
+    (home / ".cache/registry/x").write_text("registry cache")
     assert collect_diff(loaded).entries == []
 
 
@@ -183,12 +288,14 @@ def test_submodule_index_is_not_partially_checked(tmp_path: Path):
         collect_diff(loaded)
 
 
-def test_business_directory_cannot_be_declared_generated(tmp_path: Path):
+def test_removed_generated_dirs_points_to_excluded_paths(tmp_path: Path):
     home = fixture(tmp_path)
     loaded = activate(home)
-    (home / "config.yaml").write_text("workflow:\n  generated_dirs: [src]\n")
-    with pytest.raises(WorkflowError, match="业务目录"):
+    (home / "config.yaml").write_text("workflow:\n  generated_dirs: [node_modules]\n")
+    with pytest.raises(WorkflowError) as error:
         collect_diff(loaded)
+    assert error.value.code == "config_invalid"
+    assert "excluded_paths" in (error.value.fix or "")
 
 
 def test_repository_identity_is_checked(tmp_path: Path):

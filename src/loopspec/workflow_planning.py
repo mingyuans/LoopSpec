@@ -22,15 +22,6 @@ from .workflow_models import (
     ResolvedNode,
 )
 
-GENERATED_DIRS = {
-    ".venv",
-    "node_modules",
-    ".pytest_cache",
-    ".mypy_cache",
-    ".ruff_cache",
-    "__pycache__",
-}
-
 
 def compile_flow(catalog: WorkflowCatalog, flow: list[FragmentRef]) -> FragmentExpander:
     names = {entry.id for entry in flow}
@@ -86,8 +77,9 @@ def load_config(home: Path) -> WorkflowConfig:
             "config_invalid",
             "config.yaml 结构不合法",
             "config.yaml 只接受 artifacts_dir、workflow（required_fragments、assurance_rules、"
-            "generated_dirs）与 registry（url、version、path）；registry.url 只接受 https、ssh、"
+            "excluded_paths）与 registry（url、version、path）；registry.url 只接受 https、ssh、"
             "user@host:path 与 file:/// 形式且不能内嵌凭据；"
+            "workflow.generated_dirs 已删除，把其中的名称原样移到 workflow.excluded_paths；"
             "删除 schema、schemas、schema_selection、context、rules、default_profile 等旧字段。",
         ) from exc
 
@@ -96,8 +88,6 @@ def project_constraints(home: Path) -> ProjectWorkflow:
     project = ProjectWorkflow.model_validate(load_config(home).workflow or {})
     if project.assurance_rules:
         relative_path(project.assurance_rules)
-    if not set(project.generated_dirs) <= GENERATED_DIRS:
-        raise WorkflowError("unsafe_exclusion", "不能将业务目录声明为工具生成目录")
     return project
 
 

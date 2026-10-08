@@ -70,7 +70,7 @@ Every command takes effect in a single write. If one is interrupted, the Change 
     archive/2026-10/AFD1111/     # archived Changes
 ```
 
-The Git diff checked by code Gates and assurance excludes exactly `.workflow.yaml`, `state.md` and `plans/` under each Change root, plus tool-generated directories declared in `config.yaml`. Everything else, including Fragment and Profile files, counts as a change.
+The Git diff checked by code Gates and assurance excludes exactly `.workflow.yaml`, `state.md` and `plans/` under the current Change root, `<home>/.cache/`, and the paths declared in `workflow.excluded_paths` of `config.yaml`. Everything else, including Fragment and Profile files, counts as a change. Files ignored by Git never count toward the diff; those not declared in `excluded_paths` are listed as warnings in the assurance report.
 
 ## What LoopSpec does not do
 

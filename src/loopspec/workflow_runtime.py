@@ -216,7 +216,7 @@ def status(loaded: LoadedPlan) -> dict:
     else:
         ready = next((key for key, item in entries.items() if item["status"] == "ready"), None)
         next_steps = [f"loopspec node instructions -c {name} -n {ready}"] if ready else []
-    return {
+    result = {
         "plan": plan,
         "revision": loaded.document.meta.revision,
         "digest": loaded.digest,
@@ -227,6 +227,10 @@ def status(loaded: LoadedPlan) -> dict:
         "isComplete": complete,
         "nextSteps": next_steps,
     }
+    # The Diff is computed only to recheck existing evidence; warnings come with it.
+    if snapshot is not None and snapshot.warnings():
+        result["warnings"] = snapshot.warnings()
+    return result
 
 
 def resource_text(loaded: LoadedPlan, path: str) -> str:

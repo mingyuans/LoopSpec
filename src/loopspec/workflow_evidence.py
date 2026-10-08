@@ -188,9 +188,10 @@ def begin(home: Path, name: str, identity: str) -> dict:
                 }
                 for item in snapshot.scope(policy.paths)
             ],
+            "warnings": snapshot.warnings(),
             "instruction": (
                 "本轮编号不是认证凭据。审查此固定输入后，使用 gate record 提交报告；"
-                "代码变化需重新 begin。"
+                "代码变化需重新 begin。warnings 不为空时，在报告摘要中记录这些告警。"
             ),
         }
 
@@ -270,7 +271,8 @@ def record(
                 archive_file(root, output, destination)
         output = node.gate.outputs.pass_ if report.verdict == "PASS" else node.gate.outputs.fail
         atomic_write(root, output, data)
-        if collect_diff(loaded).scope_digest(context.paths) != context.scope_digest:
+        snapshot = collect_diff(loaded)
+        if snapshot.scope_digest(context.paths) != context.scope_digest:
             raise WorkflowError("review_input_changed", "记录期间代码输入变化，未产生有效证据")
         evidence = Evidence(
             gate=identity,
@@ -289,4 +291,5 @@ def record(
             "verdict": report.verdict,
             "roundId": context.round_id,
             "evidenceRecorded": True,
+            "warnings": snapshot.warnings(),
         }
