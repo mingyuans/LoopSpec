@@ -20,8 +20,8 @@ from .workflow_io import (
     exists,
     read_bytes,
     relative_path,
-    write_json,
     write_lock,
+    write_yaml,
 )
 from .workflow_models import ResolvedNode, StrictModel
 from .workflow_state import LoadedPlan, open_change
@@ -169,13 +169,13 @@ def begin(home: Path, name: str, identity: str) -> dict:
             provides=policy.provides,
             scope_digest=snapshot.scope_digest(policy.paths),
         )
-        write_json(
+        write_yaml(
             root,
             f"{rounds_dir(identity)}/{round_number:03d}.yaml",
             context.model_dump(),
             exclusive=True,
         )
-        write_json(root, begin_path(identity), context.model_dump())
+        write_yaml(root, begin_path(identity), context.model_dump())
         return {
             "gate": identity,
             "roundId": round_id,
@@ -267,7 +267,7 @@ def record(
             raise WorkflowError("review_input_changed", "审查期间输入变化，请重新 begin")
         # 先消费编号；任何后续 IO 错误只能开始新轮次，不能重复提交旧编号。
         context.consumed = True
-        write_json(root, begin_path(identity), context.model_dump())
+        write_yaml(root, begin_path(identity), context.model_dump())
         for output in (node.gate.outputs.pass_, node.gate.outputs.fail):
             if exists(root, output):
                 destination = f"{rounds_dir(identity)}/prior/{context.round:03d}/" + output
@@ -288,7 +288,7 @@ def record(
             scope_digest=context.scope_digest,
             report_hash=byte_hash(data),
         )
-        write_json(root, evidence_path(identity), evidence.model_dump())
+        write_yaml(root, evidence_path(identity), evidence.model_dump())
         return {
             "gate": identity,
             "verdict": report.verdict,

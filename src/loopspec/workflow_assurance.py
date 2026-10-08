@@ -16,7 +16,7 @@ from .workflow_io import (
     byte_hash,
     canonical,
     exists,
-    write_json,
+    write_yaml,
 )
 from .workflow_models import AssuranceRules, ResolvedNode
 from .workflow_planning import assurance_rules, project_constraints
@@ -217,12 +217,12 @@ def check(loaded: LoadedPlan, node: ResolvedNode) -> dict:
         report_hash=byte_hash(report),
         system=True,
     )
-    write_json(
+    write_yaml(
         root,
         f"{rounds_dir(node.id)}/{round_number:03d}.yaml",
         evidence.model_dump(),
         exclusive=True,
     )
-    write_json(root, f".gates/{node.id}/assurance.yaml", diagnostics)
-    write_json(root, evidence_path(node.id), evidence.model_dump())
+    write_yaml(root, f".gates/{node.id}/assurance.yaml", diagnostics)
+    write_yaml(root, evidence_path(node.id), evidence.model_dump())
     return {**diagnostics, "gate": node.id, "verdict": verdict, "recorded": True}
