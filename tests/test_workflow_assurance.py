@@ -471,3 +471,77 @@ def test_committing_during_review_round_still_records(tmp_path: Path):
     atomic_write(loaded.root, "artifacts/draft.md", b"verdict: PASS\nsummary: actual review\n")
     result = record(loaded.home, "AFD1111", "fe/review", context["roundId"], "artifacts/draft.md")
     assert result["evidenceRecorded"]
+
+
+def sneak_unreviewed_commit(tmp_path: Path) -> None:
+    reviewed = (tmp_path / "frontend/code.py").read_text()
+    (tmp_path / "frontend/code.py").write_text("unreviewed")
+    git(tmp_path, ["add", "frontend/code.py"])
+    git(tmp_path, ["commit", "-q", "-m", "unreviewed"])
+    (tmp_path / "frontend/code.py").write_text(reviewed)
+
+
+def test_unreviewed_commit_after_assurance_blocks_completion_and_archive(tmp_path: Path):
+    home, loaded = fixture(tmp_path)
+    (tmp_path / "frontend/code.py").write_text("implementation")
+    review(loaded, "fe")
+    qa(loaded)
+    assert check(loaded)["verdict"] == "PASS"
+    sneak_unreviewed_commit(tmp_path)
+    report = status(loaded)
+    assert not report["isComplete"]
+    assert report["nodes"][-1]["reason"] == "evidence_stale"
+    code, result = invoke(home, "change", "archive", "AFD1111", "--dry-run")
+    assert code == 1 and result["error"] == "archive_unsafe"
+    rerun = check(loaded)
+    assert rerun["verdict"] == "FAIL"
+    assert rerun["diverged_commits"] == ["frontend/code.py"]
+    assert "frontend/code.py" in (loaded.root / "artifacts/assurance/f.md").read_text()
+
+
+def test_unreviewed_commit_before_assurance_fails(tmp_path: Path):
+    _, loaded = fixture(tmp_path)
+    (tmp_path / "frontend/code.py").write_text("implementation")
+    review(loaded, "fe")
+    qa(loaded)
+    sneak_unreviewed_commit(tmp_path)
+    result = check(loaded)
+    assert result["verdict"] == "FAIL"
+    assert result["diverged_commits"] == ["frontend/code.py"]
+    assert not result["unknown_paths"] and not result["stale_evidence"]
+
+
+def test_intermediate_commit_keeps_gates_usable_until_final_commit(tmp_path: Path):
+    _, loaded = fixture(tmp_path)
+    (tmp_path / "frontend/code.py").write_text("first draft")
+    git(tmp_path, ["commit", "-q", "-am", "intermediate"])
+    (tmp_path / "frontend/code.py").write_text("final implementation")
+    review(loaded, "fe")
+    qa(loaded)
+    assert check(loaded)["diverged_commits"] == ["frontend/code.py"]
+    git(tmp_path, ["commit", "-q", "-am", "final"])
+    rerun = check(loaded)
+    assert rerun["verdict"] == "PASS"
+    assert rerun["diverged_commits"] == []
+    assert status(loaded)["isComplete"]
+
+
+def test_diverged_text_keeps_failure_summary_within_report_limit():
+    from loopspec.workflow_assurance import diverged_text, warning_text
+    from loopspec.workflow_models import FailureReport
+
+    long = [f"{index:02d}/" + "d" * 4000 for index in range(30)]
+    summary = (
+        "全量 Diff 保障存在缺口，请按诊断补齐审查或修订 Plan"
+        + diverged_text(long)
+        + warning_text(
+            {
+                "ignoredPaths": long[:20],
+                "ignoredTotal": 30,
+                "unknownPaths": long[:20],
+                "unknownTotal": 30,
+            }
+        )
+    )
+    FailureReport.model_validate({"verdict": "FAIL", "summary": summary})
+    assert "30 个文件" in summary

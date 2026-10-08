@@ -112,6 +112,9 @@ def valid_evidence(
     ):
         return False, "evidence_stale"
     snapshot = snapshot or collect_diff(loaded)
+    if node.gate.assurance and snapshot.diverged:
+        # A commit made after assurance can ship unreviewed content behind a reviewed worktree.
+        return False, "evidence_stale"
     expected = snapshot.diff_digest if node.gate.assurance else snapshot.scope_digest(paths)
     return (True, None) if evidence.scope_digest == expected else (False, "evidence_stale")
 

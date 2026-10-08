@@ -40,6 +40,9 @@ class DiffSnapshot:
     entries: list[dict]
     # Ignored, not excluded paths: never part of any digest, reported as warnings only.
     ignored: list[str] = field(default_factory=list)
+    # Paths whose content in HEAD is neither the baseline nor the delivered worktree: what
+    # git would ship there was never reviewed. Never part of any digest; assurance fails on it.
+    diverged: list[str] = field(default_factory=list)
 
     def warnings(self) -> dict | None:
         if not self.ignored:
@@ -261,10 +264,11 @@ def collect_diff(loaded: LoadedPlan) -> DiffSnapshot:
                 continue
             if not excluded(path, directory=is_directory):
                 ignored.append(path + "/" if is_directory else path)
-        paths = sorted(set(base) | set(index) | others)
+        paths = sorted(set(base) | set(index) | set(committed) | others)
         if len(paths) > 4096:
             raise WorkflowError("resource_limit", "输入文件超过数量限制")
         entries = []
+        diverged = []
         for path in paths:
             if excluded(path):
                 continue
@@ -274,10 +278,15 @@ def collect_diff(loaded: LoadedPlan) -> DiffSnapshot:
                 current is not None
                 and known is not None
                 and known == index.get(path)
+                and known == committed.get(path)
                 and oids.get(path) == " ".join(known)
             ):
                 continue
             original, staged = blob(base.get(path)), blob(index.get(path))
+            if committed.get(path) != known:
+                shipped = blob(committed.get(path))
+                if shipped != original and shipped != current:
+                    diverged.append(path)
             # A staged version that is neither committed nor in the worktree leaves the
             # delivery ambiguous. Commits after the baseline are normal, so compare with HEAD.
             if staged != current and staged != blob(committed.get(path)):
@@ -308,10 +317,10 @@ def collect_diff(loaded: LoadedPlan) -> DiffSnapshot:
                 entry["renamed_from"] = prior["path"]
                 prior["renamed_to"] = entry["path"]
                 removed.remove(prior)
-        return entries, index_raw, others_raw, sorted(ignored), head
+        return entries, index_raw, others_raw, sorted(ignored), head, diverged
 
     first = scan()
     second = scan()
     if first != second:
         raise WorkflowError("concurrent_input_change", "连续扫描结果不一致")
-    return DiffSnapshot(baseline, second[0], second[3])
+    return DiffSnapshot(baseline, second[0], second[3], second[5])

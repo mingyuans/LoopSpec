@@ -133,6 +133,61 @@ def test_committed_then_reverted_file_is_not_a_change(tmp_path: Path):
     assert collect_diff(loaded).entries == []
 
 
+def test_unreviewed_commit_behind_reviewed_worktree_is_diverged(tmp_path: Path):
+    home = fixture(tmp_path)
+    loaded = activate(home)
+    path = tmp_path / "initial.md"
+    path.write_text("reviewed")
+    reviewed = collect_diff(loaded)
+    assert reviewed.diverged == []
+    path.write_text("unreviewed")
+    execute(tmp_path, "commit", "-am", "sneak")
+    path.write_text("reviewed")
+    snapshot = collect_diff(loaded)
+    assert snapshot.diverged == ["initial.md"]
+    assert snapshot.diff_digest == reviewed.diff_digest
+    assert snapshot.scope_digest(["**"]) == reviewed.scope_digest(["**"])
+
+
+def test_intermediate_commit_is_diverged_until_final_content_is_committed(tmp_path: Path):
+    home = fixture(tmp_path)
+    loaded = activate(home)
+    path = tmp_path / "initial.md"
+    path.write_text("first draft")
+    execute(tmp_path, "commit", "-am", "intermediate")
+    path.write_text("final")
+    assert collect_diff(loaded).diverged == ["initial.md"]
+    execute(tmp_path, "commit", "-am", "final")
+    assert collect_diff(loaded).diverged == []
+
+
+def test_reverting_a_committed_change_in_worktree_is_diverged(tmp_path: Path):
+    home = fixture(tmp_path)
+    loaded = activate(home)
+    path = tmp_path / "initial.md"
+    original = path.read_text()
+    path.write_text("committed")
+    execute(tmp_path, "commit", "-am", "deliver")
+    path.write_text(original)
+    snapshot = collect_diff(loaded)
+    assert snapshot.entries == []
+    assert snapshot.diverged == ["initial.md"]
+
+
+def test_excluded_paths_are_not_checked_for_divergence(tmp_path: Path):
+    home = fixture(tmp_path)
+    configure(home, "notes/**")
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "notes/a.md").write_text("base")
+    execute(tmp_path, "add", ".")
+    execute(tmp_path, "commit", "-m", "notes")
+    loaded = activate(home)
+    (tmp_path / "notes/a.md").write_text("committed")
+    execute(tmp_path, "commit", "-am", "notes change")
+    (tmp_path / "notes/a.md").write_text("worktree")
+    assert collect_diff(loaded).diverged == []
+
+
 def test_staged_worktree_divergence_rejected(tmp_path: Path):
     home = fixture(tmp_path)
     loaded = activate(home)

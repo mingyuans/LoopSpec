@@ -191,4 +191,4 @@ flow:
 
 代码 Gate 的结论只通过两条命令生效。`gate begin` 以 Change 基线为准固定该 Gate `evidence.paths` 范围内的内容，返回一次性的轮次编号；Agent 只审查或测试这部分内容；`gate record` 只接受头部仅含 `verdict` 与 `summary` 的报告，固定的代码发生变化则拒绝，否则写出 PASS 或 FAIL 报告与绑定 Plan 摘要的证据。之后再改代码，证据过期，Gate 回到 `ready`。
 
-保障节点不做人工审查。对它执行 `gate record` 时，CLI 计算基线以来的完整 Diff，按保障规则求出每个改动路径需要的能力，并核对活动 Plan 中是否有带有效证据的代码 Gate 提供这些能力；然后写出系统 PASS，或带 `missing_evidence`、`stale_evidence`、`unknown_paths`、`missing_fragments`（含建议 Fragment）的 FAIL。手写的 `pass.md` 永远无效。规则说明见 [配置](configuration.md#保障规则)。
+保障节点不做人工审查。对它执行 `gate record` 时，CLI 计算基线以来的完整 Diff，按保障规则求出每个改动路径需要的能力，并核对活动 Plan 中是否有带有效证据的代码 Gate 提供这些能力；然后写出系统 PASS，或带 `missing_evidence`、`stale_evidence`、`unknown_paths`、`missing_fragments`（含建议 Fragment）或 `diverged_commits` 的 FAIL。`diverged_commits` 列出 HEAD 中的提交内容既不是基线也不是工作区内容的文件，也就是会被推送但没有审查过的内容；提交最终内容或撤销这些中间提交后重新判定。保障 PASS 之后再出现这种提交，保障证据视为过期，需求不能归档。手写的 `pass.md` 永远无效。规则说明见 [配置](configuration.md#保障规则)。

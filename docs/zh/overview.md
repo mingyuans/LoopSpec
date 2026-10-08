@@ -70,7 +70,7 @@ Plan 自身的 `meta.status` 只记录人的决定：`draft`、`approved` 或 `a
     archive/2026-10/AFD1111/     # archived Changes
 ```
 
-代码 Gate 与保障检查的 Git Diff 只排除当前 Change 根下的 `.workflow.yaml`、`state.md` 与 `plans/`、`<home>/.cache/`，以及 `config.yaml` 的 `workflow.excluded_paths` 声明的路径。其他一切（包括 Fragment 与 Profile 文件）都算作改动。被 Git 忽略的文件不计入 Diff；未在 `excluded_paths` 中声明的会作为告警写进保障报告。Diff 比较的是固定基线与工作树中的交付内容：`git add` 与 `git commit` 不改变证据摘要，Gate 通过后可以先提交再归档。
+代码 Gate 与保障检查的 Git Diff 只排除当前 Change 根下的 `.workflow.yaml`、`state.md` 与 `plans/`、`<home>/.cache/`，以及 `config.yaml` 的 `workflow.excluded_paths` 声明的路径。其他一切（包括 Fragment 与 Profile 文件）都算作改动。被 Git 忽略的文件不计入 Diff；未在 `excluded_paths` 中声明的会作为告警写进保障报告。Diff 比较的是固定基线与工作树中的交付内容：`git add` 与 `git commit` 不改变证据摘要，Gate 通过后可以先提交再归档。但交付前 HEAD 中每个文件的内容必须等于基线或工作区内容，否则保障判 FAIL（`diverged_commits`）。
 
 ## LoopSpec 不做什么
 

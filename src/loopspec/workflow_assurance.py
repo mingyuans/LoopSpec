@@ -52,6 +52,7 @@ def diagnose(loaded: LoadedPlan, snapshot: DiffSnapshot | None = None) -> dict:
         "missing_evidence": [],
         "stale_evidence": [],
         "missing_fragments": [],
+        "diverged_commits": snapshot.diverged,
         "requiredCapabilities": {},
     }
     for entry in snapshot.entries:
@@ -97,7 +98,7 @@ def diagnose(loaded: LoadedPlan, snapshot: DiffSnapshot | None = None) -> dict:
                         "gates": sorted(node.id for node in candidates),
                     }
                 )
-    gaps = ["missing_evidence", "stale_evidence", "missing_fragments"]
+    gaps = ["missing_evidence", "stale_evidence", "missing_fragments", "diverged_commits"]
     if rules.unknown_paths == "warn":
         if result["unknown_paths"]:
             result["warnings"] = {
@@ -142,6 +143,30 @@ def warning_text(warnings: dict | None) -> str:
     return text
 
 
+# Room for diverged commit paths in a FAIL summary; together with warnings it stays under
+# FailureReport's limit.
+MAX_DIVERGED_CHARS = 4000
+
+
+def diverged_text(paths: list[str]) -> str:
+    if not paths:
+        return ""
+    listed: list[str] = []
+    used = 0
+    for path in paths[:MAX_LISTED_WARNINGS]:
+        if used + len(path) + 1 > MAX_DIVERGED_CHARS:
+            break
+        listed.append(path)
+        used += len(path) + 1
+    rest = len(paths) - len(listed)
+    return (
+        f"；{len(paths)} 个文件在 HEAD 中的提交内容既不是基线也不是审查过的工作区内容："
+        f"{'、'.join(listed)}"
+        + (f"（另有 {rest} 个未列出）" if rest else "")
+        + "。请提交最终内容，或撤销这些中间提交后重新判定"
+    )
+
+
 def check(loaded: LoadedPlan, node: ResolvedNode) -> dict:
     """Run under the caller's write lock; only the system writes the assurance PASS/FAIL."""
     from .workflow_runtime import status
@@ -162,7 +187,14 @@ def check(loaded: LoadedPlan, node: ResolvedNode) -> dict:
         else "全量 Diff 保障存在缺口，请按诊断补齐审查或修订 Plan"
     )
     report = (
-        canonical({"verdict": verdict, "summary": summary + warning_text(diagnostics["warnings"])})
+        canonical(
+            {
+                "verdict": verdict,
+                "summary": summary
+                + diverged_text(diagnostics["diverged_commits"])
+                + warning_text(diagnostics["warnings"]),
+            }
+        )
         + b"\n"
     )
     round_number = next_round(root, node.id)
