@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -298,3 +299,11 @@ def test_generate_command_content_hyphenated_tools_transform_naming():
     assert content.name == "/lpsx-continue"
     assert "/lpsx-continue" in content.body
     assert "/lpsx:continue" not in content.body
+
+
+def test_continue_points_at_every_planning_step_of_new():
+    body = {t.verb: t.body for t in SKILL_TEMPLATES}
+    approve = re.search(r"^(\d+)\. Only after a real human confirms", body["new"], re.MULTILINE)
+    assert approve, "new skill has no approve step"
+    ranges = re.findall(r"`loopspec-new` skill \(steps (\d+)-(\d+)\)", body["continue"])
+    assert ranges and all(end == approve.group(1) for _, end in ranges), ranges

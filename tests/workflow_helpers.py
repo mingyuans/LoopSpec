@@ -32,6 +32,9 @@ DOCS_FLOW = [
 
 
 def invoke(home: Path, *args: str) -> tuple[int, dict]:
+    """JSON protocol: `change status` prints a text report unless asked for --json."""
+    if args[:2] == ("change", "status") and "--json" not in args:
+        args = (*args, "--json")
     result = runner.invoke(app, [*args, "--home", str(home)])
     return result.exit_code, json.loads(result.stdout) if result.stdout.strip() else {}
 

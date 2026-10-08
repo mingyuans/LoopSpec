@@ -1,5 +1,6 @@
 """Rollback by a Gate's own on_fail; an interrupted command leaves state before or after."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -89,6 +90,8 @@ def normalized(home: Path) -> dict:
                     if section.get(key):
                         section[key] = "<time>"
             text = yaml.safe_dump(data)
+        elif path.name == "state.md":
+            text = re.sub(r"^- \S+ · ", "- <time> · ", text, flags=re.MULTILINE)
         result[str(path.relative_to(root))] = text
     return result
 

@@ -36,15 +36,28 @@ def emit(value: Any) -> None:
     typer.echo(json.dumps(value, ensure_ascii=False, indent=2, default=str))
 
 
-def run(action: Callable[[], Any]) -> None:
+def run(
+    action: Callable[[], Any],
+    render: Callable[[Any], str] | None = None,
+    render_error: Callable[[dict], str] | None = None,
+) -> None:
+    """JSON by default; `render`/`render_error` print text instead (only `change status`)."""
+
+    def output(value: Any, renderer: Callable[[Any], str] | None) -> None:
+        if renderer is None:
+            emit(value)
+        else:
+            typer.echo(renderer(value), nl=False)
+
     try:
-        emit(action())
+        value = action()
     except LoopspecError as exc:
-        emit(exc.to_dict())
+        output(exc.to_dict(), render_error)
         raise typer.Exit(1) from None
     except (ValidationError, ValueError):
-        emit(WorkflowError("workflow_invalid", "输入结构不合法").to_dict())
+        output(WorkflowError("workflow_invalid", "输入结构不合法").to_dict(), render_error)
         raise typer.Exit(1) from None
+    output(value, render)
 
 
 def register(app: typer.Typer) -> None:
@@ -78,11 +91,20 @@ def register(app: typer.Typer) -> None:
         run(lambda: create(home, name))
 
     @change.command("status")
-    def change_status(name: str, home: Path = HOME) -> None:
-        """Derived status, node states and the single next step."""
+    def change_status(
+        name: str,
+        as_json: bool = typer.Option(False, "--json", help="Print the JSON payload instead."),
+        home: Path = HOME,
+    ) -> None:
+        """Plain-text report for an LLM: state records, plans, nodes and the next step."""
         from .workflow_changes import status
 
-        run(lambda: status(home, name))
+        if as_json:
+            run(lambda: status(home, name))
+            return
+        from .status_report import render_error_report, render_status_report
+
+        run(lambda: status(home, name), render_status_report, render_error_report)
 
     @change.command("next")
     def change_next(name: str, home: Path = HOME) -> None:

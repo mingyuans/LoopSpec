@@ -8,7 +8,7 @@
 
 - 命令统一为 `loopspec <资源> <动作>`，资源名为单数：`change`、`plan`、`node`、`gate`、`fragment`、`profile`。只有 `version` 与 `init` 单独使用。
 - `-c/--change` 指定 Change，`-p/--plan` 指定三位数字的 Plan 编号，`-n/--node` 指定叶子节点或 Gate 路径，`-f/--file` 指定相对工作区的请求文件，`--digest` 是人确认过的摘要，`--note` 是可选说明。`change` 组的命令以位置参数给出 Change 名。
-- 除 `version` 与 `init` 外，所有命令都接受 `--home`（默认 `./loopspec`），并总是输出 JSON。失败时输出 `{"error": <错误码>, "message": <说明>, "fix": <下一步>}`，退出码为 1；用法错误退出码为 2。
+- 除 `version` 与 `init` 外，所有命令都接受 `--home`（默认 `./loopspec`），并输出 JSON；唯一例外是 `change status`，默认输出给 LLM 阅读的纯文本报告，带 `--json` 时才输出 JSON。失败时输出 `{"error": <错误码>, "message": <说明>, "fix": <下一步>}`，退出码为 1；用法错误退出码为 2。
 - 执行类命令（`node`、`gate`、`plan rollback`）只作用于活动 Plan。没有活动 Plan 时返回 `plan_not_active`，`fix` 给出下一个规划步骤。每条命令只有一次生效写入，中断后 Change 要么是命令之前、要么是命令之后的状态；尚待归档的返工文件由下一条写入类命令先行搬运。
 
 ## loopspec version
@@ -29,15 +29,17 @@ loopspec init [PATH] [--tools all|none|<ids>] [--project-root <dir>] [--json]
 loopspec change new <change>
 ```
 
-创建一个未规划的 Change：`.workflow.yaml`（format 4，没有 Plan，没有基线）、`state.md` 与 `plans/`。不编译也没有可执行节点。对已有 Change 重复执行时返回它，并带 `reusedChange: true`。参数：`--home`。
+创建一个未规划的 Change：`.workflow.yaml`（format 4，没有 Plan，没有基线）、带分段模板的 `state.md` 与 `plans/`。不编译也没有可执行节点。对已有 Change 重复执行时返回它，并带 `reusedChange: true`。参数：`--home`。
 
 ## loopspec change status
 
 ```bash
-loopspec change status <change>
+loopspec change status <change> [--json]
 ```
 
-返回 `status`（`unplanned`、`planning`、`active`、`complete`）、`baseline`、`repository`、`activePlan`、`openPlan`、全部 Plan 摘要，以及给出唯一下一条命令的 `nextSteps`。有活动 Plan 时还返回 `plan`、`revision`、`digest`、`nodes`（每个节点的 `status`、输出路径、证据过期时的 `reason`、失败时的 `gate` 详情、跟踪节点的 `taskProgress`）、`instances`（引用汇总）与 `pendingRollback`；为复核已有证据计算了 Diff 且存在被忽略、未排除的路径时，还返回 `warnings`。参数：`--home`。
+默认输出纯文本报告，供 LLM 直接阅读：以顶格的 `=== SECTION ===` 行分节，不使用 Markdown，不含颜色，字节不随终端变化。节序固定为 `OVERVIEW`、`STATE RECORDS`、`PLANS`、`NODES`（有活动 Plan 时）、`GATE FAILURES`（有失败 Gate 时）、`PENDING ROLLBACK`（有待返工时）、`NEXT STEPS`，每节先有一段说明。`STATE RECORDS` 原样引用 Change 级与当前 Plan（活动 Plan，规划中为草稿）的 `state.md`，每行缩进四个空格，标明为不可信数据；已归档 Plan 的 `state.md` 不输出，但 `PLANS` 仍列出全部 Plan。失败时输出 `=== ERROR ===` 报告，退出码为 1。
+
+带 `--json` 时返回 `status`（`unplanned`、`planning`、`active`、`complete`）、`baseline`、`repository`、`activePlan`、`openPlan`、全部 Plan 摘要，以及给出唯一下一条命令的 `nextSteps`。有活动 Plan 时还返回 `plan`、`revision`、`digest`、`nodes`（每个节点的 `status`、输出路径、证据过期时的 `reason`、失败时的 `gate` 详情、跟踪节点的 `taskProgress`）、`instances`（引用汇总）与 `pendingRollback`；为复核已有证据计算了 Diff 且存在被忽略、未排除的路径时，还返回 `warnings`。四种状态都返回 `state`（Change 级 `state.md`）、`planState`（当前 Plan 的 `state.md` 及其 `plan` 编号，未规划时为 `null`）与 `untrustedData`（不可信声明）。`state` 与 `planState` 形如 `{path, content, truncated}`：文件不存在时 `content` 为 `null`；无法读取（符号链接、非普通文件）时另带 `error: "unreadable"`；超过 64 KiB 时保留首尾各 32 KiB 并置 `truncated: true`。参数：`--json`、`--home`。
 
 ## loopspec change next
 
@@ -86,7 +88,7 @@ loopspec plan validate -c <change> -f <request>
 loopspec plan create -c <change> -f <request> [--note <text>]
 ```
 
-按当前 Fragment 与 `config.yaml` 编译请求。没有未结束 Plan 时新建下一个编号的草稿 Plan，首次时固定 Change 基线与仓库；已有草稿时覆盖其 `spec`（给出 `--note` 时同时更新说明）；已有已确认 Plan 时返回 `plan_active`。参数：`--change`、`--file`、`--note`、`--home`。
+按当前 Fragment 与 `config.yaml` 编译请求。没有未结束 Plan 时新建下一个编号的草稿 Plan，首次时固定 Change 基线与仓库；已有草稿时覆盖其 `spec`（给出 `--note` 时同时更新说明）；已有已确认 Plan 时返回 `plan_active`。新建草稿时写入带分段模板的 Plan 级 `state.md`；新建与覆盖草稿提交后向 Plan 级 `state.md` 末尾追加一行事件（见[概览](overview.md)）；追加失败不影响结果，只在输出中加 `warnings: ["state_append_failed: <路径>"]`。参数：`--change`、`--file`、`--note`、`--home`。
 
 ## loopspec plan show
 
@@ -111,7 +113,7 @@ loopspec plan approve -c <change> -p <NNN> --digest <digest>
 loopspec plan approve -c <change> -p <NNN> -f <revision-request> --digest <digest>
 ```
 
-只在人明确确认展示内容后执行。不带 `--file` 时确认草稿：重新编译草稿的 flow，要求存储摘要与重新编译摘要都等于 `--digest`，核对仓库，置 `revision: 1` 并设为活动 Plan。带 `--file` 时确认活动 Plan 的修订：重新编译请求，要求其摘要等于 `--digest`，检查 `base_revision` 与冻结规则，归档将重新执行节点的文件并替换 `spec`。重复提交已生效的确认返回 `alreadyApproved: true`。参数：`--change`、`--plan`、`--digest`、`--file`、`--home`。
+只在人明确确认展示内容后执行。不带 `--file` 时确认草稿：重新编译草稿的 flow，要求存储摘要与重新编译摘要都等于 `--digest`，核对仓库，置 `revision: 1` 并设为活动 Plan。带 `--file` 时确认活动 Plan 的修订：重新编译请求，要求其摘要等于 `--digest`，检查 `base_revision` 与冻结规则，归档将重新执行节点的文件并替换 `spec`。重复提交已生效的确认返回 `alreadyApproved: true`，不追加事件。确认或修订生效后向 Plan 级 `state.md` 末尾追加一行事件（见[概览](overview.md)）；追加失败不影响结果，只在输出中加 `warnings: ["state_append_failed: <路径>"]`。参数：`--change`、`--plan`、`--digest`、`--file`、`--home`。
 
 ## loopspec plan archive
 
@@ -119,7 +121,7 @@ loopspec plan approve -c <change> -p <NNN> -f <revision-request> --digest <diges
 loopspec plan archive -c <change> -p <NNN> [--note <text>]
 ```
 
-把未结束的草稿或已确认 Plan 标记为 `archived` 并清空 Change 的指针，Change 回到 `unplanned`。Plan 目录与业务代码保持原样。归档已确认 Plan 前必须先取得人的明确同意。参数：`--change`、`--plan`、`--note`、`--home`。
+把未结束的草稿或已确认 Plan 标记为 `archived` 并清空 Change 的指针，Change 回到 `unplanned`。Plan 目录与业务代码保持原样。归档已确认 Plan 前必须先取得人的明确同意。提交后向 Plan 级与 Change 级 `state.md` 末尾各追加一行事件（见[概览](overview.md)）；追加失败不影响结果，只在输出中加 `warnings: ["state_append_failed: <路径>"]`。参数：`--change`、`--plan`、`--note`、`--home`。
 
 ## loopspec plan rollback
 
@@ -127,7 +129,7 @@ loopspec plan archive -c <change> -p <NNN> [--note <text>]
 loopspec plan rollback -c <change> -p <NNN>
 ```
 
-活动 Plan 中有有效 FAIL 时，按该 Gate 自身的 `on_fail` 返工：把其 `reset` 节点、该 Gate 与全部下游的产物、报告与证据归档到 `.attempts/<NNN>/`（`kind: rollback`）。业务代码不回退。Gate 没有 `on_fail` 或次数用完时返回 `retries_exhausted`，没有失败时返回 `no_failed_gate`。参数：`--change`、`--plan`、`--home`。
+活动 Plan 中有有效 FAIL 时，按该 Gate 自身的 `on_fail` 返工：把其 `reset` 节点、该 Gate 与全部下游的产物、报告与证据归档到 `.attempts/<NNN>/`（`kind: rollback`）。业务代码不回退。Gate 没有 `on_fail` 或次数用完时返回 `retries_exhausted`，没有失败时返回 `no_failed_gate`。提交后向 Plan 级 `state.md` 末尾追加一行事件（见[概览](overview.md)）；追加失败不影响结果，只在输出中加 `warnings: ["state_append_failed: <路径>"]`。参数：`--change`、`--plan`、`--home`。
 
 ## loopspec node instructions
 

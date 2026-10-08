@@ -147,6 +147,54 @@ def read_bytes(root: Path, path: str, *, limit: int = MAX_FILE_BYTES) -> bytes:
             os.close(fd)
 
 
+def read_capped(root: Path, path: str, limit: int) -> tuple[bytes, bytes, int] | None:
+    """Head and tail (limit/2 each) of a regular file once it exceeds limit; None if missing."""
+    parts = relative_path(path).split("/")
+    try:
+        with directory(root, "/".join(parts[:-1])) as parent:
+            fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            try:
+                info = os.fstat(fd)
+                # A hard link would expose a file outside the Change; O_NOFOLLOW misses it.
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    raise WorkflowError("unsafe_path", "必须是没有硬链接的普通文件")
+                size = info.st_size
+                if size <= limit:
+                    return os.pread(fd, limit + 1, 0)[:limit], b"", size
+                half = limit // 2
+                return os.pread(fd, half, 0), os.pread(fd, half, size - half), size
+            finally:
+                os.close(fd)
+    except WorkflowError as exc:
+        if isinstance(exc.__cause__, FileNotFoundError):
+            return None
+        raise
+
+
+def append_text(root: Path, path: str, text: str) -> None:
+    """Append under a dir fd with O_APPEND|O_NOFOLLOW; create the file if missing."""
+    parts = relative_path(path).split("/")
+    with directory(root, "/".join(parts[:-1])) as parent:
+        fd = os.open(
+            parts[-1],
+            os.O_RDWR | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK,
+            0o600,
+            dir_fd=parent,
+        )
+        try:
+            info = os.fstat(fd)
+            # Appending writes in place, so a hard link would write outside the Change.
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise WorkflowError("unsafe_path", "追加目标必须是没有硬链接的普通文件")
+            data = text.encode("utf-8")
+            if info.st_size and os.pread(fd, 1, info.st_size - 1) != b"\n":
+                data = b"\n" + data
+            os.write(fd, data)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
 def exists(root: Path, path: str) -> bool:
     parts = relative_path(path).split("/")
     try:

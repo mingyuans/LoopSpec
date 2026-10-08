@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .errors import WorkflowError
 from .workflow_io import atomic_write, directory, exists
+from .workflow_journal import CHANGE_STATE_TEMPLATE, UNTRUSTED_STATE, state_view
 from .workflow_models import PLAN_RE, ChangeState
 from .workflow_state import (
     STATE_FILE,
@@ -20,6 +21,7 @@ from .workflow_state import (
     now,
     open_change,
     plan_ids,
+    plan_path,
     read_plan,
     read_state,
     write_state,
@@ -52,7 +54,7 @@ def create(home: Path, name: str) -> dict:
         atomic_write(
             root,
             "state.md",
-            "# 需求记录\n\n需求背景、跨 Plan 的决策与更替原因（人读，引擎不读取）。\n".encode(),
+            CHANGE_STATE_TEMPLATE.encode(),
             exclusive=True,
         )
     write_state(root, ChangeState(change_name=name, created=now()), exclusive=True)
@@ -99,6 +101,11 @@ def status(home: Path, name: str) -> dict:
         "activePlan": active,
         "openPlan": open_plan,
         "plans": plan_summaries(ctx),
+        "state": state_view(ctx.root, "state.md"),
+        "planState": None
+        if open_plan is None
+        else {"plan": open_plan, **state_view(ctx.root, plan_path(open_plan, "state.md"))},
+        "untrustedData": UNTRUSTED_STATE,
         "isComplete": False,
     }
     if open_plan is None:

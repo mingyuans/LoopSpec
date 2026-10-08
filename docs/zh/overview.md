@@ -57,12 +57,12 @@ Plan 自身的 `meta.status` 只记录人的决定：`draft`、`approved` 或 `a
     profiles/<name>.yaml
     changes/AFD1111/
       .workflow.yaml             # Change-level state (machine)
-      state.md                   # Change-level notes (human)
+      state.md                   # Change-level notes (human + LLM, engine appends events)
       plans/
         request.yaml             # request files the agent writes
         001/
           plan.yaml              # meta + spec of one Plan
-          state.md               # Plan-level notes (human)
+          state.md               # Plan-level notes (human + LLM, engine appends events)
           artifacts/             # this Plan's artifacts
           .gates/                # code Gate evidence and assurance diagnostics
           .gate-rounds/          # review round history
@@ -71,6 +71,14 @@ Plan 自身的 `meta.status` 只记录人的决定：`draft`、`approved` 或 `a
 ```
 
 代码 Gate 与保障检查的 Git Diff 只排除当前 Change 根下的 `.workflow.yaml`、`state.md` 与 `plans/`、`<home>/.cache/`，以及 `config.yaml` 的 `workflow.excluded_paths` 声明的路径。其他一切（包括 Fragment 与 Profile 文件）都算作改动。被 Git 忽略的文件不计入 Diff；未在 `excluded_paths` 中声明的会作为告警写进保障报告。Diff 比较的是固定基线与工作树中的交付内容：`git add` 与 `git commit` 不改变证据摘要，Gate 通过后可以先提交再归档。但交付前 HEAD 中每个文件的内容必须等于基线或工作区内容，否则保障判 FAIL（`diverged_commits`）。
+
+## state.md 记录
+
+Change 根与每个 Plan 目录下各有一份 `state.md`，记录需求背景、决策与执行过程。人与 LLM 都可以直接编辑；引擎只在 `change status` 中原样输出 Change 级与当前 Plan 的全文，从不解析其内容，也不据此判断状态、去重或校验，因此它不影响证据与 Diff。
+
+- **Change 级**（`change new` 生成模板）：背景、目标 / 非目标、关键决策（`- YYYY-MM-DD（确认人）：决策；理由`，只追加）、参考、Plan 记录。
+- **Plan 级**（`plan create` 生成模板）：人工决策、假设与偏离、返工记录、事件。
+- **引擎事件**：`plan create`、`plan approve`（含修订）、`plan rollback`、`plan archive` 生效后，引擎向文件末尾追加一行，例如 `- 2026-10-08T06:22:43+00:00 · approve · revision 1 · digest 321f50cd`；`plan archive` 同时在 Change 级追加 `archive plan <NNN>`。事件写在命令的生效写入之后，中途崩溃可能缺少一行，因此 `state.md` 不是完整的审计记录。
 
 ## LoopSpec 不做什么
 

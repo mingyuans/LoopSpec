@@ -20,6 +20,7 @@ from .workflow_attempts import (
 )
 from .workflow_git import fixed_baseline
 from .workflow_io import atomic_write, byte_hash, exists, read_bytes, write_lock
+from .workflow_journal import event_line, plan_state_template, record, with_warnings
 from .workflow_models import PlanDocument, PlanMeta, PlanRequest, PlanSpec
 from .workflow_planning import CompiledSpec, compile_request, load_request
 from .workflow_state import (
@@ -183,7 +184,9 @@ def create(home: Path, name: str, path: str, note: str | None = None) -> dict:
                 document.meta.note = note
             document.spec = compiled.spec
             write_plan(ctx.root, document)
-            return created(ctx, document, compiled, replaced=True)
+            line = event_line(now(), "replace-draft", f"digest {compiled.digest[:8]}", note=note)
+            failed = record(ctx.root, plan_path(draft, "state.md"), line)
+            return with_warnings(created(ctx, document, compiled, replaced=True), [failed])
         plan_id = ctx.next_plan()
         state = ctx.state
         if state.baseline is None:
@@ -199,7 +202,7 @@ def create(home: Path, name: str, path: str, note: str | None = None) -> dict:
             atomic_write(
                 ctx.root,
                 plan_path(plan_id, "state.md"),
-                f"# Plan {plan_id}\n\n本计划执行中的决策与备注（人读，引擎不读取）。\n".encode(),
+                plan_state_template(plan_id).encode(),
                 exclusive=True,
             )
         document = PlanDocument(
@@ -214,7 +217,11 @@ def create(home: Path, name: str, path: str, note: str | None = None) -> dict:
             spec=compiled.spec,
         )
         write_plan(ctx.root, document)
-        return created(ctx, document, compiled, replaced=False)
+        line = event_line(
+            document.meta.created, "create", f"digest {compiled.digest[:8]}", note=note
+        )
+        failed = record(ctx.root, plan_path(plan_id, "state.md"), line)
+        return with_warnings(created(ctx, document, compiled, replaced=False), [failed])
 
 
 def created(
@@ -318,7 +325,9 @@ def approve(home: Path, name: str, plan_id: str, expected: str, path: str | None
         meta.revision = 1
         meta.approved_at = now()
         write_plan(ctx.root, document)
-        return approved(ctx, document, already=False, rerun=[])
+        line = event_line(meta.approved_at, "approve", "revision 1", f"digest {meta.digest[:8]}")
+        failed = record(ctx.root, plan_path(plan_id, "state.md"), line)
+        return with_warnings(approved(ctx, document, already=False, rerun=[]), [failed])
 
 
 def approve_revision(ctx: ChangeContext, plan_id: str, path: str, expected: str) -> dict:
@@ -355,9 +364,9 @@ def approve_revision(ctx: ChangeContext, plan_id: str, path: str, expected: str)
     # Files are listed against the new spec, which is what the record is checked against later.
     revised = LoadedPlan(ctx, plan_id, document)
     reset = [identity for identity in rerun if any(n.id == identity for n in compiled.spec.nodes)]
-    record = None
+    attempt = None
     if reset:
-        record = build_record(
+        attempt = build_record(
             loaded,
             "revision",
             reset,
@@ -365,11 +374,19 @@ def approve_revision(ctx: ChangeContext, plan_id: str, path: str, expected: str)
             target_digest=compiled.digest,
             revision=revision,
         )
-        write_record(revised, record)
+        write_record(revised, attempt)
     write_plan(ctx.root, document)
-    if record is not None:
-        finish(revised, record)
-    return approved(ctx, document, already=False, rerun=rerun)
+    if attempt is not None:
+        finish(revised, attempt)
+    line = event_line(
+        document.meta.approved_at,
+        "revise",
+        f"revision {meta.revision} → {revision}",
+        f"digest {compiled.digest[:8]}",
+        f"rerun: {', '.join(rerun) or '-'}",
+    )
+    failed = record(ctx.root, plan_path(plan_id, "state.md"), line)
+    return with_warnings(approved(ctx, document, already=False, rerun=rerun), [failed])
 
 
 def archive(home: Path, name: str, plan_id: str, note: str | None = None) -> dict:
@@ -380,6 +397,7 @@ def archive(home: Path, name: str, plan_id: str, note: str | None = None) -> dic
         ctx = open_change(home, name)
         document = read_plan(ctx.root, plan_id)
         meta = document.meta
+        failed: list[str | None] = []
         if meta.status != "archived":
             if meta.status == "approved":
                 settle(LoadedPlan(ctx, plan_id, document))
@@ -387,14 +405,28 @@ def archive(home: Path, name: str, plan_id: str, note: str | None = None) -> dic
             meta.archived_at = now()
             meta.archive_note = note
             write_plan(ctx.root, document)
-        return {
-            "changeName": name,
-            "plan": plan_id,
-            "status": "archived",
-            "archivedAt": meta.archived_at,
-            "message": "Plan 目录原样保留；需要时重新为完整任务制定新 Plan 并取得确认。",
-            "nextSteps": [f"loopspec plan create -c {name} -f <请求文件>"],
-        }
+            stamp = meta.archived_at
+            failed = [
+                record(
+                    ctx.root,
+                    plan_path(plan_id, "state.md"),
+                    event_line(stamp, "archive", note=note),
+                ),
+                record(
+                    ctx.root, "state.md", event_line(stamp, f"archive plan {plan_id}", note=note)
+                ),
+            ]
+        return with_warnings(
+            {
+                "changeName": name,
+                "plan": plan_id,
+                "status": "archived",
+                "archivedAt": meta.archived_at,
+                "message": "Plan 目录原样保留；需要时重新为完整任务制定新 Plan 并取得确认。",
+                "nextSteps": [f"loopspec plan create -c {name} -f <请求文件>"],
+            },
+            failed,
+        )
 
 
 def rollback(home: Path, name: str, plan_id: str) -> dict:
@@ -423,7 +455,7 @@ def rollback(home: Path, name: str, plan_id: str) -> dict:
         assert gate.gate
         reset = pending_rollback["closure"]
         report_path = gate.gate.outputs.fail
-        record = build_record(
+        attempt = build_record(
             loaded,
             "rollback",
             reset,
@@ -431,14 +463,25 @@ def rollback(home: Path, name: str, plan_id: str) -> dict:
             gate=gate.id,
             failure_digest=byte_hash(read_bytes(loaded.root, report_path)),
         )
-        write_record(loaded, record)
-        finish(loaded, record)
-        return {
-            "changeName": loaded.name,
-            "plan": loaded.plan_id,
-            "attempt": record.seq,
-            "gate": gate.id,
-            "reset": reset,
-            "message": "已归档重置范围内的产物与报告；业务代码未回退。",
-            "nextSteps": [f"loopspec change status {loaded.name}"],
-        }
+        write_record(loaded, attempt)
+        finish(loaded, attempt)
+        line = event_line(
+            now(),
+            "rollback",
+            f"gate {gate.id}",
+            f"attempt {attempt.seq}",
+            f"reset: {', '.join(reset)}",
+        )
+        failed = record(ctx.root, plan_path(loaded.plan_id, "state.md"), line)
+        return with_warnings(
+            {
+                "changeName": loaded.name,
+                "plan": loaded.plan_id,
+                "attempt": attempt.seq,
+                "gate": gate.id,
+                "reset": reset,
+                "message": "已归档重置范围内的产物与报告；业务代码未回退。",
+                "nextSteps": [f"loopspec change status {loaded.name}"],
+            },
+            [failed],
+        )

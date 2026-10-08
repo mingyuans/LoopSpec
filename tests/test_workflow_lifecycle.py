@@ -163,11 +163,15 @@ def test_archive_approved_plan_keeps_its_directory(tmp_path: Path):
     create_approved(home, DOCS_FLOW)
     pass_node(home, "requirements/proposal")
     plan_dir = home / "changes" / CHANGE / "plans/001"
-    before = {key: value for key, value in snapshot(plan_dir).items() if key != "plan.yaml"}
+    kept = ("plan.yaml", "state.md")
+    before = {key: value for key, value in snapshot(plan_dir).items() if key not in kept}
+    state_before = (plan_dir / "state.md").read_text()
     code, result = invoke(home, "plan", "archive", "-c", CHANGE, "-p", "001", "--note", "需求变化")
     assert code == 0 and result["status"] == "archived"
-    after = {key: value for key, value in snapshot(plan_dir).items() if key != "plan.yaml"}
+    after = {key: value for key, value in snapshot(plan_dir).items() if key not in kept}
     assert after == before
+    appended = (plan_dir / "state.md").read_text().removeprefix(state_before)
+    assert appended.endswith(" · archive · note: 需求变化\n") and appended.count("\n") == 1
     meta = yaml.safe_load((plan_dir / "plan.yaml").read_text())["meta"]
     assert meta["status"] == "archived" and meta["archive_note"] == "需求变化"
     report = status(home)

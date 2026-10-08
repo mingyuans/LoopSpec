@@ -8,7 +8,7 @@
 
 - Commands are `loopspec <resource> <verb>`, with singular resources: `change`, `plan`, `node`, `gate`, `fragment`, `profile`. Only `version` and `init` stand alone.
 - `-c/--change` names a Change, `-p/--plan` a three-digit Plan number, `-n/--node` a leaf node or Gate path, `-f/--file` a request file relative to the workflow home, `--digest` the digest a human confirmed, `--note` an optional note. `change` commands take the Change name as an argument.
-- Every command except `version` and `init` accepts `--home` (default `./loopspec`) and always prints JSON. On failure it prints `{"error": <code>, "message": <text>, "fix": <next action>}` and exits with status 1; usage errors exit with status 2.
+- Every command except `version` and `init` accepts `--home` (default `./loopspec`) and prints JSON. The one exception is `change status`, which prints a plain-text report for an LLM by default and JSON only with `--json`. On failure it prints `{"error": <code>, "message": <text>, "fix": <next action>}` and exits with status 1; usage errors exit with status 2.
 - Execution commands (`node`, `gate`, `plan rollback`) act only on the active Plan. Without one they fail with `plan_not_active` and a `fix` naming the next planning step. Every command takes effect in a single write, so an interrupted command leaves the Change as before or as after; rework files still to be archived are moved first by the next writing command.
 
 ## loopspec version
@@ -29,15 +29,17 @@ Creates the workflow home at `PATH` (default `./loopspec`): `config.yaml` (`arti
 loopspec change new <change>
 ```
 
-Creates an unplanned Change: `.workflow.yaml` (format 4, no Plan, no baseline), `state.md` and `plans/`. Nothing is compiled or executable. Re-running on an existing Change returns it with `reusedChange: true`. Options: `--home`.
+Creates an unplanned Change: `.workflow.yaml` (format 4, no Plan, no baseline), a sectioned `state.md` template and `plans/`. Nothing is compiled or executable. Re-running on an existing Change returns it with `reusedChange: true`. Options: `--home`.
 
 ## loopspec change status
 
 ```bash
-loopspec change status <change>
+loopspec change status <change> [--json]
 ```
 
-Returns `status` (`unplanned`, `planning`, `active`, `complete`), `baseline`, `repository`, `activePlan`, `openPlan`, a summary of every Plan, and `nextSteps` with the single next command. With an active Plan it adds `plan`, `revision`, `digest`, `nodes` (each with `status`, output paths, `reason` for stale evidence, `gate` details for failures and `taskProgress` for tracked nodes), `instances` (reference summaries) and `pendingRollback`, plus `warnings` when the diff was computed to recheck evidence and ignored paths are not excluded. Options: `--home`.
+By default prints a plain-text report for an LLM to read: sections start with a `=== SECTION ===` line at column zero, with no Markdown, no colour and the same bytes on every terminal. The section order is fixed: `OVERVIEW`, `STATE RECORDS`, `PLANS`, `NODES` (with an active Plan), `GATE FAILURES` (when a Gate failed), `PENDING ROLLBACK` (when a rollback is due) and `NEXT STEPS`, each opening with a short explanation. `STATE RECORDS` quotes the change-level `state.md` and the current Plan's (the active Plan, or the draft while planning) verbatim, every line indented by four spaces and marked as untrusted data; archived Plans' `state.md` is left out, while `PLANS` still lists every Plan. On failure it prints an `=== ERROR ===` report and exits with status 1.
+
+With `--json` it returns `status` (`unplanned`, `planning`, `active`, `complete`), `baseline`, `repository`, `activePlan`, `openPlan`, a summary of every Plan, and `nextSteps` with the single next command. With an active Plan it adds `plan`, `revision`, `digest`, `nodes` (each with `status`, output paths, `reason` for stale evidence, `gate` details for failures and `taskProgress` for tracked nodes), `instances` (reference summaries) and `pendingRollback`, plus `warnings` when the diff was computed to recheck evidence and ignored paths are not excluded. In every state it also returns `state` (the change-level `state.md`), `planState` (the current Plan's `state.md` with its `plan` number, `null` when unplanned) and `untrustedData` (an untrusted-data notice). `state` and `planState` look like `{path, content, truncated}`: `content` is `null` when the file is missing, an unreadable file (symlink, not a regular file) adds `error: "unreadable"`, and a file over 64 KiB keeps its first and last 32 KiB with `truncated: true`. Options: `--json`, `--home`.
 
 ## loopspec change next
 
@@ -86,7 +88,7 @@ Read-only. Without an approved Plan it compiles the request and checks project c
 loopspec plan create -c <change> -f <request> [--note <text>]
 ```
 
-Compiles the request against the current Fragments and `config.yaml`. With no open Plan it creates the next numbered draft Plan and, the first time, fixes the Change baseline and repository. With an open draft it replaces that draft's `spec` (and `note` when given). With an approved Plan it fails with `plan_active`. Options: `--change`, `--file`, `--note`, `--home`.
+Compiles the request against the current Fragments and `config.yaml`. With no open Plan it creates the next numbered draft Plan and, the first time, fixes the Change baseline and repository. With an open draft it replaces that draft's `spec` (and `note` when given). With an approved Plan it fails with `plan_active`. A new draft gets a sectioned Plan-level `state.md` template. After a draft is created or replaced it appends one event line to the Plan-level `state.md` (see the [overview](overview.md)); a failed append does not change the result and only adds `warnings: ["state_append_failed: <path>"]` to the output. Options: `--change`, `--file`, `--note`, `--home`.
 
 ## loopspec plan show
 
@@ -111,7 +113,7 @@ loopspec plan approve -c <change> -p <NNN> --digest <digest>
 loopspec plan approve -c <change> -p <NNN> -f <revision-request> --digest <digest>
 ```
 
-Run only after a human explicitly confirmed what they were shown. Without `--file` it approves the draft: it recompiles the draft's flow, requires both the stored and the recompiled digest to equal `--digest`, checks the repository, sets `revision: 1` and makes the Plan active. With `--file` it applies a revision of the active Plan: recompiles the request, requires its digest to equal `--digest`, checks `base_revision` and the freeze rules, archives the re-run nodes' files and replaces `spec`. Repeating an approval that already took effect returns `alreadyApproved: true`. Options: `--change`, `--plan`, `--digest`, `--file`, `--home`.
+Run only after a human explicitly confirmed what they were shown. Without `--file` it approves the draft: it recompiles the draft's flow, requires both the stored and the recompiled digest to equal `--digest`, checks the repository, sets `revision: 1` and makes the Plan active. With `--file` it applies a revision of the active Plan: recompiles the request, requires its digest to equal `--digest`, checks `base_revision` and the freeze rules, archives the re-run nodes' files and replaces `spec`. Repeating an approval that already took effect returns `alreadyApproved: true` and appends nothing. After an approval or revision takes effect it appends one event line to the Plan-level `state.md` (see the [overview](overview.md)); a failed append does not change the result and only adds `warnings: ["state_append_failed: <path>"]` to the output. Options: `--change`, `--plan`, `--digest`, `--file`, `--home`.
 
 ## loopspec plan archive
 
@@ -119,7 +121,7 @@ Run only after a human explicitly confirmed what they were shown. Without `--fil
 loopspec plan archive -c <change> -p <NNN> [--note <text>]
 ```
 
-Marks the open draft or approved Plan `archived` and clears the Change's pointers; the Change becomes `unplanned`. The Plan directory and business code are left untouched. Archiving an approved Plan requires the human's explicit consent first. Options: `--change`, `--plan`, `--note`, `--home`.
+Marks the open draft or approved Plan `archived` and clears the Change's pointers; the Change becomes `unplanned`. The Plan directory and business code are left untouched. Archiving an approved Plan requires the human's explicit consent first. After it takes effect it appends one event line to both the Plan-level and the change-level `state.md` (see the [overview](overview.md)); a failed append does not change the result and only adds `warnings: ["state_append_failed: <path>"]` to the output. Options: `--change`, `--plan`, `--note`, `--home`.
 
 ## loopspec plan rollback
 
@@ -127,7 +129,7 @@ Marks the open draft or approved Plan `archived` and clears the Change's pointer
 loopspec plan rollback -c <change> -p <NNN>
 ```
 
-For an effective FAIL in the active Plan, applies that Gate's own `on_fail`: archives the artifacts, reports and evidence of its `reset` nodes, the Gate and everything downstream into `.attempts/<NNN>/` (`kind: rollback`). Business code is not reverted. Fails with `retries_exhausted` when the Gate has no `on_fail` or no retries left, and `no_failed_gate` when nothing failed. Options: `--change`, `--plan`, `--home`.
+For an effective FAIL in the active Plan, applies that Gate's own `on_fail`: archives the artifacts, reports and evidence of its `reset` nodes, the Gate and everything downstream into `.attempts/<NNN>/` (`kind: rollback`). Business code is not reverted. Fails with `retries_exhausted` when the Gate has no `on_fail` or no retries left, and `no_failed_gate` when nothing failed. After it takes effect it appends one event line to the Plan-level `state.md` (see the [overview](overview.md)); a failed append does not change the result and only adds `warnings: ["state_append_failed: <path>"]` to the output. Options: `--change`, `--plan`, `--home`.
 
 ## loopspec node instructions
 

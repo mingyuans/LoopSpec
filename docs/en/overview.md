@@ -57,12 +57,12 @@ Every command takes effect in a single write. If one is interrupted, the Change 
     profiles/<name>.yaml
     changes/AFD1111/
       .workflow.yaml             # Change-level state (machine)
-      state.md                   # Change-level notes (human)
+      state.md                   # Change-level notes (human + LLM, engine appends events)
       plans/
         request.yaml             # request files the agent writes
         001/
           plan.yaml              # meta + spec of one Plan
-          state.md               # Plan-level notes (human)
+          state.md               # Plan-level notes (human + LLM, engine appends events)
           artifacts/             # this Plan's artifacts
           .gates/                # code Gate evidence and assurance diagnostics
           .gate-rounds/          # review round history
@@ -71,6 +71,14 @@ Every command takes effect in a single write. If one is interrupted, the Change 
 ```
 
 The Git diff checked by code Gates and assurance excludes exactly `.workflow.yaml`, `state.md` and `plans/` under the current Change root, `<home>/.cache/`, and the paths declared in `workflow.excluded_paths` of `config.yaml`. Everything else, including Fragment and Profile files, counts as a change. Files ignored by Git never count toward the diff; those not declared in `excluded_paths` are listed as warnings in the assurance report. The diff compares the fixed baseline with the delivered working tree content: `git add` and `git commit` leave evidence digests unchanged, so you can commit after the Gates pass and archive afterwards. Before delivery, each file's content in HEAD must equal the baseline or the working tree content, otherwise assurance fails with `diverged_commits`.
+
+## state.md records
+
+The Change root and every Plan directory each hold a `state.md` that records the background, decisions and progress of the work. Humans and LLMs may edit them directly. The engine only prints the change-level file and the current Plan's verbatim in `change status`; it never parses them or uses them to derive state, deduplicate or validate anything, so they never affect evidence or the diff.
+
+- **Change level** (template from `change new`): background, goals / non-goals, key decisions (`- YYYY-MM-DD (who confirmed): decision; reason`, append only), references and the Plan record.
+- **Plan level** (template from `plan create`): human decisions, assumptions and deviations, rework notes and events.
+- **Engine events**: after `plan create`, `plan approve` (revisions included), `plan rollback` and `plan archive` take effect, the engine appends one line to the end of the file, for example `- 2026-10-08T06:22:43+00:00 · approve · revision 1 · digest 321f50cd`; `plan archive` also appends `archive plan <NNN>` at the change level. Events are written after the command's deciding write, so a crash in between can lose a line: `state.md` is not a complete audit log.
 
 ## What LoopSpec does not do
 
