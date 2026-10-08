@@ -78,13 +78,19 @@ LOGO_ASCII: tuple[str, ...] = (
     "|___ |__| |__| |     __| |    |___ |__ ",
 )
 
-_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+# C0/C1 controls plus U+2028/U+2029, which str.splitlines() and many readers treat as line breaks.
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\u2028\u2029]")
+
+
+def escape_control(char: str) -> str:
+    code = ord(char)
+    return f"\\x{code:02x}" if code <= 0xFF else f"\\u{code:04x}"
 
 
 def sanitize(value: object) -> str:
-    """Render control characters visibly so they cannot rewrite the terminal."""
+    """Render control characters and line separators visibly; the result is one line."""
 
-    return _CONTROL_RE.sub(lambda match: f"\\x{ord(match.group()):02x}", str(value))
+    return _CONTROL_RE.sub(lambda match: escape_control(match.group()), str(value))
 
 
 def encoding_supports(encoding: str | None, sample: str) -> bool:

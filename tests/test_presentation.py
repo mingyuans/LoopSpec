@@ -395,3 +395,9 @@ def test_presentation_exposes_no_animation_interface():
 
     assert isinstance(LOGO_UNICODE, tuple), "a single frame, not a sequence of frames"
     assert not hasattr(Presenter, "animate_logo")
+
+
+def test_sanitize_escapes_unicode_line_separators():
+    assert sanitize("a b c") == "a\\u2028b\\u2029c"
+    assert len(sanitize("a b c").splitlines()) == 1
+    assert sanitize("a\nb") == "a\\x0ab"

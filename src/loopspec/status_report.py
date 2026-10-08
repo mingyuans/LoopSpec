@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .presentation import sanitize
+from .presentation import escape_control, sanitize
 
 __all__ = ["render_error_report", "render_status_report", "sanitize"]
 
@@ -151,7 +151,8 @@ PROMPT_ERROR = (
 
 NO_NEXT_STEPS = "(nothing queued)"
 NO_PLANS = "(no plans yet)"
-_QUOTED_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+# Everything sanitize() escapes except \n and \t, which quoted state.md keeps.
+_QUOTED_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029]")
 
 
 def _section(header: str, prompt: str, body: list[str]) -> list[str]:
@@ -207,7 +208,7 @@ def _plan_label(payload: dict, plan_id: str) -> str:
 
 def _quote(content: str) -> list[str]:
     text = content.replace("\r\n", "\n").replace("\r", "\n")
-    text = _QUOTED_CONTROL.sub(lambda match: f"\\x{ord(match.group()):02x}", text)
+    text = _QUOTED_CONTROL.sub(lambda match: escape_control(match.group()), text)
     return [QUOTE + line for line in text.removesuffix("\n").split("\n")]
 
 
