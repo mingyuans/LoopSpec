@@ -446,3 +446,28 @@ def test_combined_long_warnings_keep_failure_summary_within_limit():
     summary = "全量 Diff 保障存在缺口，请按诊断补齐审查或修订 Plan" + text
     FailureReport.model_validate({"verdict": "FAIL", "summary": summary})
     assert "30 条告警" in text and "40 条告警" in text
+
+
+def test_committing_after_gates_keeps_change_complete_and_archivable(tmp_path: Path):
+    home, loaded = fixture(tmp_path)
+    (tmp_path / "frontend/code.py").write_text("implementation")
+    review(loaded, "fe")
+    qa(loaded)
+    assert check(loaded)["verdict"] == "PASS"
+    git(tmp_path, ["add", "-A"])
+    git(tmp_path, ["commit", "-q", "-m", "deliver reviewed change"])
+    assert status(loaded)["isComplete"]
+    assert invoke(home, "change", "archive", "AFD1111", "--dry-run")[0] == 0
+
+
+def test_committing_during_review_round_still_records(tmp_path: Path):
+    _, loaded = fixture(tmp_path)
+    (tmp_path / "frontend/code.py").write_text("implementation")
+    atomic_write(loaded.root, "artifacts/fe/implementation.md", "实施结果".encode())
+    context = begin(loaded.home, "AFD1111", "fe/review")
+    assert "index" in context["paths"][0]
+    git(tmp_path, ["add", "frontend/code.py"])
+    git(tmp_path, ["commit", "-q", "-m", "commit mid review"])
+    atomic_write(loaded.root, "artifacts/draft.md", b"verdict: PASS\nsummary: actual review\n")
+    result = record(loaded.home, "AFD1111", "fe/review", context["roundId"], "artifacts/draft.md")
+    assert result["evidenceRecorded"]

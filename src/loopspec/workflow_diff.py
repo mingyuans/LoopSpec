@@ -23,6 +23,13 @@ from .workflow_io import (
 )
 from .workflow_state import LoadedPlan
 
+
+def _delivered(entries: list[dict]) -> list[dict]:
+    # Digests bind what is delivered, not what is staged: git add or commit must not stale
+    # evidence. Partial staging is still rejected while scanning (index vs HEAD and worktree).
+    return [{key: value for key, value in entry.items() if key != "index"} for entry in entries]
+
+
 # Ignored paths only warn; the list is capped so reports and outputs stay small.
 MAX_IGNORED_WARNINGS = 20
 
@@ -44,7 +51,7 @@ class DiffSnapshot:
 
     @property
     def diff_digest(self) -> str:
-        return digest({"baseline": self.baseline, "entries": self.entries})
+        return digest({"baseline": self.baseline, "entries": _delivered(self.entries)})
 
     def scope(self, patterns: list[str]) -> list[dict]:
         return [
@@ -55,7 +62,11 @@ class DiffSnapshot:
 
     def scope_digest(self, patterns: list[str]) -> str:
         return digest(
-            {"baseline": self.baseline, "patterns": patterns, "entries": self.scope(patterns)}
+            {
+                "baseline": self.baseline,
+                "patterns": patterns,
+                "entries": _delivered(self.scope(patterns)),
+            }
         )
 
 
@@ -224,6 +235,9 @@ def collect_diff(loaded: LoadedPlan) -> DiffSnapshot:
         head = git(repository, ["rev-parse", "--verify", "HEAD"])
         index_raw = git(repository, ["ls-files", "--stage", "-z"])
         index = _objects(index_raw, index=True)
+        committed = _objects(
+            git(repository, ["ls-tree", "-rz", "--full-tree", "HEAD"]), index=False
+        )
         others_raw = git(repository, ["ls-files", "--others", "--exclude-standard", "-z"])
         others = {_decode_path(item) for item in _records(others_raw)}
         ignored_raw = git(
@@ -264,11 +278,13 @@ def collect_diff(loaded: LoadedPlan) -> DiffSnapshot:
             ):
                 continue
             original, staged = blob(base.get(path)), blob(index.get(path))
-            if staged != original and staged != current:
+            # A staged version that is neither committed nor in the worktree leaves the
+            # delivery ambiguous. Commits after the baseline are normal, so compare with HEAD.
+            if staged != current and staged != blob(committed.get(path)):
                 raise WorkflowError(
                     "index_worktree_mismatch", "已暂存输入与工作树不一致，必须先明确交付版本"
                 )
-            if original != staged or original != current:
+            if original != current:
                 kind = "added" if original is None else "deleted" if current is None else "modified"
                 entries.append(
                     {

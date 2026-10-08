@@ -261,7 +261,7 @@ loopspec registry apply --plan <planId> [--resolve <path>=local|upstream]... [--
 | `repository_changed` | Git 仓库不是 Change 固定的仓库。 |
 | `git_input_error` | Git 输出无法安全解析。 |
 | `unsupported_input` | Diff 中有不支持的路径、模式、子模块或冲突。 |
-| `index_worktree_mismatch` | 暂存区与工作树内容不一致；先决定交付哪个版本。 |
+| `index_worktree_mismatch` | 暂存区内容既不是 HEAD 中的版本也不是工作树内容（部分暂存）；先决定交付哪个版本。 |
 | `concurrent_input_change` | 读取代码期间代码发生变化。 |
 | `concurrent_source_change` | 读取期间文件发生变化。 |
 | `concurrent_path_change` | 操作期间目录被替换。 |

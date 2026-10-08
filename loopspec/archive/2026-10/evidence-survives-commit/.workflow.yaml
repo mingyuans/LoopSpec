@@ -1,0 +1,5 @@
+format_version: 4
+change_name: evidence-survives-commit
+created: '2026-10-08T10:08:42+00:00'
+baseline: d03dddf8352b41d981eb9674a1dcbc092b610c50
+repository: /Users/xq.yan/pythonprojects/LoopSpec

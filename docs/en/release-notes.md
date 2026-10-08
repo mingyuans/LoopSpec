@@ -24,6 +24,7 @@
 - In-place revisions previewed with `plan validate -f` and confirmed with `plan approve -f --digest`.
 - Every command takes effect in a single write: an interrupted command leaves the Change as before or as after, with no transaction file, no recovery command and no interrupted status.
 - `workflow.excluded_paths` keeps any path out of the diff, by name or by full path; paths ignored by Git but not excluded only warn in the assurance report instead of stopping commands.
+- Evidence digests bind only the baseline and the delivered working tree content, not the index: `git add` or `git commit` after the Gates pass no longer stales evidence, and editing after a commit made since the baseline no longer fails with `index_worktree_mismatch`. Code Gate and assurance evidence recorded by earlier development builds becomes stale and must be rerun.
 - `on_fail` is compiled into each Gate; one policy per Gate, conflicts are errors.
 
 ### Upgrading

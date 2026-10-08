@@ -261,7 +261,7 @@ Writes the latest `registry update` plan after the human confirmed it. Every `co
 | `repository_changed` | The Git repository is not the one fixed for the Change. |
 | `git_input_error` | Git returned output that could not be parsed safely. |
 | `unsupported_input` | The diff contains an unsupported path, mode, submodule or conflict. |
-| `index_worktree_mismatch` | Staged and working tree content differ; decide which one to deliver. |
+| `index_worktree_mismatch` | Staged content matches neither HEAD nor the working tree (partial staging); decide which one to deliver. |
 | `concurrent_input_change` | Code changed while it was being read. |
 | `concurrent_source_change` | A file changed while it was being read. |
 | `concurrent_path_change` | A directory was replaced during an operation. |

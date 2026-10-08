@@ -74,6 +74,65 @@ def test_untracked_deleted_mode_and_symlink_are_distinct_inputs(tmp_path: Path):
     assert collect_diff(loaded).diff_digest != before
 
 
+def test_staging_and_committing_keep_digests(tmp_path: Path):
+    home = fixture(tmp_path)
+    (tmp_path / "old.md").write_text("to be renamed")
+    (tmp_path / "gone.md").write_text("to be deleted")
+    execute(tmp_path, "add", ".")
+    execute(tmp_path, "commit", "-m", "more files")
+    loaded = activate(home)
+    (tmp_path / "initial.md").write_text("modified")
+    (tmp_path / "added.py").write_text("added")
+    (tmp_path / "gone.md").unlink()
+    (tmp_path / "old.md").rename(tmp_path / "renamed.md")
+    before = collect_diff(loaded)
+    kinds = {entry["path"]: entry["kind"] for entry in before.entries}
+    assert kinds == {
+        "added.py": "added",
+        "gone.md": "deleted",
+        "initial.md": "modified",
+        "old.md": "deleted",
+        "renamed.md": "added",
+    }
+    patterns = ["*.py", "*.md"]
+    execute(tmp_path, "add", "-A")
+    staged = collect_diff(loaded)
+    assert any(entry["index"] != entry["base"] for entry in staged.entries)
+    assert staged.diff_digest == before.diff_digest
+    assert staged.scope_digest(patterns) == before.scope_digest(patterns)
+    execute(tmp_path, "commit", "-m", "deliver")
+    committed = collect_diff(loaded)
+    assert committed.diff_digest == before.diff_digest
+    assert committed.scope_digest(patterns) == before.scope_digest(patterns)
+    (tmp_path / "initial.md").write_text("edited after commit")
+    assert collect_diff(loaded).diff_digest != before.diff_digest
+    assert collect_diff(loaded).scope_digest(patterns) != before.scope_digest(patterns)
+
+
+def test_after_commit_partial_staging_is_still_rejected(tmp_path: Path):
+    home = fixture(tmp_path)
+    loaded = activate(home)
+    path = tmp_path / "initial.md"
+    path.write_text("committed")
+    execute(tmp_path, "commit", "-am", "deliver")
+    path.write_text("staged")
+    execute(tmp_path, "add", "initial.md")
+    path.write_text("different worktree")
+    with pytest.raises(WorkflowError, match="暂存输入"):
+        collect_diff(loaded)
+
+
+def test_committed_then_reverted_file_is_not_a_change(tmp_path: Path):
+    home = fixture(tmp_path)
+    loaded = activate(home)
+    path = tmp_path / "initial.md"
+    original = path.read_text()
+    path.write_text("committed")
+    execute(tmp_path, "commit", "-am", "deliver")
+    path.write_text(original)
+    assert collect_diff(loaded).entries == []
+
+
 def test_staged_worktree_divergence_rejected(tmp_path: Path):
     home = fixture(tmp_path)
     loaded = activate(home)
