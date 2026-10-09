@@ -1,0 +1,22 @@
+diffDigest: c68fcfca1c4194c6853372f4b73cedb4cd7a5e96f56ff087e5113dd9d9c2e1d6
+baseline: 21f17e1789cd2b114e56006000f5c0b7e138a27c
+warnings: null
+unknown_paths: []
+missing_evidence: []
+stale_evidence: []
+missing_fragments: []
+diverged_commits: []
+requiredCapabilities:
+  src/loopspec/workflow_assurance.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/workflow_evidence.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_gate_file_format.py:
+  - backend-tests
+  - pr-review
+  - security-review
+passed: true

@@ -1,0 +1,5 @@
+format_version: 4
+change_name: diff-scan-performance
+created: '2026-10-08T11:53:21+00:00'
+baseline: 45bf6444ccb528eef0de4e52f4c225e4871ae835
+repository: /Users/xq.yan/pythonprojects/LoopSpec

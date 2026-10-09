@@ -1,0 +1,9 @@
+version: 1
+name: requirements
+description: 明确需求范围、验收条件与风险
+nodes:
+- id: proposal
+  generates: proposal.md
+  instruction: proposal.instruction.md
+  template: proposal.template.md
+  requires: []

@@ -1,0 +1,5 @@
+format_version: 4
+change_name: block-unreviewed-commits
+created: '2026-10-08T11:26:10+00:00'
+baseline: aea17446e08f2cc0109a3b852f933092b182a609
+repository: /Users/xq.yan/pythonprojects/LoopSpec

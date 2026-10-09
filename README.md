@@ -1,8 +1,8 @@
 # LoopSpec
 
-A gated artifact workflow CLI for LLM-driven, spec-driven development. You declare a YAML graph of artifacts (proposal, specs, design, tasks, ...) and their dependencies; an LLM generates them one at a time; special *gate* nodes (e.g. a security review) produce a PASS/FAIL verdict, and a FAIL rolls back to a declared upstream node so the LLM can redo it with full knowledge of why the previous attempt failed.
+A plan-driven, gated delivery CLI for LLM agents. For each Change, an agent drafts one Plan for the whole task from reusable Fragments and Profiles; a human confirms it by digest; the agent then executes the confirmed graph node by node. Code Gates count only with review evidence bound to the exact code reviewed, and a final assurance node checks the full Git diff since the Change's fixed baseline. A failed Gate sends work back by its own `on_fail`, archiving the failed attempt so the redo can see why.
 
-Node completion, gate verdicts, and retry counts are all derived from the filesystem on every call — there is no separate progress database to drift out of sync with what's actually on disk. Rollbacks *move* (never delete) prior attempts into `.attempts/round-NNN/`, so the next attempt can be shown exactly what failed and why.
+Node status is derived from the filesystem on every call; there is no progress database to drift. Every Plan, revision and replan becomes effective only with the digest a human was shown.
 
 ## Documentation
 
@@ -11,7 +11,7 @@ The full manual lives in [`docs/`](docs/README.md), in **English** and **中文*
 - [English manual](docs/en/README.md)
 - [中文手册](docs/zh/README.md)
 
-It covers every command and `--json` response field, every `config.yaml` and `schema.yaml` field, the protocol an agent follows to drive the loop, and the built-in workflow node by node.
+It covers every command and its JSON output, writing Fragments, Profiles and Plan requests, every `plan.yaml` and `config.yaml` field, and the protocol an agent follows. Upgrading from 1.x? Read the [release notes](docs/en/release-notes.md): 2.0.0 removes the Schema workflow.
 
 ## Install
 
@@ -95,34 +95,33 @@ Two things to know before the first release:
 ## Quick start
 
 ```bash
-# 1. Initialize a workflow home (copies the built-in `secure-spec-driven` schema).
-#    Add --tools claude,codex to also scaffold agent skills and /lpsx:* commands;
-#    run it in a terminal without --tools to pick from a searchable list.
+# 1. Initialize a workflow home with the built-in Fragments and Profiles.
+#    Add --tools claude,codex to also scaffold agent skills and /lpsx:* commands.
 loopspec init ./loopspec
 
-# 2. Create a change
-loopspec new add-payment --home ./loopspec --json
+# 2. Create a Change and draft one Plan for the whole task.
+loopspec change new AFD1111
+loopspec profile show bugfix
+#    write loopspec/changes/AFD1111/plans/request.yaml, then:
+loopspec plan validate -c AFD1111 -f changes/AFD1111/plans/request.yaml
+loopspec plan create -c AFD1111 -f changes/AFD1111/plans/request.yaml
+loopspec plan show -c AFD1111 -p 001
 
-# 3. Ask what to do next
-loopspec status add-payment --home ./loopspec
-#   -> nextSteps tells you to run `loopspec instructions <node> --change ...`
+# 3. Show the draft to a human; only after explicit confirmation:
+loopspec plan approve -c AFD1111 -p 001 --digest "<shown digest>"
 
-# 4. Get the instructions for the next node, write the artifact it describes,
-#    then go back to step 3.
-loopspec instructions proposal --change add-payment --home ./loopspec --json
+# 4. Loop: ask what to do next, do it, repeat.
+loopspec change status AFD1111
+loopspec node instructions -c AFD1111 -n requirements/proposal
 
-# If a gate fails, `status` returns a `pendingRollback` command:
-loopspec rollback add-payment --home ./loopspec --json
-# ...then redo the reset nodes; `instructions` will include `priorAttempts`
-# with the previous failure's blocking issues so you don't repeat them.
+# A failed Gate: nextSteps names the rollback.
+loopspec plan rollback -c AFD1111 -p 001
 
-# Once everything is done:
-loopspec archive add-payment --home ./loopspec --json
+# Once complete:
+loopspec change archive AFD1111
 ```
 
-Every command supports `--json` for machine-readable output — that's the primary protocol for driving `loopspec` from an LLM/agent when it needs exact field values. `loopspec status` is the exception worth knowing: its default output is a fixed-layout plain-text report written for the LLM driving the loop, so the loop can read progress and the next command without parsing JSON. Every other command's default output is a summary intended for humans.
-
-Two nodes in the built-in schema ask the agent for something other than another document, so a driving loop needs to expect them: `approval` is a human sign-off gate (the agent must never approve on your behalf), and `apply` is the implementation gate, which only counts as done once every checkbox in `tasks.md` is ticked. See [the built-in workflow](docs/en/workflows/secure-spec-driven.md) and [the agent protocol](docs/en/agent-protocol.md).
+Workflow commands always print JSON for the agent driving the loop; `version` and `init` print human-readable output. See the [agent protocol](docs/en/agent-protocol.md) for revisions, replanning and what happens when a command is interrupted.
 
 ## Development
 
@@ -139,4 +138,4 @@ make clean            # remove build/test caches
 
 `make release-dry-run` accepts `TAG=v0.2.0` to also build the artifacts that tag would publish and assert their filenames -- there is no declared version for it to check them against, only the tag. It skips `shellcheck` when it isn't installed locally; CI treats it as mandatory.
 
-Everything that ships as data lives under `builtin/` at the repo root and is bundled into the installed package: the built-in `secure-spec-driven` schema in `builtin/schemas/`, and the Agent Skill bodies `loopspec init` writes in `builtin/skills/` (one Markdown file per `/lpsx:*` command, edit it and the next `init` writes the new text). `make docs-check` asserts the manual has not drifted from the code, and that the two language versions still match.
+Everything that ships as data lives under `builtin/` at the repo root and is bundled into the installed package: the built-in Fragments and Profiles in `builtin/fragments/` and `builtin/profiles/`, and the Agent Skill bodies `loopspec init` writes in `builtin/skills/` (one Markdown file per `/lpsx:*` command, edit it and the next `init` writes the new text). `make docs-check` asserts the manual has not drifted from the code, and that the two language versions still match.

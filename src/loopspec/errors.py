@@ -22,24 +22,8 @@ class LoopspecError(Exception):
         return {"error": self.code, "message": self.message, "fix": self.fix}
 
 
-class SchemaNotFoundError(LoopspecError):
-    code = "schema_not_found"
-
-
-class SchemaSelectionRequiredError(LoopspecError):
-    code = "schema_selection_required"
-
-
-class SchemaValidationError(LoopspecError):
-    code = "schema_invalid"
-
-
 class ConfigValidationError(LoopspecError):
     code = "config_invalid"
-
-
-class TemplateLoadError(LoopspecError):
-    code = "template_not_found"
 
 
 class BuiltinSkillError(LoopspecError):
@@ -53,41 +37,9 @@ class BuiltinSkillError(LoopspecError):
     code = "builtin_skill_invalid"
 
 
-class InstructionLoadError(LoopspecError):
-    code = "instruction_not_found"
+class WorkflowError(LoopspecError):
+    """新工作流的结构化错误；消息不包含原始配置或代码内容。"""
 
-
-class ChangeNotFoundError(LoopspecError):
-    code = "change_not_found"
-
-
-class ChangeExistsError(LoopspecError):
-    code = "change_exists"
-
-
-class InvalidChangeNameError(LoopspecError):
-    code = "invalid_change_name"
-
-
-class NodeNotFoundError(LoopspecError):
-    code = "node_not_found"
-
-
-class GateOutputConflictError(LoopspecError):
-    code = "gate_output_conflict"
-
-
-class NoFailedGateError(LoopspecError):
-    code = "no_failed_gate"
-
-
-class RetriesExhaustedError(LoopspecError):
-    code = "retries_exhausted"
-
-
-class ArchiveConflictError(LoopspecError):
-    code = "archive_conflict"
-
-
-class ArchiveUnsafeError(LoopspecError):
-    code = "archive_unsafe"
+    def __init__(self, code: str, message: str, fix: str = "检查配置并重新校验计划。") -> None:
+        super().__init__(message, fix)
+        self.code = code

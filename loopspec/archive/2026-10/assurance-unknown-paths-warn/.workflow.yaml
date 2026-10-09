@@ -1,0 +1,5 @@
+format_version: 4
+change_name: assurance-unknown-paths-warn
+created: '2026-10-08T09:22:38+00:00'
+baseline: cd740113d573daf18769db5ab9fea798795f3c47
+repository: /Users/xq.yan/pythonprojects/LoopSpec

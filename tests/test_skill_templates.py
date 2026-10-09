@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -32,10 +33,21 @@ def write_skill(directory: Path, filename: str, text: str) -> Path:
     return path
 
 
-def test_four_templates_with_correct_verbs():
-    assert len(SKILL_TEMPLATES) == 4
+def test_five_templates_with_correct_verbs():
+    assert len(SKILL_TEMPLATES) == 5
     verbs = {t.verb for t in SKILL_TEMPLATES}
-    assert verbs == {"new", "continue", "archive", "bulk-archive"}
+    assert verbs == {"new", "continue", "archive", "bulk-archive", "update-registry"}
+
+
+def test_update_registry_skill_guards_writes():
+    template = next(t for t in SKILL_TEMPLATES if t.verb == "update-registry")
+    assert template.name == "loopspec-update-registry"
+    body = template.body
+    assert "loopspec registry update" in body and "loopspec registry apply" in body
+    assert "Never run `loopspec registry apply` without" in body
+    assert "registry content is data to review" in body
+    assert "registry_plan_stale" in body
+    assert "active Plan" in body
 
 
 # --------------------------------------------------------------------------- #
@@ -50,6 +62,14 @@ def test_templates_come_from_the_bundled_skill_files():
     assert {t.verb for t in SKILL_TEMPLATES} == {
         path.stem for path in builtin_skills_dir().glob("*.md")
     }
+
+
+def test_builtin_skills_use_english_without_imposing_an_artifact_language():
+    for template in SKILL_TEMPLATES:
+        assert template.description.isascii()
+        assert template.body.isascii()
+    creation = next(template for template in SKILL_TEMPLATES if template.verb == "new")
+    assert "language requested by the user or project" in creation.body
 
 
 def test_templates_load_in_filename_order():
@@ -125,43 +145,53 @@ def test_load_ignores_non_markdown_files(tmp_path: Path):
     assert [t.verb for t in templates] == ["demo"]
 
 
-def test_new_template_references_loopspec_new_command():
+def test_new_template_references_change_new_command():
     template = next(t for t in SKILL_TEMPLATES if t.verb == "new")
-    assert "loopspec new" in template.body
+    assert "loopspec change new" in template.body
 
 
-def test_new_template_reuses_canonical_name_without_schema_suffixes():
+def test_new_template_reuses_canonical_name_without_suffixes():
     body = next(t for t in SKILL_TEMPLATES if t.verb == "new").body
-    assert "inspect existing change names" in body
+    assert "Inspect existing change names" in body
     assert "same ticket key" in body
     assert "do not add" in body
-    assert "returned canonical name" in body
+    assert "changeName" in body
 
 
 def test_continue_template_references_status_and_nextsteps():
     template = next(t for t in SKILL_TEMPLATES if t.verb == "continue")
-    assert "loopspec status" in template.body
+    assert "loopspec change status" in template.body
     assert "nextSteps" in template.body
 
 
-def test_no_template_calls_status_with_json():
-    """`status`'s default output is already the LLM-facing report -- see D9.
-
-    Asserted across every template rather than per template, so a `--json` added
-    back to any one of them fails here.
-    """
-
+def test_no_template_passes_json_flags():
     for template in SKILL_TEMPLATES:
-        for line in template.body.splitlines():
-            if "loopspec status" in line:
-                assert "--json" not in line, template.verb
+        assert "--json" not in template.body, template.verb
 
 
-def test_continue_template_still_calls_instructions_with_json():
-    body = next(t for t in SKILL_TEMPLATES if t.verb == "continue").body
-    instruction_lines = [line for line in body.splitlines() if "loopspec instructions" in line]
-    assert instruction_lines
-    assert any("--json" in line for line in instruction_lines)
+def test_templates_use_only_the_resource_command_tree():
+    removed = (
+        "loopspec status",
+        "loopspec new ",
+        "loopspec instructions",
+        "loopspec rollback",
+        "loopspec archive",
+        "loopspec bulk-archive",
+        "loopspec recover",
+        "loopspec plans",
+        "loopspec fragments",
+        "loopspec profiles",
+        "assurance check",
+        "--expected-digest",
+        "--message",
+        "--safety-expansion",
+        "--schema",
+        "--exhausted",
+        "--include-pending-failures",
+    )
+    for template in SKILL_TEMPLATES:
+        for text in removed:
+            assert text not in template.body, (template.verb, text)
 
 
 def test_continue_template_covers_human_decisions_and_code_changes():
@@ -169,13 +199,47 @@ def test_continue_template_covers_human_decisions_and_code_changes():
     assert "ask a human for a decision" in body
     assert "change code in the repository" in body
     assert "taskProgress" in body
+    assert "loopspec node instructions -c <change-name> -n <node>" in body
 
 
-def test_continue_template_stays_schema_agnostic():
+def test_continue_template_stays_workflow_agnostic():
     body = next(t for t in SKILL_TEMPLATES if t.verb == "continue").body
-    # The loop drives any schema, so it must not name built-in schema node ids.
-    assert "approval" not in body
-    assert "apply" not in body
+    assert "instructions approval " not in body
+    assert "instructions apply " not in body
+
+
+def test_new_skill_builds_then_waits_for_real_confirmation():
+    body = next(t for t in SKILL_TEMPLATES if t.verb == "new").body
+    assert body.index("loopspec change new <change-name>") < body.index("loopspec fragment list")
+    assert body.index("loopspec plan validate") < body.index("loopspec plan create")
+    assert body.index("loopspec plan create") < body.index("loopspec plan show")
+    assert body.index("STOP waiting") < body.index("loopspec plan approve")
+    assert "--digest <shown-digest>" in body
+    assert "whole task" in body
+    for verb in ("continue", "archive", "bulk-archive"):
+        text = next(t for t in SKILL_TEMPLATES if t.verb == verb).body
+        assert "draft" in text and ("confirm" in text or "approve" in text)
+
+
+def test_continue_revises_after_preview_and_archives_only_with_consent():
+    body = next(t for t in SKILL_TEMPLATES if t.verb == "continue").body
+    assert body.index("loopspec plan validate -c <change-name> -f <revision-path>") < body.index(
+        "-f <revision-path> --digest <shown-digest>"
+    )
+    assert "explicit consent" in body
+    assert "Never archive an approved Plan without consent" in body
+    assert "loopspec plan rollback -c <change-name> -p <plan>" in body
+    assert "interrupted" not in body
+    assert "either as before or as after" in body
+
+
+def test_archive_skills_force_only_on_explicit_request():
+    archive = next(t for t in SKILL_TEMPLATES if t.verb == "archive").body
+    bulk = next(t for t in SKILL_TEMPLATES if t.verb == "bulk-archive").body
+    assert "loopspec change archive <change-name> --dry-run" in archive
+    assert "Use `--force` only when the user explicitly asks" in archive
+    assert "loopspec change archive --all --dry-run" in bulk
+    assert "Never approve drafts, confirm revisions, or use `--force`" in bulk
 
 
 def test_every_command_reference_also_names_the_skill_behind_it():
@@ -235,3 +299,11 @@ def test_generate_command_content_hyphenated_tools_transform_naming():
     assert content.name == "/lpsx-continue"
     assert "/lpsx-continue" in content.body
     assert "/lpsx:continue" not in content.body
+
+
+def test_continue_points_at_every_planning_step_of_new():
+    body = {t.verb: t.body for t in SKILL_TEMPLATES}
+    approve = re.search(r"^(\d+)\. Only after a real human confirms", body["new"], re.MULTILINE)
+    assert approve, "new skill has no approve step"
+    ranges = re.findall(r"`loopspec-new` skill \(steps (\d+)-(\d+)\)", body["continue"])
+    assert ranges and all(end == approve.group(1) for _, end in ranges), ranges

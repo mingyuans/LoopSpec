@@ -1,0 +1,5 @@
+format_version: 4
+change_name: gate-files-as-yaml
+created: '2026-10-08T16:40:21+00:00'
+baseline: 21f17e1789cd2b114e56006000f5c0b7e138a27c
+repository: /Users/xq.yan/pythonprojects/LoopSpec

@@ -1,169 +1,136 @@
 # 配置
 
-> 覆盖范围：`config.yaml` 的每一个字段、各自的校验规则、LoopSpec 如何决定一个 change 使用哪个 schema，以及四个递进示例。
-> 适用读者：搭建项目的人类，以及需要读写合法 `config.yaml` 的 LLM agent。
-> 语言：[English](../en/configuration.md) · **中文**
+> 覆盖范围：`config.yaml` 与保障规则文件的全部字段，以及各自何时检查。
+> 适用读者：配置与维护项目的人。
+> 语言：**中文** · [English](../en/configuration.md)
 
-`config.yaml` 位于 [workflow home](overview.md#术语表) 的根目录，配置整个项目。`loopspec init` 会写出一份两行的起步版本：
+## config.yaml
+
+`loopspec init` 写出 `<home>/config.yaml`，记录 Change 存放位置与项目的最低工作流约束。未知字段一律拒绝，因此 LoopSpec 1.x 的字段（`schema`、`schemas`、`schema_selection`、`context`、`rules`）与 `workflow.default_profile` 会返回 `config_invalid`，需要删除。`workflow.generated_dirs` 已删除，把其中的名称原样移到 `workflow.excluded_paths` 即可，含义不变。
 
 <!-- loopspec:example=config -->
 ```yaml
 artifacts_dir: changes
-schema: secure-spec-driven
+workflow:
+  required_fragments: [qa-testing, change-assurance]
+  assurance_rules: fragments/change-assurance/rules.yaml
+  excluded_paths: [node_modules, .venv, .DS_Store, docs/**]
 ```
 
-其余全部可选。未知字段会被拒绝而不是被忽略，因此像 `schemata:` 这样的笔误会以 `config_invalid` 失败，而不是被静默丢弃。
-
-## 顶层字段
+### 顶层字段
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| `artifacts_dir` | string | 否 | `changes` | workflow home 下存放 change 目录的目录名。必须是安全相对路径：非绝对、不含 `..`。 |
-| `schema` | string | 否 | 无 | 新建 change 的默认 schema，也是没有 `.workflow.yaml` 的既有 change 的兜底值。必须是 kebab-case。当同时设置了 `schemas` 时，该值必须出现在 `schemas[*].name` 中。 |
-| `schemas` | array of object | 否 | 空 | 创建 change 时可选用的候选 schema。见 [`schemas[]` 条目](#schemas-条目)。名称必须唯一。 |
-| `schema_selection` | object | 否 | 无 | 指导 agent 如何在多个候选之间选择。见 [`schema_selection`](#schema_selection)。 |
-| `context` | string | 否 | 无 | 项目级上下文，原样作为每次 `loopspec instructions` 响应的 `context` 字段返回。 |
-| `rules` | object | 否 | 空 | 按节点附加的额外规则：节点 id 到字符串列表，作为该节点 `loopspec instructions` 响应的 `rules` 字段返回。 |
+| `artifacts_dir` | 相对路径 | 否 | `changes` | 工作区内存放 Change 的目录。 |
+| `workflow` | 映射 | 否 | - | 项目约束，见下。 |
+| `registry` | 映射 | 否 | - | fragments 与 profiles 的上游 git registry，见下。 |
 
-`schema` 与 `schemas` 至少要出现一个。两者都没有的配置会以 `config_invalid` 失败，消息为 `config.yaml must define schema or schemas`。
-
-### `schemas[]` 条目
+### workflow 字段
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| `name` | string | 是 | 无 | `<home>/schemas/` 下的 schema 目录名，kebab-case。该目录必须含一份可加载的 `schema.yaml`，在配置加载时校验。 |
-| `path` | string | 否 | 无 | 把该 schema 的产物收进 change 目录下的哪个子目录。必须是安全相对路径。未设置时产物直接放在 change 目录下。 |
-| `description` | string | 否 | 无 | 人类可读的简介，会回显在 `schema_selection_required` 的错误载荷中。 |
-| `when` | string | 否 | 无 | 什么情况下该选这个 schema，会回显在 `schema_selection_required` 的错误载荷中。 |
+| `required_fragments` | Fragment 名称列表 | 否 | `[]` | 每份 Plan 的 flow 中都必须实例化这些 Fragment。 |
+| `assurance_rules` | 工作区路径 | 否 | - | 项目保障规则。设置后每份 Plan 都需要保障节点，且这些规则与保障节点自带规则合并。 |
+| `excluded_paths` | 模式列表 | 否 | `[]` | 不计入 Git Diff 的路径，最多 128 项。不含 `/` 的模式匹配路径中任意一级名字（包括文件名），例如 `.DS_Store`、`__pycache__`、`*.log`；含 `/` 的模式用 fnmatch 匹配仓库相对完整路径，`*` 可跨目录，例如 `docs/**`、`loopspec/config.yaml`。命中的路径不需要任何审查，被忽略时也不产生告警。模式必须是安全相对路径：不能为空、不能以 `/` 开头、不能含 `.` 或 `..` 分量。 |
 
-### `schema_selection`
+### registry 字段
+
+可选的 git 仓库（通常在 GitHub），用于单独维护共享的 fragments 与 profiles。fragments 与 profiles 仍只从 `<home>/fragments/` 与 `<home>/profiles/` 加载；registry 是它们的上游，由 `loopspec registry update` 与 `loopspec registry apply` 同步（见 [CLI 参考](cli-reference.md)）。每个项目只配置一个 registry，并全量同步。
+
+<!-- loopspec:example=config -->
+```yaml
+artifacts_dir: changes
+workflow: {}
+registry:
+  url: git@github.com:acme/loopspec-workflows.git
+  version: latest
+  path: workflows
+```
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| `instruction` | string | 是 | 无 | 需要选择 schema 时交给 agent 的指令。作为 `schema_selection_required` 错误载荷中的 `selectionInstruction` 返回。不得为空。 |
+| `url` | git URL | 是 | - | `https://host/...`、`ssh://[user@]host/...`、`user@host:path` 或 `file:///abs/path`。拒绝 `http://`、`git://`、`ext::` 等传输语法以及 URL 内嵌的凭据；认证使用本机 git 配置（SSH agent 或 credential helper）。 |
+| `version` | `latest` 或 tag | 否 | `latest` | `latest` 跟踪最高的 release tag（`v1.2.3`，忽略预发布），没有 tag 时跟踪默认分支。固定 tag（如 `v1.3.0`）不会更新，同步后无需联网。 |
+| `path` | 相对路径 | 否 | - | registry 中存放 `fragments/` 与 `profiles/` 的目录；缺省为仓库根。 |
 
-## 校验规则
+`latest` 会跟随 registry 发布的更高 tag；对供应链更敏感的项目应固定 tag，并为 registry 的分支与 tag 开启保护。
 
-任何命令加载配置时都会执行；每一条失败都以退出码 1 与 `config_invalid` 结束。
+### registry.lock.yaml
 
-| 规则 | 你会看到的消息 |
-| --- | --- |
-| 文件必须存在。 | `config.yaml not found in <home>` |
-| 顶层与嵌套层都不允许未知字段。 | Pydantic 校验错误，会指出多余的字段。 |
-| `schema` 或 `schemas` 至少出现一个。 | `config.yaml must define schema or schemas` |
-| `schemas[*].name` 必须唯一。 | `schemas[*].name must be unique` |
-| `schema` 与 `schemas` 同时出现时，前者必须是候选之一。 | `schema must be included in schemas[*].name when both are configured` |
-| `schema` 与 `schemas[*].name` 必须是 kebab-case。 | Pydantic 正则错误。 |
-| `artifacts_dir` 必须是安全相对路径。 | `artifacts_dir must be a safe relative path: <value>` |
-| `schemas[*].path` 必须是安全相对路径。 | `schemas[*].path must be a safe relative path: <value>` |
-| 每个候选 schema 都必须可加载。 | `Candidate schema '<name>' cannot be loaded: <dir> not found` |
+`loopspec registry apply` 写出 `<home>/registry.lock.yaml`，与 `config.yaml` 一起提交。它是三方比对的基线，并记录每个定义来自哪个上游版本。`loopspec init` 不会创建它，内置资源也不带版本号。它作为不可信输入严格校验，不合法时返回 `config_invalid`。
 
-`rules` 中的键指向 schema 未定义的节点**不是**错误。它会作为 `loopspec instructions` 响应中的一条 `warnings`（`rules reference unknown node '<key>'`）出现，因此重命名节点不会让工作流直接崩掉。
-
-## schema 是如何解析出来的
-
-存在两条不同的解析路径，把它们搞混是最常见的配置错误。区别在于：change 在创建时就把自己的 schema 记进了 `.workflow.yaml`，因此创建之后项目默认值不再决定任何事。
-
-| 场景 | 优先级顺序 |
-| --- | --- |
-| 创建 change（`loopspec new`） | 1. `--schema`——但若配置了 `schemas`，该值必须是候选之一，否则报 `config_invalid`。2. 若 `schemas` 有多于一条：以 `schema_selection_required` 失败。3. 若 `schemas` 恰好一条：用它。4. `schema`。5. 以 `config_invalid` 失败。 |
-| 操作既有 change（`status`、`instructions`、`rollback`、`history`、`archive`、`bulk-archive`） | 1. 该 change 自己的 `.workflow.yaml`。2. `schema`。3. 以 `config_invalid` 失败。 |
-
-由此带来几个值得知道的后果：
-
-- 改动 `config.yaml` 中的 `schema` 不会迁移既有 change。它们仍沿用自己 `.workflow.yaml` 中记录的 schema。
-- 列出多个候选会让 `--schema` 成为 `loopspec new` 的必填项。这是刻意的：强制显式选择，而不是静默取第一条。
-- `.workflow.yaml` 有两个字段，都由 `loopspec new` 写入：`schema`（解析出的 schema 名称）与 `created` （`YYYY-MM-DD` 日期）。它不是为手改设计的，但改 `schema` 是把一个进行中的 change 迁到另一条工作流的受支持做法。
-
-## 示例
-
-### 最小配置
-
-一个 schema，默认布局。这就是 `loopspec init` 产出的内容。
-
-<!-- loopspec:example=config -->
+<!-- loopspec:example=registry-lock -->
 ```yaml
-artifacts_dir: changes
-schema: secure-spec-driven
+version: 1
+registry:
+  url: git@github.com:acme/loopspec-workflows.git
+  version: latest
+  path: workflows
+commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1
+tag: v1.4.0
+definitions:
+  fragments/qa-testing: {tag: v1.3.0, commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1}
+  profiles/bugfix: {tag: v1.4.0, commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1}
+files:
+  fragments/qa-testing/fragment.yaml: 9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7
+  profiles/bugfix.yaml: 51ab7d4f60a8e2c3b1d9f7a6e5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7c6
 ```
 
-### 多个候选 schema
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `version` | 整数 | 否 | `1` | 格式版本。 |
+| `registry` | registry 映射 | 是 | - | 本次锁对应的 registry。 |
+| `commit` | commit id | 是 | - | 上次 apply 的上游 commit。 |
+| `tag` | tag 或 null | 否 | - | 该 commit 的 release tag。 |
+| `definitions` | 映射 | 否 | `{}` | `fragments/<name>` 或 `profiles/<name>` 到该定义实际所处的版本。有文件被跳过的定义保留旧版本。 |
+| `held` | 定义列表 | 否 | `[]` | 有文件被跳过的定义。只要存在这样的定义，即使 registry 没有变化，`registry update` 也会重新比对，被跳过的变更不会被遗忘。 |
+| `files` | 映射 | 否 | `{}` | 每个已同步文件到其上游内容的 SHA-256，用于区分本地修改与上游修改。 |
 
-两条工作流可选，外加 agent 选择时应遵循的指令。注意这里没有 `schema`：有多个候选又没有默认值时， `loopspec new` 总是要求 `--schema`。
+冲突选择 `local` 同样算作基于该上游版本作出了决定：该定义的版本会推进，此后这个文件显示为 `local-modified`。`url` 或 `path` 变化后不再使用旧锁作为基线：所有差异按冲突报告，不会规划任何删除。
 
-<!-- loopspec:example=config -->
+`definitions` 的每一项：
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `tag` | tag 或 null | 否 | - | 同步该定义时的 release tag。 |
+| `commit` | commit id | 是 | - | 同步该定义时的上游 commit。 |
+
+缓存目录 `<home>/.cache/registry/`（私有裸仓库、计划与暂存文件）通过自带的 `.gitignore` 忽略自身，可随时删除。
+
+### 何时读取
+
+创建 Plan 时检查约束，确认或修订时按当时的文件再次检查。执行期间 Diff 排除项与保障规则也实时读取。`<home>/.cache/`（registry 同步缓存）与当前 Change 的 `.workflow.yaml`、`state.md`、`plans/` 始终不计入 Diff，无需配置。因此修改 `config.yaml` 会立即影响正在执行的 Plan（包括放宽规则），应当作需要评审的项目代码对待。
+
+## 保障规则
+
+保障规则文件把改动路径映射到必须由代码 Gate 证明的能力。内置 `change-assurance` Fragment 附带的 `rules.yaml` 只是示例路径，使用前按项目实际目录调整。
+
+<!-- loopspec:example=assurance-rules -->
 ```yaml
-artifacts_dir: changes
-schemas:
-  - name: secure-spec-driven
-    description: Full spec-driven flow with security, approval and implementation gates
-    when: Default choice for anything that touches production behaviour
-  - name: docs-only
-    description: Lightweight flow for documentation-only changes
-    when: Use when no runtime code changes are involved
-schema_selection:
-  instruction: Ask the human which flow fits before creating the change.
-```
-
-此时创建 change 是这样：
-
-```bash
-loopspec new update-readme --schema docs-only --json
-```
-
-存在多个候选时，省略 `path` 会默认以 schema 名作为 canonical change 内的目录：`changes/update-readme/docs-only/`。后续 schema 会复用 `changes/update-readme/`，并拥有独立的同级 workspace、metadata、state 与 rollback 历史。只有确实需要自定义 artifact 目录名时才设置 `path`。
-
-### 项目上下文与按节点的规则
-
-`context` 会附加到每个节点的指令载荷；`rules` 为特定节点补充约束。两者都是原样透传，因此它们正是在不改 schema 的前提下编码团队规范的地方。
-
-<!-- loopspec:example=config -->
-```yaml
-artifacts_dir: changes
-schema: secure-spec-driven
-context: |
-  This is a Python 3.11 project managed with uv. Tests run via `make test`,
-  linting via `make lint`. Public APIs live in src/acme/api/.
+version: 1
+unknown_paths: fail
 rules:
-  proposal:
-    - Reference the tracking issue id in the first paragraph.
-  design:
-    - Call out every new third-party dependency explicitly.
-    - Note any change to the public API surface.
-  tasks:
-    - Every task must be completable in one sitting.
+- id: backend
+  paths: [src/backend/**, backend/**, tests/backend/**]
+  requires: [backend-tests, security-review, pr-review]
+  repair_fragment: backend-implementation
+- id: frontend
+  paths: [src/frontend/**, frontend/**, tests/frontend/**]
+  requires: [frontend-tests, pr-review]
+  repair_fragment: frontend-implementation
 ```
 
-### 自定义布局
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `version` | 整数 | 否 | `1` | 格式版本。 |
+| `unknown_paths` | `fail` 或 `warn` | 否 | `fail` | 改动路径不匹配任何规则时的处理。`fail` 使保障失败；`warn` 不影响结论，这些路径仍列在诊断的 `unknown_paths` 中，并作为告警（`warnings.unknownPaths`，最多 20 条，附 `unknownTotal`）写进诊断与系统报告的 `summary`。合并多份规则文件时，任一文件为 `fail` 即按 `fail`，Fragment 自带的规则不能放宽项目规则。 |
+| `rules` | 规则列表 | 是 | - | 1 到 256 条规则。 |
 
-`artifacts_dir` 改名存放 change 的目录；`schemas[*].path` 把每个 change 的产物收进一个子目录，从而让 `state.md` 与 `.workflow.yaml` 在视觉上与文档本身分开。
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- | --- |
+| `id` | kebab-case 字符串 | 是 | - | 规则名；两个文件中同名规则内容必须相同。 |
+| `paths` | 通配列表 | 是 | - | 规则覆盖的改动路径。多条规则命中时要求取并集。 |
+| `requires` | 能力列表 | 是 | - | 每个命中路径都必须由带有效证据的代码 Gate 提供的能力。 |
+| `repair_fragment` | Fragment 名称 | 是 | - | Plan 中没有 Gate 能提供某项能力时建议补充的 Fragment。 |
 
-<!-- loopspec:example=config -->
-```yaml
-artifacts_dir: work-items
-schema: secure-spec-driven
-schemas:
-  - name: secure-spec-driven
-    path: artifacts
-```
-
-在这份配置下，名为 `add-payment` 的 change 布局如下：
-
-```text
-loopspec/
-  work-items/
-    add-payment/
-      .workflow.yaml
-      state.md
-      artifacts/
-        proposal.md
-        design.md
-        specs/<capability>/spec.md
-        tasks.md
-        security/pass.md
-```
-
-## 下一步
-
-- [Schema 参考](schema-reference.md)——`schema` 与 `schemas[*].name` 所指向的那些 `schema.yaml` 文件的格式。
-- [CLI 参考](cli-reference.md)——读取本文件的那些命令。
+Fragment 中 Gate 的 `evidence.paths` 与规则的 `paths` 必须描述同一批目录。没人审查的路径会出现在 `unknown_paths` 或 `missing_fragments` 中；`excluded_paths` 不限制取值，写进去的路径就不再经过任何 Gate；不要用它隐藏业务代码，修改它应当作需要评审的项目代码对待。

@@ -5,18 +5,20 @@ from loopspec.tool_registry import AI_TOOLS, ToolSpec
 from loopspec.tools_cli import tool_is_detected
 
 
-def test_single_tool_writes_four_skills_and_four_commands(tmp_path: Path):
+def test_single_tool_writes_five_skills_and_five_commands(tmp_path: Path):
     result = scaffold_tools(tmp_path, ["claude"])
 
     skill_dirs = sorted((tmp_path / ".claude" / "skills").iterdir())
-    assert len(skill_dirs) == 4
+    assert len(skill_dirs) == 5
+    assert (tmp_path / ".claude" / "skills" / "loopspec-update-registry").is_dir()
     for d in skill_dirs:
         assert (d / "SKILL.md").is_file()
 
     command_files = sorted((tmp_path / ".claude" / "commands" / "lpsx").glob("*.md"))
-    assert len(command_files) == 4
+    assert len(command_files) == 5
+    assert (tmp_path / ".claude" / "commands" / "lpsx" / "update-registry.md").is_file()
 
-    assert len(result.written_files["claude"]) == 8
+    assert len(result.written_files["claude"]) == 10
     assert result.skipped_command_generation == []
 
 
@@ -38,9 +40,7 @@ def test_repeated_call_overwrites_without_error(tmp_path: Path):
     assert "stale hand-edited content" not in skill_file.read_text()
 
 
-def test_tool_without_command_adapter_skips_commands_but_writes_skills(
-    tmp_path: Path, monkeypatch
-):
+def test_tool_without_command_adapter_skips_commands_but_writes_skills(tmp_path: Path, monkeypatch):
     monkeypatch.setitem(
         AI_TOOLS, "no-adapter-tool", ToolSpec(id="no-adapter-tool", skills_dir=".noadapter")
     )
@@ -48,10 +48,10 @@ def test_tool_without_command_adapter_skips_commands_but_writes_skills(
     result = scaffold_tools(tmp_path, ["no-adapter-tool"])
 
     skill_dirs = list((tmp_path / ".noadapter" / "skills").iterdir())
-    assert len(skill_dirs) == 4
+    assert len(skill_dirs) == 5
     assert not (tmp_path / ".noadapter" / "commands").exists()
     assert result.skipped_command_generation == ["no-adapter-tool"]
-    assert len(result.written_files["no-adapter-tool"]) == 4
+    assert len(result.written_files["no-adapter-tool"]) == 5
 
 
 def test_first_run_reports_tool_as_created(tmp_path: Path):
@@ -114,4 +114,26 @@ def test_no_tool_selection_manifest_written(tmp_path: Path):
     assert all(name == "SKILL.md" or name.endswith(".md") for name in all_files)
     assert not any(
         "tool" in name.lower() and name.endswith((".json", ".yaml", ".yml")) for name in all_files
+    )
+
+
+def test_projection_preserves_unrelated_tool_and_project_files(tmp_path: Path, monkeypatch):
+    from loopspec.tool_registry import CodexCommandAdapter
+
+    monkeypatch.setattr(CodexCommandAdapter, "_codex_home", lambda self: tmp_path / "global-codex")
+    (tmp_path / ".claude/skills/aidlc").mkdir(parents=True)
+    unrelated = {
+        ".claude/skills/aidlc/SKILL.md": "Existing AI-DLC instructions",
+        ".claude/settings.json": '{"userSetting": true}',
+        ".gitignore": "user-maintained exclusions\n",
+    }
+    for relative, content in unrelated.items():
+        (tmp_path / relative).write_text(content)
+    result = scaffold_tools(tmp_path, ["codex", "claude"])
+    for relative, content in unrelated.items():
+        assert (tmp_path / relative).read_text() == content
+    assert all(
+        "loopspec-" in path or "/commands/lpsx/" in path or "/global-codex/prompts/lpsx-" in path
+        for paths in result.written_files.values()
+        for path in paths
     )

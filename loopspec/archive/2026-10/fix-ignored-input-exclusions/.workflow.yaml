@@ -1,0 +1,5 @@
+format_version: 4
+change_name: fix-ignored-input-exclusions
+created: '2026-10-08T06:59:38+00:00'
+baseline: 7531fb87e797f5bc9d497194a8479525844fdda5
+repository: /Users/xq.yan/pythonprojects/LoopSpec

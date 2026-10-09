@@ -1,9 +1,9 @@
 ---
 name: /lpsx:bulk-archive
-description: Archive all eligible loopspec changes at once.
+description: Archive every completed LoopSpec change in bulk without bypassing stale evidence or unfinished work.
 ---
 
-Archive every eligible loopspec change in one pass.
+When the user requests bulk archiving, run `loopspec change archive --all --dry-run`, inspect `archived` and `skipped`, then run `loopspec change archive --all` and verify the result.
 
-Run `loopspec bulk-archive --json` (add `--dry-run` to preview candidates first, `--older-than <days>` to restrict by age, `--exhausted` to include retry-exhausted changes). Review the `candidates`/`moved` list in the response before trusting it ran.
+Use `--older-than <days>` to restrict by age. Every candidate is checked like a single archive: unplanned changes, draft Plans, unfinished changes, and stale evidence are skipped. Never approve drafts, confirm revisions, or use `--force` to make changes eligible. Archiving does not commit business code or modify unrelated tool configuration.
 

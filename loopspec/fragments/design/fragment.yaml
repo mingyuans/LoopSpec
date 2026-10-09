@@ -1,0 +1,14 @@
+version: 1
+name: design
+description: 技术设计与实施任务
+nodes:
+- id: design
+  generates: design.md
+  instruction: design.instruction.md
+  template: design.template.md
+  requires: []
+- id: tasks
+  generates: tasks.md
+  instruction: tasks.instruction.md
+  template: tasks.template.md
+  requires: [design]

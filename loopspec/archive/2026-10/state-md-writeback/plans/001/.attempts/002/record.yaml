@@ -1,0 +1,46 @@
+seq: 2
+kind: rollback
+created: '2026-10-08T15:02:57+00:00'
+plan_digest: 321f50cd4c2641d24fa82861e201b30b245c4eff32dd8699f3e20564a4872552
+reset:
+- assurance/check
+- be/code/implement
+- be/review/check
+- be/security/check
+- be/tests/check
+- qa/test
+files:
+- source: .gates/be/review/check/begin.yaml
+  destination: .attempts/002/files/.gates/be/review/check/begin.yaml
+  sha256: 26c84183afe22d62a4d4999599b456968b49a17f06174353fb31e7a74f5b394d
+- source: .gates/be/review/check/evidence.yaml
+  destination: .attempts/002/files/.gates/be/review/check/evidence.yaml
+  sha256: 2d919a76f2ca7b7cc16ff28e21192ded4ba76f066a5e4eade042e17b0891ff2a
+- source: .gates/be/security/check/begin.yaml
+  destination: .attempts/002/files/.gates/be/security/check/begin.yaml
+  sha256: 46af03b98de80353343fa99779bbcd2e06ea874fa8f0a8c710347e9e5f253447
+- source: .gates/be/security/check/evidence.yaml
+  destination: .attempts/002/files/.gates/be/security/check/evidence.yaml
+  sha256: 9cc2d920577c25b3d80485798095f85c84174e7070b148d41ed809cbf09ecc79
+- source: .gates/be/tests/check/begin.yaml
+  destination: .attempts/002/files/.gates/be/tests/check/begin.yaml
+  sha256: b36f983cd0ec9accef18ced50e31bdc5e2a36c3230310e317bd395dcf7c57a4c
+- source: .gates/be/tests/check/evidence.yaml
+  destination: .attempts/002/files/.gates/be/tests/check/evidence.yaml
+  sha256: e76143e6b0f1b12fb4875c449afd6dca1b580a157546805e18f27c087ccb6ebf
+- source: artifacts/be/code/implementation.md
+  destination: .attempts/002/files/artifacts/be/code/implementation.md
+  sha256: ae2e94f4944429d8460f37f99b8ed91ae799f16db6b98ccae3c95eba586a011e
+- source: artifacts/be/security/check/pass.md
+  destination: .attempts/002/files/artifacts/be/security/check/pass.md
+  sha256: 56016b23e26a62cd3ba314ff05c851eb0c6d0711eb666888bf71578f2b2e2b07
+- source: artifacts/be/tests/check/pass.md
+  destination: .attempts/002/files/artifacts/be/tests/check/pass.md
+  sha256: 21155dc2baf9e4d6ac08380d48798b53e691444110a5842fc947af0c35166e20
+- source: artifacts/be/review/check/fail.md
+  destination: .attempts/002/files/artifacts/be/review/check/fail.md
+  sha256: 07cfd143f714e103b8fadeea148440b451f5da7c892a28a88be944d16e9ae6c9
+gate: be/review/check
+failure_digest: 07cfd143f714e103b8fadeea148440b451f5da7c892a28a88be944d16e9ae6c9
+target_digest: null
+revision: null

@@ -1,0 +1,24 @@
+version: 1
+name: backend-implementation
+description: 后端实现、测试、安全审查与代码审查
+nodes:
+- id: code
+  use: backend-code
+- id: tests
+  use: backend-tests
+  requires: [code]
+  on_fail:
+    reset: [code]
+    max_retries: 3
+- id: security
+  use: security-review
+  requires: [tests]
+  on_fail:
+    reset: [code]
+    max_retries: 3
+- id: review
+  use: backend-pr-review
+  requires: [security]
+  on_fail:
+    reset: [code]
+    max_retries: 3

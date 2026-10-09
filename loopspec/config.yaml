@@ -1,2 +1,10 @@
 artifacts_dir: changes
-schema: secure-spec-driven
+workflow:
+  required_fragments: [change-assurance]
+  assurance_rules: fragments/change-assurance/rules.yaml
+  excluded_paths: [.venv, __pycache__, .pytest_cache, .mypy_cache, .ruff_cache,
+                   .idea, dist, repos, .DS_Store,
+                   docs/**, README*, '*.md', .claude/**, .codex/**, .github/**, loopspec/config.yaml]
+registry:
+  url: git@github.com:mingyuans/loopspec-fragments.git
+  version: latest

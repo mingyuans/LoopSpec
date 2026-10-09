@@ -171,13 +171,7 @@ class ProjectCommandAdapter:
 
 
 def _format_md_frontmatter(content: CommandContent) -> str:
-    return (
-        "---\n"
-        f"name: {content.name}\n"
-        f"description: {content.description}\n"
-        "---\n\n"
-        f"{content.body}\n"
-    )
+    return f"---\nname: {content.name}\ndescription: {content.description}\n---\n\n{content.body}\n"
 
 
 _TOML_TRIPLE_QUOTE = '"' * 3

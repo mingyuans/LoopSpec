@@ -1,0 +1,9 @@
+version: 1
+name: backend-code
+description: 后端实现
+nodes:
+- id: implement
+  generates: implementation.md
+  instruction: implement.instruction.md
+  template: implement.template.md
+  requires: []

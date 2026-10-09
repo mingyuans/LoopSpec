@@ -23,67 +23,6 @@ def init_home(tmp_path: Path) -> Path:
     return home
 
 
-def make_multi_schema_home(tmp_path: Path) -> Path:
-    home = tmp_path / "wf"
-    code, _ = run("init", str(home), "--no-builtin", "--json")
-    assert code == 0
-    for name in ("secure-spec-driven", "docs-only"):
-        schema_dir = home / "schemas" / name
-        schema_dir.mkdir(parents=True)
-        templates_dir = schema_dir / "templates"
-        templates_dir.mkdir()
-        (templates_dir / "proposal.md").write_text("# proposal template")
-        (schema_dir / "schema.yaml").write_text(
-            f"""
-name: {name}
-version: 1
-nodes:
-  - id: proposal
-    generates: proposal.md
-    description: proposal
-    template: proposal.md
-    requires: []
-    instruction: "write it"
-"""
-        )
-    (home / "config.yaml").write_text(
-        """
-schemas:
-  - name: secure-spec-driven
-    description: default
-    when: general
-  - name: docs-only
-    description: docs
-    when: docs only
-schema_selection:
-  instruction: pick the best match
-"""
-    )
-    return home
-
-
-def write_planning_artifacts(change_dir: Path, tasks_body: str = "- [x] 1.1 ship it\n") -> None:
-    """Fake the built-in schema's planning artifacts through the security gate."""
-
-    (change_dir / "proposal.md").write_text("# p")
-    (change_dir / "design.md").write_text("# d")
-    (change_dir / "specs").mkdir(exist_ok=True)
-    (change_dir / "specs" / "spec.md").write_text("# s")
-    (change_dir / "tasks.md").write_text(tasks_body)
-    (change_dir / "security").mkdir(exist_ok=True)
-    (change_dir / "security" / "pass.md").write_text("# ok")
-
-
-def complete_builtin_change(change_dir: Path, tasks_body: str = "- [x] 1.1 ship it\n") -> None:
-    """Everything the built-in schema needs to reach `isComplete`, approval and apply included."""
-
-    write_planning_artifacts(change_dir, tasks_body)
-    (change_dir / "approval").mkdir(exist_ok=True)
-    (change_dir / "approval" / "approved.md").write_text("# Human Approval: APPROVED")
-    (change_dir / "apply").mkdir(exist_ok=True)
-    (change_dir / "apply" / "report.md").write_text("# Implementation Report")
-
-
 def test_version_json():
     code, data = run("version", "--json")
     assert code == 0
@@ -96,511 +35,28 @@ def test_version_human_mode():
     assert result.stdout.strip()
 
 
-def test_init_copies_builtin_schema(tmp_path: Path):
+def test_init_creates_workspace_without_schemas(tmp_path: Path):
     home = init_home(tmp_path)
-    assert (home / "schemas" / "secure-spec-driven" / "schema.yaml").is_file()
-    assert (home / "config.yaml").is_file()
+    assert (home / "config.yaml").read_text() == "artifacts_dir: changes\nworkflow: {}\n"
     assert (home / "changes").is_dir()
+    assert (home / "fragments/requirements/fragment.yaml").is_file()
+    assert (home / "profiles/bugfix.yaml").is_file()
+    assert not (home / "schemas").exists()
 
 
-def test_init_no_builtin_skips_schema(tmp_path: Path):
-    home = tmp_path / "wf"
-    code, _ = run("init", str(home), "--no-builtin", "--json")
-    assert code == 0
-    assert not any((home / "schemas").iterdir())
+def test_init_rejects_removed_no_builtin_flag(tmp_path: Path):
+    result = runner.invoke(app, ["init", str(tmp_path / "wf"), "--no-builtin", "--json"])
+    assert result.exit_code != 0
 
 
-def test_schemas_list_and_validate(tmp_path: Path):
+def test_init_keeps_existing_resources(tmp_path: Path):
     home = init_home(tmp_path)
-    code, data = run("schemas", "list", "--home", str(home), "--json")
+    (home / "profiles/bugfix.yaml").write_text("customized")
+    code, data = run("init", str(home), "--json")
     assert code == 0
-    assert data["schemas"][0]["name"] == "secure-spec-driven"
-
-    code, data = run("schemas", "validate", "secure-spec-driven", "--home", str(home), "--json")
-    assert code == 0
-    assert data["valid"] is True
-    assert data["buildOrder"][0] == "proposal"
-
-
-def test_new_creates_change(tmp_path: Path):
-    home = init_home(tmp_path)
-    code, data = run("new", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    assert data["schemaName"] == "secure-spec-driven"
-    change_dir = Path(data["changeRoot"])
-    assert (change_dir / ".workflow.yaml").is_file()
-    assert (change_dir / "state.md").is_file()
-
-
-def test_new_invalid_name_rejected(tmp_path: Path):
-    home = init_home(tmp_path)
-    code, data = run("new", "Not_Valid", "--home", str(home), "--json")
-    assert code == 1
-    assert data["error"] == "invalid_change_name"
-
-
-def test_new_duplicate_rejected(tmp_path: Path):
-    home = init_home(tmp_path)
-    run("new", "add-payment", "--home", str(home), "--json")
-    code, data = run("new", "add-payment", "--home", str(home), "--json")
-    assert code == 1
-    assert data["error"] == "change_exists"
-
-
-def test_new_multi_schema_requires_selection(tmp_path: Path):
-    home = make_multi_schema_home(tmp_path)
-    code, data = run("new", "add-payment", "--home", str(home), "--json")
-    assert code == 1
-    assert data["error"] == "schema_selection_required"
-    assert {s["name"] for s in data["schemas"]} == {"secure-spec-driven", "docs-only"}
-    assert data["selectionInstruction"] == "pick the best match"
-
-    code, data = run(
-        "new", "add-payment", "--schema", "docs-only", "--home", str(home), "--json"
-    )
-    assert code == 0
-    assert data["schemaName"] == "docs-only"
-    assert data["schemaPath"] == "docs-only"
-    assert Path(data["artifactRoot"]).name == "docs-only"
-
-
-def test_new_reuses_ticket_change_and_creates_one_workspace_per_schema(tmp_path: Path):
-    home = make_multi_schema_home(tmp_path)
-    code, first = run(
-        "new",
-        "afd-13592-listing-inventory-filter",
-        "--schema",
-        "secure-spec-driven",
-        "--home",
-        str(home),
-        "--json",
-    )
-    assert code == 0
-
-    code, second = run(
-        "new",
-        "afd-13592-listing-inventory-filter-docs",
-        "--schema",
-        "docs-only",
-        "--home",
-        str(home),
-        "--json",
-    )
-    assert code == 0
-    assert second["requestedChangeName"] == "afd-13592-listing-inventory-filter-docs"
-    assert second["changeName"] == "afd-13592-listing-inventory-filter"
-    assert second["reusedChange"] is True
-    assert Path(first["changeRoot"]) == Path(second["changeRoot"])
-    assert Path(first["artifactRoot"]).name == "secure-spec-driven"
-    assert Path(second["artifactRoot"]).name == "docs-only"
-    assert Path(first["statePath"]).is_file()
-    assert Path(second["statePath"]).is_file()
-    assert second["createdFiles"] == [
-        ".workflow.yaml",
-        "docs-only/.workflow.yaml",
-        "docs-only/state.md",
-    ]
-
-    code, status = run(
-        "status",
-        "afd-13592-listing-inventory-filter",
-        "--home",
-        str(home),
-        "--json",
-    )
-    assert code == 0
-    assert status["schemaName"] == "docs-only"
-    assert status["artifactRoot"] == second["artifactRoot"]
-    assert status["statePath"] == second["statePath"]
-
-    Path(first["artifactRoot"], "proposal.md").write_text("# product\n")
-    Path(second["artifactRoot"], "proposal.md").write_text("# docs\n")
-    code, artifacts = run(
-        "artifacts",
-        "afd-13592-listing-inventory-filter-docs",
-        "--home",
-        str(home),
-        "--json",
-    )
-    assert code == 0
-    assert artifacts["changeName"] == "afd-13592-listing-inventory-filter"
-    by_schema = {item["name"]: item for item in artifacts["locations"][0]["schemas"]}
-    assert by_schema["secure-spec-driven"]["files"] == [
-        str(Path(first["artifactRoot"], "proposal.md"))
-    ]
-    assert by_schema["docs-only"]["files"] == [
-        str(Path(second["artifactRoot"], "proposal.md"))
-    ]
-
-
-def test_new_reuses_a_schema_suffix_without_a_ticket_prefix(tmp_path: Path):
-    home = make_multi_schema_home(tmp_path)
-    assert run(
-        "new",
-        "listing-inventory-filter",
-        "--schema",
-        "secure-spec-driven",
-        "--home",
-        str(home),
-        "--json",
-    )[0] == 0
-
-    code, data = run(
-        "new",
-        "listing-inventory-filter-docs",
-        "--schema",
-        "docs-only",
-        "--home",
-        str(home),
-        "--json",
-    )
-    assert code == 0
-    assert data["changeName"] == "listing-inventory-filter"
-
-
-def test_new_rejects_only_a_duplicate_schema_workspace(tmp_path: Path):
-    home = make_multi_schema_home(tmp_path)
-    args = (
-        "new",
-        "add-payment",
-        "--schema",
-        "docs-only",
-        "--home",
-        str(home),
-        "--json",
-    )
-    assert run(*args)[0] == 0
-    code, data = run(*args)
-    assert code == 1
-    assert data["error"] == "change_exists"
-
-
-def test_new_keeps_explicit_schema_path_as_artifact_only_layout(tmp_path: Path):
-    home = make_multi_schema_home(tmp_path)
-    (home / "config.yaml").write_text(
-        """
-schemas:
-  - name: secure-spec-driven
-    path: product-artifacts
-  - name: docs-only
-    path: docs-artifacts
-"""
-    )
-    code, data = run(
-        "new",
-        "add-payment",
-        "--schema",
-        "docs-only",
-        "--home",
-        str(home),
-        "--json",
-    )
-    assert code == 0
-    change_root = Path(data["changeRoot"])
-    assert Path(data["artifactRoot"]) == change_root / "docs-artifacts"
-    assert Path(data["statePath"]) == change_root / "state.md"
-    assert Path(data["metadataPath"]) == change_root / ".workflow.yaml"
-    assert not (change_root / "docs-artifacts" / ".workflow.yaml").exists()
-
-
-def test_status_reflects_ready_node(tmp_path: Path):
-    home = init_home(tmp_path)
-    run("new", "add-payment", "--home", str(home), "--json")
-    code, data = run("status", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    assert data["nodes"][0]["status"] == "ready"
-    assert "instructions proposal" in data["nextSteps"][0]
-
-
-def test_status_reports_the_matched_files_of_a_glob_node(tmp_path: Path):
-    """The built-in `specs` node is a glob, so this is the default path, not a corner.
-
-    `status` used to hand back `.../specs/**/*.md` -- a string with a wildcard in it,
-    which is not a path -- and an empty existingOutputPaths, while `instructions`
-    reported the real files for the same node.
-    """
-
-    home = init_home(tmp_path)
-    code, data = run("new", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    change_dir = Path(data["changeRoot"])
-    (change_dir / "proposal.md").write_text("# p")
-
-    def specs_node() -> dict:
-        code, data = run("status", "add-payment", "--home", str(home), "--json")
-        assert code == 0
-        return next(node for node in data["nodes"] if node["id"] == "specs")
-
-    # Nothing written yet: no path to name, rather than a fabricated one.
-    node = specs_node()
-    assert node["outputPath"] == "specs/**/*.md"
-    assert node["resolvedOutputPath"] is None
-    assert node["existingOutputPaths"] == []
-
-    (change_dir / "specs").mkdir()
-    (change_dir / "specs" / "b.md").write_text("# b")
-    (change_dir / "specs" / "a.md").write_text("# a")
-
-    node = specs_node()
-    expected = [
-        str(change_dir / "specs" / "a.md"),
-        str(change_dir / "specs" / "b.md"),
-    ]
-    assert node["existingOutputPaths"] == expected
-    assert node["resolvedOutputPath"] == expected
-    assert node["status"] == "done"
-
-
-def test_status_and_instructions_agree_on_a_glob_node(tmp_path: Path):
-    """The two commands resolve outputs through the same helper now; they used to
-    disagree, and `status` is the one an agent calls every turn."""
-
-    home = init_home(tmp_path)
-    code, data = run("new", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    change_dir = Path(data["changeRoot"])
-    (change_dir / "proposal.md").write_text("# p")
-    (change_dir / "design.md").write_text("# d")
-    (change_dir / "specs").mkdir()
-    (change_dir / "specs" / "api.md").write_text("# api")
-
-    code, status = run("status", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    specs_node = next(node for node in status["nodes"] if node["id"] == "specs")
-
-    code, instructions = run(
-        "instructions", "tasks", "--change", "add-payment", "--home", str(home), "--json"
-    )
-    assert code == 0
-    specs_dep = next(dep for dep in instructions["dependencies"] if dep["id"] == "specs")
-
-    assert specs_node["existingOutputPaths"] == instructions["contextFiles"]["specs"]
-    assert specs_dep["resolvedPath"] == specs_node["resolvedOutputPath"]
-    assert specs_dep["resolvedPath"] == [str(change_dir / "specs" / "api.md")]
-
-
-TRACKING_SCHEMA_YAML = """
-name: tracked
-version: 1
-nodes:
-  - id: tasks
-    generates: tasks.md
-    description: tasks
-    template: tasks.md
-    requires: []
-    instruction: "write the tasks"
-  - id: apply
-    generates: null
-    description: implementation
-    template: null
-    requires: [tasks]
-    tracks: tasks.md
-    instruction: "implement it"
-    gate:
-      outputs:
-        pass: apply/report.md
-        fail: apply/blocked.md
-      templates:
-        pass: apply-report.md
-        fail: apply-blocked.md
-      on_fail:
-        reset: [tasks]
-"""
-
-
-def make_tracking_home(tmp_path: Path) -> Path:
-    home = tmp_path / "wf"
-    code, _ = run("init", str(home), "--no-builtin", "--json")
-    assert code == 0
-    schema_dir = home / "schemas" / "tracked"
-    templates_dir = schema_dir / "templates"
-    templates_dir.mkdir(parents=True)
-    for name in ("tasks.md", "apply-report.md", "apply-blocked.md"):
-        (templates_dir / name).write_text(f"# {name}")
-    (schema_dir / "schema.yaml").write_text(TRACKING_SCHEMA_YAML)
-    (home / "config.yaml").write_text("artifacts_dir: changes\nschema: tracked\n")
-    return home
-
-
-def test_status_reports_task_progress_for_tracked_node(tmp_path: Path):
-    home = make_tracking_home(tmp_path)
-    code, data = run("new", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    change_dir = Path(data["changeRoot"])
-    (change_dir / "tasks.md").write_text("- [x] 1.1 done\n- [ ] 1.2 pending\n- [ ] 1.3 pending\n")
-
-    code, data = run("status", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    apply_node = next(node for node in data["nodes"] if node["id"] == "apply")
-    assert apply_node["taskProgress"]["path"] == "tasks.md"
-    assert apply_node["taskProgress"]["total"] == 3
-    assert apply_node["taskProgress"]["complete"] == 1
-    assert apply_node["taskProgress"]["remaining"] == 2
-    # Per-task detail belongs to `instructions`, not to the hot-path `status` call.
-    assert "tasks" not in apply_node["taskProgress"]
-
-    tasks_node = next(node for node in data["nodes"] if node["id"] == "tasks")
-    assert "taskProgress" not in tasks_node
-
-
-def test_status_tracked_node_stays_ready_until_every_task_ticked(tmp_path: Path):
-    home = make_tracking_home(tmp_path)
-    code, data = run("new", "add-payment", "--home", str(home), "--json")
-    change_dir = Path(data["changeRoot"])
-    (change_dir / "tasks.md").write_text("- [x] 1.1 done\n- [ ] 1.2 pending\n")
-    (change_dir / "apply").mkdir()
-    (change_dir / "apply" / "report.md").write_text("# Implementation report")
-
-    code, data = run("status", "add-payment", "--home", str(home), "--json")
-    apply_node = next(node for node in data["nodes"] if node["id"] == "apply")
-    assert apply_node["status"] == "ready"
-    assert data["isComplete"] is False
-
-    code, data = run("archive", "add-payment", "--home", str(home), "--json")
-    assert code == 1
-    assert data["error"] == "archive_unsafe"
-
-    (change_dir / "tasks.md").write_text("- [x] 1.1 done\n- [x] 1.2 done\n")
-    code, data = run("status", "add-payment", "--home", str(home), "--json")
-    assert data["isComplete"] is True
-
-
-def test_status_change_not_found(tmp_path: Path):
-    home = init_home(tmp_path)
-    code, data = run("status", "nonexistent", "--home", str(home), "--json")
-    assert code == 1
-    assert data["error"] == "change_not_found"
-
-
-def test_instructions_returns_template(tmp_path: Path):
-    home = init_home(tmp_path)
-    run("new", "add-payment", "--home", str(home), "--json")
-    code, data = run(
-        "instructions", "proposal", "--change", "add-payment", "--home", str(home), "--json"
-    )
-    assert code == 0
-    assert "Why" in data["template"]
-    assert data["priorAttempts"] == []
-
-
-def test_full_lifecycle_with_rollback_and_completion(tmp_path: Path):
-    home = init_home(tmp_path)
-    code, data = run("new", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    change_dir = Path(data["changeRoot"])
-
-    (change_dir / "proposal.md").write_text("# proposal")
-    (change_dir / "design.md").write_text("# design")
-    (change_dir / "specs").mkdir()
-    (change_dir / "specs" / "spec.md").write_text("# spec")
-    (change_dir / "tasks.md").write_text("- [ ] 1.1 build it")
-    (change_dir / "security").mkdir()
-    (change_dir / "security" / "fail.md").write_text("# Blocked\n\n- injection risk")
-
-    code, data = run("status", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    assert data["pendingRollback"]["gate"] == "security"
-
-    code, data = run("rollback", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    assert data["round"] == 1
-    assert not (change_dir / "design.md").exists()
-
-    code, data = run(
-        "instructions", "design", "--change", "add-payment", "--home", str(home), "--json"
-    )
-    assert code == 0
-    assert len(data["priorAttempts"]) == 1
-    assert data["priorAttempts"][0]["blockingIssues"] == ["injection risk"]
-
-    (change_dir / "design.md").write_text("# design v2")
-    (change_dir / "tasks.md").write_text("- [x] 1.1 build it")
-    (change_dir / "security").mkdir(exist_ok=True)
-    (change_dir / "security" / "pass.md").write_text("# ok")
-
-    # Security PASS only unlocks human approval; implementation is still gated.
-    code, data = run("status", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    assert data["isComplete"] is False
-    statuses = {node["id"]: node["status"] for node in data["nodes"]}
-    assert statuses["approval"] == "ready"
-    assert statuses["apply"] == "blocked"
-
-    (change_dir / "approval").mkdir()
-    (change_dir / "approval" / "approved.md").write_text("# Human Approval: APPROVED")
-    (change_dir / "apply").mkdir()
-    (change_dir / "apply" / "report.md").write_text("# Implementation Report")
-
-    code, data = run("status", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    assert data["isComplete"] is True
-
-    code, data = run("history", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    assert len(data["rounds"]) == 1
-    assert data["rounds"][0]["gate"] == "security"
-
-
-def test_rollback_no_failed_gate(tmp_path: Path):
-    home = init_home(tmp_path)
-    run("new", "add-payment", "--home", str(home), "--json")
-    code, data = run("rollback", "add-payment", "--home", str(home), "--json")
-    assert code == 1
-    assert data["error"] == "no_failed_gate"
-
-
-def test_archive_unsafe_when_incomplete(tmp_path: Path):
-    home = init_home(tmp_path)
-    run("new", "add-payment", "--home", str(home), "--json")
-    code, data = run("archive", "add-payment", "--home", str(home), "--json")
-    assert code == 1
-    assert data["error"] == "archive_unsafe"
-
-
-def test_archive_dry_run_then_apply(tmp_path: Path):
-    home = init_home(tmp_path)
-    code, data = run("new", "add-payment", "--home", str(home), "--json")
-    change_dir = Path(data["changeRoot"])
-    complete_builtin_change(change_dir)
-
-    code, data = run("archive", "add-payment", "--dry-run", "--home", str(home), "--json")
-    assert code == 0
-    assert data["dryRun"] is True
-    assert change_dir.exists()
-
-    code, data = run("archive", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    assert data["moved"] is True
-    assert not change_dir.exists()
-    assert Path(data["destination"]).exists()
-
-
-def test_archive_conflict(tmp_path: Path):
-    home = init_home(tmp_path)
-    code, data = run("new", "add-payment", "--home", str(home), "--json")
-    complete_builtin_change(Path(data["changeRoot"]))
-
-    run("archive", "add-payment", "--home", str(home), "--json")
-
-    code, data = run("new", "add-payment", "--home", str(home), "--json")
-    complete_builtin_change(Path(data["changeRoot"]))
-
-    code, data = run("archive", "add-payment", "--home", str(home), "--json")
-    assert code == 1
-    assert data["error"] == "archive_conflict"
-
-
-def test_bulk_archive_dry_run_lists_candidates(tmp_path: Path):
-    home = init_home(tmp_path)
-    code, data = run("new", "add-payment", "--home", str(home), "--json")
-    change_dir = Path(data["changeRoot"])
-    complete_builtin_change(change_dir)
-
-    code, data = run("bulk-archive", "--dry-run", "--home", str(home), "--json")
-    assert code == 0
-    assert data["dryRun"] is True
-    assert len(data["candidates"]) == 1
-    assert change_dir.exists()
+    assert (home / "profiles/bugfix.yaml").read_text() == "customized"
+    assert data["copiedWorkflowResources"] == []
+    assert data["nextSteps"] == [f"loopspec change new <change-name> --home {home}"]
 
 
 @pytest.fixture(autouse=True)
@@ -624,9 +80,7 @@ def test_init_without_tools_flag_scaffolds_nothing(tmp_path: Path):
     project_root.mkdir()
     code, _ = run("init", str(project_root / "wf"), "--json")
     assert code == 0
-    assert not any(
-        (project_root / f".{tool}").exists() for tool in ("claude", "codex", "opencode")
-    )
+    assert not any((project_root / f".{tool}").exists() for tool in ("claude", "codex", "opencode"))
 
 
 def test_init_scaffolds_into_project_root_not_workflow_home(tmp_path: Path):
@@ -720,7 +174,7 @@ def test_init_human_output_leaks_no_json_field_names_or_python_reprs(tmp_path: P
         "skippedCommandGeneration",
         "toolsConfigured",
         "workflowHome",
-        "copiedSchemas",
+        "copiedWorkflowResources",
         "createdFiles",
         "nextSteps",
     ):
@@ -730,7 +184,7 @@ def test_init_human_output_leaks_no_json_field_names_or_python_reprs(tmp_path: P
 
 def test_init_human_output_summarizes_instead_of_listing_paths(tmp_path: Path):
     output = human_init("init", str(tmp_path / "wf"), "--tools", "claude")
-    assert "4 skills and 4 commands in .claude" in output
+    assert "5 skills and 5 commands in .claude" in output
     assert "SKILL.md" not in output
     assert "commands/lpsx" not in output
 
@@ -749,7 +203,8 @@ def test_init_human_output_has_created_then_refreshed(tmp_path: Path):
 def test_init_human_output_config_created_then_exists(tmp_path: Path):
     home = tmp_path / "wf"
     first = human_init("init", str(home), "--tools", "none")
-    assert "(schema: secure-spec-driven)" in first
+    assert "(created)" in first
+    assert "schema" not in first.lower()
 
     second = human_init("init", str(home), "--tools", "none")
     assert "(exists)" in second
@@ -772,9 +227,7 @@ def test_init_human_output_without_tools_omits_restart_hint(tmp_path: Path):
 def test_init_human_output_renders_markup_like_paths_verbatim(tmp_path: Path):
     project_root = tmp_path / "[red]proj"
     project_root.mkdir()
-    output = human_init(
-        "init", str(project_root / "wf"), "--tools", "claude"
-    )
+    output = human_init("init", str(project_root / "wf"), "--tools", "claude")
     # The path must appear as typed; rich markup parsing would have eaten `[red]`.
     assert "[red]proj" in output
 
@@ -786,8 +239,9 @@ def test_aggregated_path_details_remain_available_via_json(tmp_path: Path):
     code, data = run("init", str(home), "--tools", "claude", "--json")
     assert code == 0
     claude_files = data["scaffoldedFiles"]["claude"]
-    assert len(claude_files) == 8
+    assert len(claude_files) == 10
     assert any(path.endswith("loopspec-new/SKILL.md") for path in claude_files)
+    assert any(path.endswith("loopspec-update-registry/SKILL.md") for path in claude_files)
     assert data["refreshedTools"] == ["claude"]
 
 
@@ -906,217 +360,3 @@ def test_interactive_path_renders_welcome_and_runs_picker_together(tmp_path: Pat
 # --------------------------------------------------------------------------- #
 # artifacts
 # --------------------------------------------------------------------------- #
-
-
-def human_run(*args: str) -> str:
-    """Run a command without --json and return its human-readable stdout."""
-
-    result = runner.invoke(app, list(args))
-    assert result.exit_code == 0, result.stdout
-    return result.stdout
-
-
-def test_artifacts_lists_every_output_of_an_active_change(tmp_path: Path):
-    home = init_home(tmp_path)
-    _code, data = run("new", "add-payment", "--home", str(home), "--json")
-    change_dir = Path(data["changeRoot"])
-    complete_builtin_change(change_dir)
-
-    code, data = run("artifacts", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    assert data["requestedSchemas"] is None
-    assert data["schemasSeen"] == ["secure-spec-driven"]
-    assert len(data["locations"]) == 1
-
-    location = data["locations"][0]
-    assert location["kind"] == "active"
-    assert location["archiveMonth"] is None
-    assert location["declaredSchema"] == "secure-spec-driven"
-    assert location["stateExists"] is True
-
-    by_node = {node["id"]: node["files"] for node in location["schemas"][0]["nodes"]}
-    assert set(by_node) == {"proposal", "specs", "design", "tasks", "security", "approval", "apply"}
-    assert by_node["proposal"] == [str(change_dir / "proposal.md")]
-    assert by_node["specs"] == [str(change_dir / "specs" / "spec.md")]
-    assert by_node["approval"] == [str(change_dir / "approval" / "approved.md")]
-    assert all(Path(path).is_absolute() for path in data["files"])
-    assert data["warnings"] == []
-
-
-def test_artifacts_still_finds_the_change_after_archiving(tmp_path: Path):
-    home = init_home(tmp_path)
-    _code, data = run("new", "add-payment", "--home", str(home), "--json")
-    complete_builtin_change(Path(data["changeRoot"]))
-
-    code, archived = run("archive", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    destination = Path(archived["destination"])
-
-    code, data = run("artifacts", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    location = data["locations"][0]
-    assert location["kind"] == "archived"
-    assert location["archiveMonth"] == destination.parent.name
-    assert location["changeRoot"] == str(destination)
-    assert str(destination) in location["files"][0]
-    # `status` cannot answer here at all -- that is why this command exists.
-    code, status_data = run("status", "add-payment", "--home", str(home), "--json")
-    assert code == 1
-    assert status_data["error"] == "change_not_found"
-
-
-def test_artifacts_reports_active_and_archived_copies_oldest_first(tmp_path: Path):
-    home = init_home(tmp_path)
-    _code, data = run("new", "add-payment", "--home", str(home), "--json")
-    complete_builtin_change(Path(data["changeRoot"]))
-    run("archive", "add-payment", "--home", str(home), "--json")
-
-    _code, data = run("new", "add-payment", "--home", str(home), "--json")
-    (Path(data["changeRoot"]) / "proposal.md").write_text("# second stretch")
-
-    code, data = run("artifacts", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    assert [location["kind"] for location in data["locations"]] == ["archived", "active"]
-
-
-def test_artifacts_schemas_option_narrows_and_reports_the_rest_as_unclaimed(tmp_path: Path):
-    home = make_multi_schema_home(tmp_path)
-    _code, data = run(
-        "new", "add-payment", "--schema", "docs-only", "--home", str(home), "--json"
-    )
-    change_dir = Path(data["changeRoot"])
-    (Path(data["artifactRoot"]) / "proposal.md").write_text("# p")
-    (change_dir / "extra.md").write_text("# e")
-
-    code, data = run(
-        "artifacts", "add-payment", "--schemas", "docs-only", "--home", str(home), "--json"
-    )
-    assert code == 0
-    assert data["requestedSchemas"] == ["docs-only"]
-    assert data["schemasSeen"] == ["docs-only"]
-    assert data["locations"][0]["unclassifiedFiles"] == [str(change_dir / "extra.md")]
-
-
-def test_artifacts_schemas_option_accepts_several_names_with_whitespace(tmp_path: Path):
-    home = make_multi_schema_home(tmp_path)
-    _code, data = run(
-        "new", "add-payment", "--schema", "docs-only", "--home", str(home), "--json"
-    )
-    (Path(data["changeRoot"]) / "proposal.md").write_text("# p")
-
-    code, data = run(
-        "artifacts",
-        "add-payment",
-        "--schemas",
-        "docs-only, secure-spec-driven",
-        "--home",
-        str(home),
-        "--json",
-    )
-    assert code == 0
-    assert data["requestedSchemas"] == ["docs-only", "secure-spec-driven"]
-
-
-def test_artifacts_unknown_named_schema_fails(tmp_path: Path):
-    home = init_home(tmp_path)
-    run("new", "add-payment", "--home", str(home), "--json")
-
-    code, data = run(
-        "artifacts", "add-payment", "--schemas", "nope", "--home", str(home), "--json"
-    )
-    assert code == 1
-    assert data["error"] == "schema_not_found"
-
-
-@pytest.mark.parametrize("value", ["", ",", "../../etc", "Not-Kebab"])
-def test_artifacts_rejects_unusable_schemas_values(tmp_path: Path, value: str):
-    home = init_home(tmp_path)
-    run("new", "add-payment", "--home", str(home), "--json")
-
-    code, data = run(
-        "artifacts", "add-payment", "--schemas", value, "--home", str(home), "--json"
-    )
-    assert code == 1
-    assert data["error"] == "config_invalid"
-
-
-def test_artifacts_change_not_found(tmp_path: Path):
-    home = init_home(tmp_path)
-    code, data = run("artifacts", "nope", "--home", str(home), "--json")
-    assert code == 1
-    assert data["error"] == "change_not_found"
-
-
-def test_artifacts_rejects_a_traversing_change_name(tmp_path: Path):
-    home = init_home(tmp_path)
-    code, data = run("artifacts", "../../etc", "--home", str(home), "--json")
-    assert code == 1
-    assert data["error"] == "invalid_change_name"
-    assert str(home.parent.parent) not in json.dumps(data)
-
-
-def test_artifacts_human_output_leaks_no_json_field_names_or_python_reprs(tmp_path: Path):
-    home = init_home(tmp_path)
-    _code, data = run("new", "add-payment", "--home", str(home), "--json")
-    complete_builtin_change(Path(data["changeRoot"]))
-
-    output = human_run("artifacts", "add-payment", "--home", str(home))
-    for field in (
-        "unclassifiedFiles",
-        "archiveMonth",
-        "changeRoot",
-        "declaredSchema",
-        "statePath",
-        "stateExists",
-        "schemasSeen",
-        "outputPatterns",
-        "nextSteps",
-    ):
-        assert field not in output
-    assert "{'" not in output and "['" not in output
-
-
-def test_artifacts_human_output_aggregates_while_json_keeps_the_detail(tmp_path: Path):
-    home = init_home(tmp_path)
-    _code, data = run("new", "add-payment", "--home", str(home), "--json")
-    change_dir = Path(data["changeRoot"])
-    complete_builtin_change(change_dir)
-
-    output = human_run("artifacts", "add-payment", "--home", str(home))
-    assert "secure-spec-driven" in output
-    assert "7 files" in output
-    assert "proposal.md" not in output  # aggregated, not enumerated
-
-    _code, payload = run("artifacts", "add-payment", "--home", str(home), "--json")
-    assert str(change_dir / "proposal.md") in payload["files"]
-
-
-def test_artifacts_human_output_renders_markup_like_paths_verbatim(tmp_path: Path):
-    """A path containing rich markup must print literally, not be parsed as styling.
-
-    The location path is the one user-controlled string this summary prints, so
-    the home directory is the thing that has to carry the markup.
-    """
-
-    home = tmp_path / "[red]home"
-    code, _ = run("init", str(home), "--json")
-    assert code == 0
-    _code, data = run("new", "add-payment", "--home", str(home), "--json")
-    (Path(data["changeRoot"]) / "[bold]out.md").write_text("# x")
-
-    output = human_run("artifacts", "add-payment", "--home", str(home))
-    assert "[red]home" in output, "markup in the path was swallowed"
-    assert "1 file" in output
-    assert ANSI_ESCAPE not in output
-
-
-def test_artifacts_is_read_only_even_for_an_archived_change(tmp_path: Path):
-    home = init_home(tmp_path)
-    _code, data = run("new", "add-payment", "--home", str(home), "--json")
-    complete_builtin_change(Path(data["changeRoot"]))
-    run("archive", "add-payment", "--home", str(home), "--json")
-
-    before = {path.relative_to(home).as_posix() for path in home.rglob("*")}
-    code, _ = run("artifacts", "add-payment", "--home", str(home), "--json")
-    assert code == 0
-    assert {path.relative_to(home).as_posix() for path in home.rglob("*")} == before

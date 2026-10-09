@@ -1,0 +1,18 @@
+version: 1
+name: frontend-implementation
+description: 前端实现、测试与审查
+nodes:
+- id: code
+  use: frontend-code
+- id: tests
+  use: frontend-tests
+  requires: [code]
+  on_fail:
+    reset: [code]
+    max_retries: 3
+- id: review
+  use: frontend-pr-review
+  requires: [tests]
+  on_fail:
+    reset: [code]
+    max_retries: 3

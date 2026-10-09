@@ -1,0 +1,17 @@
+version: 1
+name: backend-tests
+description: 后端测试
+nodes:
+- id: check
+  instruction: check.instruction.md
+  requires: []
+  gate:
+    outputs:
+      pass: check/pass.md
+      fail: check/fail.md
+    templates:
+      pass: check.pass.md
+      fail: check.fail.md
+    evidence:
+      provides: [backend-tests]
+      paths: [src/backend/**, backend/**, tests/backend/**]

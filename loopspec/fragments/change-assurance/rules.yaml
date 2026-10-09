@@ -1,0 +1,11 @@
+version: 1
+unknown_paths: warn
+rules:
+- id: backend
+  paths: [src/**, tests/**, builtin/**, Makefile, pyproject.toml, install.sh, hatch_version.py, uv.lock]
+  requires: [backend-tests, security-review, pr-review]
+  repair_fragment: backend-implementation
+- id: project-support
+  paths: [docs/**, README*, '*.md', .claude/**, .codex/**, .github/**]
+  requires: [pr-review]
+  repair_fragment: backend-implementation

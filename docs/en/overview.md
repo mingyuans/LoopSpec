@@ -1,116 +1,107 @@
 # Overview
 
-> Scope: what LoopSpec is, the problem it solves, its core model, and the glossary every other page relies on.
+> Scope: what LoopSpec is, its two hierarchies, the derived statuses, the disk layout and the glossary.
 > Audience: humans and LLM agents, first page to read.
 > Language: **English** · [中文](../zh/overview.md)
 
 ## What LoopSpec is
 
-LoopSpec is a command-line tool for running **gated artifact workflows**: you declare, in YAML, a graph of documents that a change has to produce (proposal, specs, design, tasks, ...) and the dependencies between them. An LLM generates those documents one at a time. Some nodes in the graph are **gates**: instead of another document they produce a PASS or FAIL verdict, and a FAIL rolls the change back to a declared upstream node so the work can be redone with full knowledge of why the previous attempt failed.
+LoopSpec is a command-line tool that keeps an LLM agent on a plan a human confirmed. It does not generate anything itself. On every call it answers: *given what is on disk now, which node of the confirmed Plan runs next, and with which instructions?* Writing documents and code is the agent's job; sequencing, Gates, rework bookkeeping and the final assurance check are LoopSpec's.
 
-LoopSpec does not generate anything itself. It answers one question, over and over: *given what is on disk right now, what should be produced next, and what are the instructions for producing it?* The generating is the agent's job; the sequencing, gating and rollback bookkeeping is LoopSpec's.
+It addresses the usual failure modes of agent-driven delivery structurally:
 
-## The problem it solves
+- **Skipping ahead.** Execution follows a confirmed dependency graph; a node stays `blocked` until its inputs are done.
+- **Unconfirmed plans.** Every Plan, every revision and every replan becomes effective only with the digest of what a human was shown.
+- **Unreviewed code.** Code Gates record evidence bound to the exact files reviewed; the final assurance node checks the full Git diff since the Change's fixed baseline.
+- **Forgotten objections.** A failed Gate's report is archived with the rework and handed to the redo as `priorAttempts`.
+- **Drifting progress.** There is no progress database: node status is derived from files on every call.
 
-Spec-driven development with an LLM tends to fail in three ways:
+## Two hierarchies
 
-- **The agent skips ahead.** It writes an implementation plan before the requirements are settled, because nothing forced the ordering.
-- **Review outcomes evaporate.** A security or human review says "no, because X"; two turns later the same X is back, because the objection was never durable state.
-- **Progress drifts from reality.** A separate progress database says a step is done while the actual file was never written, or was written and then deleted.
+**Task hierarchy - Change, Plan, Revision.** A *Change* is one piece of work (usually a ticket). It holds any number of *Plans* over time, but at most one is open (draft or approved). A Plan is improved in place by *Revisions*; when the task itself changes, the Plan is archived with the human's consent and a new Plan is drafted from an empty state.
 
-LoopSpec addresses each one structurally rather than by prompting harder:
+**Workflow hierarchy - Node, Fragment, Profile, Plan.** A *Node* is one executable step (an artifact or a Gate). A *Fragment* is a reusable group of nodes that may reference other Fragments. A *Profile* is a reusable `flow` of Fragment instances, used as a template. A *Plan* is the concrete graph for one Change: its `spec` records the agent's `flow` and the fully expanded leaf `nodes` the CLI executes.
 
-- Ordering is a declared dependency graph, so a node stays `blocked` until its inputs exist.
-- Gate failures **move** the failed attempt into `.attempts/round-NNN/` and hand the next attempt the previous verdict's blocking issues, so an objection survives into the retry.
-- There is no progress database. Every status, verdict and retry count is derived from the filesystem on every call.
+## Statuses
 
-## Core model
+A Change's status is derived from its Plans; nothing about it is stored:
 
-### Everything is derived from the filesystem
+| Status | Meaning | Next step |
+| --- | --- | --- |
+| `unplanned` | No open Plan. | Draft a Plan with `plan create`. |
+| `planning` | The open Plan is a draft. | `plan show`, human confirmation, `plan approve`. |
+| `active` | An approved Plan that is not complete. | Follow `nextSteps`. |
+| `complete` | Every node of the active Plan is done, assurance included. | `change archive`. |
 
-LoopSpec stores no state of its own beyond the files you can see. On every command it walks the [workflow home](#glossary), reads which artifacts exist, reads gate verdict files, counts `.attempts/round-NNN/` directories, and derives everything from that. There is nothing to get out of sync, and repairing a confused workflow means moving or deleting a file rather than editing a database.
-
-Each node ends up in exactly one of five statuses:
+Each leaf node of the active Plan is in one of five statuses:
 
 | Status | Meaning |
 | --- | --- |
-| `blocked` | At least one required node is not `done` yet. |
-| `ready` | Dependencies are satisfied and the output does not exist yet — this is the work to do. |
-| `done` | The output exists (and, for a gate, is a PASS; and, if the node declares `tracks`, every tracked checkbox is ticked). |
-| `failed` | A gate whose FAIL output exists and which still has retries left. Roll back to continue. |
-| `exhausted` | A gate that has failed and used up `max_retries`. No further rollback is possible. |
+| `blocked` | A required node is not `done` yet. |
+| `ready` | Inputs are done and the output is missing or stale. |
+| `done` | The artifact exists, or the Gate has a PASS with valid evidence. |
+| `failed` | An effective FAIL whose Gate still has `on_fail` retries left; run `plan rollback`. |
+| `exhausted` | An effective FAIL with no `on_fail` or no retries left; a human decides. |
 
-### Nodes, artifacts and gates
+A Plan's own `meta.status` records only human decisions: `draft`, `approved` or `archived`. The open Plan is the draft or approved one and the active Plan is the approved one; no pointer stores either. Completion is never stored; editing code after completion makes the derived status fall back to unfinished.
 
-A plain node declares `generates` (the artifact path it is responsible for) and a `template`. It is `done` once that path exists. `generates` may be a glob such as `specs/**/*.md`, in which case any match counts.
-
-A [gate](#glossary) node declares two output paths instead — one for PASS, one for FAIL — and an `on_fail` policy. Writing the PASS file means the gate passed; writing the FAIL file means it failed. Writing both is an error (`gate_output_conflict`), because then the verdict is ambiguous.
-
-### Rollback moves, never deletes
-
-When a gate fails, `loopspec rollback` computes the **reset closure**: the nodes named in `on_fail.reset`, the gate itself, and every transitive dependent of those. It then *moves* each of those nodes' artifacts into `.attempts/round-NNN/`, bumping `NNN` for each round. Nothing is deleted, so the next attempt can be shown exactly what the previous one produced and why it was rejected — that is what the `priorAttempts` field of `loopspec instructions` carries.
-
-### The driving loop
-
-Two commands do almost all the work. `loopspec status` reports every node's status and a `nextSteps` list naming the single command to run next; `loopspec instructions <node>` returns the prompt, template, dependency paths and prior failures for one node. An agent alternates between them until the change is complete. See [Agent protocol](agent-protocol.md) for the field-by-field contract, and [CLI reference](cli-reference.md) for every command.
+Every command takes effect in a single write. If one is interrupted, the Change is either as it was before or as the command left it, never in between, so an agent simply continues from `change status`.
 
 ## Where things live on disk
 
 ```text
 <project root>/
-  loopspec/                       # the workflow home (default ./loopspec)
-    config.yaml                   # which schema to use, and project-wide extras
-    schemas/
-      secure-spec-driven/         # a schema: node graph + templates + instructions
-        schema.yaml
-        templates/
-        instructions/
-    changes/
-      add-payment/                # one change
-        .workflow.yaml            # which schema this change was created with
-        state.md                  # the change's working memory
-        proposal.md               # artifacts, as declared by the schema
-        design.md
-        specs/<capability>/spec.md
-        tasks.md
-        security/pass.md
-        .attempts/round-001/      # artifacts moved here by a rollback
-    archive/
-      2026-07/add-payment/        # completed changes, moved here by `archive`
-  .claude/                        # optional agent skills/commands, written by `init`
+  loopspec/                      # workflow home (default ./loopspec)
+    config.yaml
+    fragments/<name>/            # fragment.yaml plus its instructions and templates
+    profiles/<name>.yaml
+    changes/AFD1111/
+      .workflow.yaml             # Change-level state (machine)
+      state.md                   # Change-level notes (human + LLM, engine appends events)
+      plans/
+        request.yaml             # request files the agent writes
+        001/
+          plan.yaml              # meta + spec of one Plan
+          state.md               # Plan-level notes (human + LLM, engine appends events)
+          artifacts/             # this Plan's artifacts
+          .gates/                # code Gate evidence and assurance diagnostics
+          .gate-rounds/          # review round history
+          .attempts/             # rework records (rollback and revision)
+    archive/2026-10/AFD1111/     # archived Changes
 ```
 
-`state.md` and `.workflow.yaml` are reserved: a schema may not declare either of them as a node output. `state.md` is the one file a rollback never touches, which makes it the only place where intent survives across rounds.
+The Git diff checked by code Gates and assurance excludes exactly `.workflow.yaml`, `state.md` and `plans/` under the current Change root, `<home>/.cache/`, and the paths declared in `workflow.excluded_paths` of `config.yaml`. Everything else, including Fragment and Profile files, counts as a change. Files ignored by Git never count toward the diff; those not declared in `excluded_paths` are listed as warnings in the assurance report. The diff compares the fixed baseline with the delivered working tree content: `git add` and `git commit` leave evidence digests unchanged, so you can commit after the Gates pass and archive afterwards. Before delivery, each file's content in HEAD must equal the baseline or the working tree content, otherwise assurance fails with `diverged_commits`.
+
+## state.md records
+
+The Change root and every Plan directory each hold a `state.md` that records the background, decisions and progress of the work. Humans and LLMs may edit them directly. The engine only prints the change-level file and the current Plan's verbatim in `change status`; it never parses them or uses them to derive state, deduplicate or validate anything, so they never affect evidence or the diff.
+
+- **Change level** (template from `change new`): background, goals / non-goals, key decisions (`- YYYY-MM-DD (who confirmed): decision; reason`, append only), references and the Plan record.
+- **Plan level** (template from `plan create`): human decisions, assumptions and deviations, rework notes and events.
+- **Engine events**: after `plan create`, `plan approve` (revisions included), `plan rollback` and `plan archive` take effect, the engine appends one line to the end of the file, for example `- 2026-10-08T06:22:43+00:00 · approve · revision 1 · digest 321f50cd`; `plan archive` also appends `archive plan <NNN>` at the change level. Events are written after the command's deciding write, so a crash in between can lose a line: `state.md` is not a complete audit log.
 
 ## What LoopSpec does not do
 
-- It does not call an LLM. It emits instructions; something else does the generating.
-- It does not run your tests, edit your code, or approve anything on a human's behalf.
-- It does not revert code. Rollback archives artifact files inside the change directory; a line of source code that an implementation node already wrote stays written.
+- It does not call an LLM or run your tests; it hands out instructions and records results.
+- It never moves, copies or deletes business code. Rework archives workflow files inside the Plan directory only.
+- Local records do not authenticate anyone. A digest proves that what was approved is what was shown, not who approved it.
 
 ## Glossary
 
-Terms used across the rest of the manual.
-
 | Term | Meaning |
 | --- | --- |
-| **workflow home** | The directory holding `config.yaml`, `schemas/`, `changes/` and `archive/`. Defaults to `./loopspec`; every command takes `--home` to point elsewhere. |
-| **project root** | The parent of the workflow home — where agent tool directories (`.claude`, `.codex`, ...) are written, because that is where those tools look. |
-| **schema** | A YAML description of one workflow: its nodes, their dependencies, artifact paths, templates and gate policies. Lives in `<home>/schemas/<name>/schema.yaml`. |
-| **change** | One unit of work moving through a schema. Lives in `<home>/changes/<name>/`, named in kebab-case. |
-| **node** | One step in a schema. Either a plain node (produces an artifact) or a gate (produces a verdict). |
-| **artifact** | A file a node is responsible for producing, named by `generates` relative to the artifact root. |
-| **artifact root** | Where a change's artifacts live. The change directory itself, unless the schema is referenced with a `path` in `config.yaml`, which nests them in a subdirectory. |
-| **gate** | A node that produces a PASS or FAIL verdict rather than a document, plus a policy for what to redo on FAIL. |
-| **verdict** | The PASS or FAIL outcome of a gate, recorded by which of its two output files exists. |
-| **reset closure** | The set of nodes a rollback resets: `on_fail.reset`, the failing gate itself, and all transitive dependents, in topological order. |
-| **attempts round** | One `.attempts/round-NNN/` directory holding the artifacts a single rollback moved aside, plus a `_meta.yaml` recording the verdict that caused it. |
-| **tracked node** | A node declaring `tracks: <file>`, which is only `done` once every checkbox in that file is ticked. |
-
-## Next
-
-- [CLI reference](cli-reference.md) — every command, flag and JSON field.
-- [Configuration](configuration.md) — `config.yaml`, field by field.
-- [Schema reference](schema-reference.md) — how to write your own workflow.
-- [Agent protocol](agent-protocol.md) — the loop an LLM agent should run.
-- [secure-spec-driven](workflows/secure-spec-driven.md) — the built-in workflow.
+| **workflow home** | The directory holding `config.yaml`, `fragments/`, `profiles/`, `changes/` and `archive/`. Defaults to `./loopspec`; every command accepts `--home`. |
+| **Change** | One piece of work, in `<home>/changes/<name>/`. Names use letters, digits, `_` and `-`, for example `AFD1111`. |
+| **Plan** | One numbered plan of a Change, `plans/<NNN>/plan.yaml`. At most one is open at a time. |
+| **active Plan** | The approved Plan; the only one execution commands touch. |
+| **revision** | An in-place change of the approved Plan's `spec`, confirmed by digest. |
+| **baseline** | The full commit hash fixed on the first `plan create`; every Plan of the Change diffs against it. |
+| **Fragment** | A reusable group of nodes, in `fragments/<name>/fragment.yaml`. |
+| **Profile** | A reusable `flow` template, in `profiles/<name>.yaml`. |
+| **instance** | One use of a Fragment inside a flow, named by its path, for example `be` or `be/tests`. |
+| **Gate** | A node whose result is a PASS or FAIL report instead of an artifact. |
+| **code Gate** | A Gate with `evidence`: its verdict counts only with a recorded review round over the pinned code. |
+| **assurance node** | The final Gate with `assurance`: the CLI checks the full diff against the rules and writes the verdict itself. |
+| **on_fail** | A Gate's rework policy: which leaf nodes to reset and how many times. |
+| **rework record** | `.attempts/<NNN>/record.yaml`, listing the files a rollback or revision archived. |
+| **digest** | SHA-256 of a Plan `spec`; approval binds to it. |

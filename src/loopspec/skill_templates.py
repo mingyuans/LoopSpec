@@ -111,11 +111,7 @@ SKILL_TEMPLATES: list[SkillTemplate] = load_skill_templates()
 
 def generate_skill_content(template: SkillTemplate) -> str:
     return (
-        "---\n"
-        f"name: {template.name}\n"
-        f"description: {template.description}\n"
-        "---\n\n"
-        f"{template.body}"
+        f"---\nname: {template.name}\ndescription: {template.description}\n---\n\n{template.body}"
     )
 
 

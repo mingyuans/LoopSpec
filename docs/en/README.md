@@ -1,39 +1,45 @@
 # LoopSpec manual
 
-> Scope: index of the English manual — what each page covers and who it is for.
+> Scope: index of the English manual - what each page covers and who it is for.
 > Audience: humans and LLM agents; start here.
 > Language: **English** · [中文](../zh/README.md)
 
-LoopSpec is a CLI for gated artifact workflows: you declare a YAML graph of documents a change must produce, an agent generates them one at a time, and gate nodes can send the work back with a recorded reason.
+LoopSpec is a CLI for plan-driven, gated delivery with LLM agents. For each Change, an agent drafts one Plan for the whole task from reusable Fragments and Profiles; a human confirms it; the agent then executes the confirmed graph node by node, with code Gates bound to review evidence and a final assurance check over the full Git diff.
 
 ## Pages
 
 | Page | Covers | For |
 | --- | --- | --- |
-| [Overview](overview.md) | What LoopSpec is, the problem it solves, the core model (nodes, artifacts, gates, rollback, filesystem-derived state), and the glossary the rest of the manual uses. | Everyone, first read. |
-| [CLI reference](cli-reference.md) | Every command and option, every `--json` response field, worked response examples, the failure contract, and all 15 error codes. | Anyone looking up a flag or a response shape. |
-| [Configuration](configuration.md) | Every `config.yaml` field with type, requiredness, default and validation rules; how a schema is resolved for new versus existing changes; four worked examples. | Setting up or debugging a project. |
-| [Schema reference](schema-reference.md) | Every `schema.yaml` field, the schema directory layout, `tracks` and gate semantics, all load-time checks with their error codes, and a complete minimal schema. | Writing or repairing a workflow. |
-| [Agent protocol](agent-protocol.md) | The status/instructions loop, the rollback branch, which response field to read at each step, and the behaviours agents get wrong. | LLM agents, and people prompting them. |
-| [secure-spec-driven](workflows/secure-spec-driven.md) | The built-in workflow: its seven nodes, what each must produce, and why each gate resets what it resets. | Working a change through the default flow. |
+| [Overview](overview.md) | The two hierarchies (Change, Plan, Revision; Node, Fragment, Profile, Plan), the derived statuses, the disk layout and the glossary. | Everyone, first read. |
+| [Fragments, Profiles and Plans](fragment-profile-plan.md) | What each one is for and how they differ, how they work together, and what changing each one affects, with bugfix compiled into a Plan as an example. | Newcomers and agents that plan. |
+| [Workflow composition](workflow-composition.md) | Writing Fragments, Profiles and Plan requests; `on_fail` and how it is pushed down into Gates; code evidence and assurance. | Authors of workflows and agents that plan. |
+| [Plan reference](plan-reference.md) | `plan.yaml`, `.workflow.yaml` and rework records field by field, with a complete example; revision and replanning rules. | Anyone reading or reviewing a Plan. |
+| [Configuration](configuration.md) | `config.yaml` and assurance rule files, field by field; what is checked live. | Setting up a project. |
+| [CLI reference](cli-reference.md) | Every command and option, JSON output, and every error code. | Looking up a command. |
+| [Agent protocol](agent-protocol.md) | The loop an agent runs: planning, confirmation, execution, rework, revision, replanning and what an interruption leaves behind. | LLM agents and the people prompting them. |
+| [Release notes](release-notes.md) | What changed in 2.0.0 and how to upgrade from 1.x. | Upgrading users. |
 
 ## Quick orientation
 
-Getting started:
-
 ```bash
-loopspec init ./loopspec
-loopspec new add-payment --json
-loopspec status add-payment
+loopspec init ./loopspec --tools claude
+loopspec change new AFD1111
+loopspec profile show bugfix
+# write changes/AFD1111/plans/request.yaml for the whole task, then:
+loopspec plan validate -c AFD1111 -f changes/AFD1111/plans/request.yaml
+loopspec plan create -c AFD1111 -f changes/AFD1111/plans/request.yaml
+loopspec plan show -c AFD1111 -p 001
+# show it to a human and wait for explicit confirmation, then:
+loopspec plan approve -c AFD1111 -p 001 --digest "<shown digest>"
+loopspec change status AFD1111
 ```
-
-`status` names the single next command on every turn. Follow it, write the artifact `loopspec instructions` describes, and come back to `status` — that is the whole loop. See [Agent protocol](agent-protocol.md) for the details and [CLI reference](cli-reference.md) for everything else.
 
 Where to go for a specific question:
 
-- *What does this flag do?* — [CLI reference](cli-reference.md)
-- *What can I put in `config.yaml`?* — [Configuration](configuration.md)
-- *How do I write my own workflow?* — [Schema reference](schema-reference.md)
-- *What should my agent do next?* — [Agent protocol](agent-protocol.md)
-- *What is this node supposed to produce?* — [secure-spec-driven](workflows/secure-spec-driven.md)
-- *What does this term mean?* — [Overview glossary](overview.md#glossary)
+- *What does this command do?* - [CLI reference](cli-reference.md)
+- *How do Fragments, Profiles and Plans differ?* - [Fragments, Profiles and Plans](fragment-profile-plan.md)
+- *How do I write a Fragment or a Plan request?* - [Workflow composition](workflow-composition.md)
+- *What is in `plan.yaml`?* - [Plan reference](plan-reference.md)
+- *What can I put in `config.yaml`?* - [Configuration](configuration.md)
+- *What should my agent do next?* - [Agent protocol](agent-protocol.md)
+- *What does this term mean?* - [Overview glossary](overview.md#glossary)
