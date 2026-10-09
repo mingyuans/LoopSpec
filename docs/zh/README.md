@@ -11,6 +11,7 @@ LoopSpec 是用于 LLM Agent 的计划驱动、带 Gate 的交付 CLI。每个 C
 | 页面 | 内容 | 读者 |
 | --- | --- | --- |
 | [概览](overview.md) | 两套层级（Change、Plan、Revision；Node、Fragment、Profile、Plan）、推导状态、目录布局与术语表。 | 所有人，第一篇。 |
+| [Fragment、Profile 与 Plan](fragment-profile-plan.md) | 三者的区别与作用、如何协作、修改各自会影响什么，附 bugfix 编译成 Plan 的例子。 | 第一次接触 LoopSpec 的人与负责规划的 Agent。 |
 | [工作流组合](workflow-composition.md) | 编写 Fragment、Profile 与 Plan 请求；`on_fail` 如何下放到 Gate；代码证据与保障。 | 工作流作者与负责规划的 Agent。 |
 | [Plan 参考](plan-reference.md) | 逐字段说明 `plan.yaml`、`.workflow.yaml` 与重做记录，附完整示例；修订与重新规划规则。 | 阅读或评审 Plan 的人。 |
 | [配置](configuration.md) | 逐字段说明 `config.yaml` 与保障规则文件；哪些内容实时读取。 | 配置项目的人。 |
@@ -36,6 +37,7 @@ loopspec change status AFD1111
 按问题查找：
 
 - *这个命令做什么？* —— [CLI 参考](cli-reference.md)
+- *Fragment、Profile、Plan 有什么区别？* —— [Fragment、Profile 与 Plan](fragment-profile-plan.md)
 - *怎么写 Fragment 或 Plan 请求？* —— [工作流组合](workflow-composition.md)
 - *`plan.yaml` 里有什么？* —— [Plan 参考](plan-reference.md)
 - *`config.yaml` 能写什么？* —— [配置](configuration.md)

@@ -11,6 +11,7 @@ LoopSpec is a CLI for plan-driven, gated delivery with LLM agents. For each Chan
 | Page | Covers | For |
 | --- | --- | --- |
 | [Overview](overview.md) | The two hierarchies (Change, Plan, Revision; Node, Fragment, Profile, Plan), the derived statuses, the disk layout and the glossary. | Everyone, first read. |
+| [Fragments, Profiles and Plans](fragment-profile-plan.md) | What each one is for and how they differ, how they work together, and what changing each one affects, with bugfix compiled into a Plan as an example. | Newcomers and agents that plan. |
 | [Workflow composition](workflow-composition.md) | Writing Fragments, Profiles and Plan requests; `on_fail` and how it is pushed down into Gates; code evidence and assurance. | Authors of workflows and agents that plan. |
 | [Plan reference](plan-reference.md) | `plan.yaml`, `.workflow.yaml` and rework records field by field, with a complete example; revision and replanning rules. | Anyone reading or reviewing a Plan. |
 | [Configuration](configuration.md) | `config.yaml` and assurance rule files, field by field; what is checked live. | Setting up a project. |
@@ -36,6 +37,7 @@ loopspec change status AFD1111
 Where to go for a specific question:
 
 - *What does this command do?* - [CLI reference](cli-reference.md)
+- *How do Fragments, Profiles and Plans differ?* - [Fragments, Profiles and Plans](fragment-profile-plan.md)
 - *How do I write a Fragment or a Plan request?* - [Workflow composition](workflow-composition.md)
 - *What is in `plan.yaml`?* - [Plan reference](plan-reference.md)
 - *What can I put in `config.yaml`?* - [Configuration](configuration.md)

@@ -62,6 +62,7 @@ LANGUAGES = ("en", "zh")
 REQUIRED_PAGES = (
     "README.md",
     "overview.md",
+    "fragment-profile-plan.md",
     "workflow-composition.md",
     "plan-reference.md",
     "configuration.md",
