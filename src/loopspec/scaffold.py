@@ -8,8 +8,13 @@ configured is always answered by checking whether its files exist on disk.
 
 from __future__ import annotations
 
+import json
+import os
+import stat
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from .skill_templates import SKILL_TEMPLATES, generate_command_content, generate_skill_content
 from .tool_registry import AI_TOOLS, COMMAND_ADAPTERS
@@ -76,3 +81,80 @@ def scaffold_tools(project_path: Path, tool_ids: list[str]) -> ScaffoldResult:
         result.written_files[tool_id] = written
 
     return result
+
+
+HOOK_COMMAND = "loopspec hook pre-tool-use"
+#: Project-level hook config per tool, and the tool names its PreToolUse matcher covers.
+#: Codex reports every file edit as `apply_patch` and shell commands as `Bash`.
+HOOK_TARGETS = {
+    "claude": (".claude/settings.json", "Edit|MultiEdit|Write|NotebookEdit|Bash"),
+    "codex": (".codex/hooks.json", "^apply_patch$|^Bash$"),
+}
+
+
+def _merged_hooks(data: Any, matcher: str) -> dict | str | None:
+    """The config with our hook added; None when already present; a str says why not."""
+    if not isinstance(data, dict):
+        return "not a JSON object"
+    hooks = data.get("hooks", {})
+    if not isinstance(hooks, dict):
+        return "`hooks` is not an object"
+    entries = hooks.get("PreToolUse", [])
+    if not isinstance(entries, list):
+        return "`hooks.PreToolUse` is not a list"
+    for entry in entries:
+        handlers = entry.get("hooks") if isinstance(entry, dict) else None
+        if isinstance(handlers, list) and any(
+            isinstance(handler, dict) and handler.get("command") == HOOK_COMMAND
+            for handler in handlers
+        ):
+            return None
+    entry = {"matcher": matcher, "hooks": [{"type": "command", "command": HOOK_COMMAND}]}
+    return {**data, "hooks": {**hooks, "PreToolUse": [*entries, entry]}}
+
+
+def _install_hook(project_path: Path, relative: str, matcher: str) -> dict:
+    path = project_path / relative
+    result: dict = {"path": str(path)}
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        data: Any = {}
+        status = "created"
+    else:
+        if not stat.S_ISREG(info.st_mode):
+            return {**result, "status": "skipped", "reason": "not a regular file"}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (ValueError, UnicodeError):
+            return {**result, "status": "skipped", "reason": "not valid JSON"}
+        status = "updated"
+    merged = _merged_hooks(data, matcher)
+    if merged is None:
+        return {**result, "status": "unchanged"}
+    if isinstance(merged, str):
+        return {**result, "status": "skipped", "reason": merged}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".loopspec-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(merged, ensure_ascii=False, indent=2) + "\n")
+        os.replace(temporary, path)
+    except BaseException:
+        os.unlink(temporary)
+        raise
+    return {**result, "status": status}
+
+
+def install_hooks(project_path: Path, tool_ids: list[str]) -> dict[str, dict]:
+    """Merge the plan-guard PreToolUse hook into each selected tool's project config.
+
+    Unlike skill files this never overwrites: existing settings and hooks are kept,
+    and a config we cannot parse is left alone and reported as skipped.
+    """
+
+    return {
+        tool_id: _install_hook(project_path, *HOOK_TARGETS[tool_id])
+        for tool_id in tool_ids
+        if tool_id in HOOK_TARGETS
+    }

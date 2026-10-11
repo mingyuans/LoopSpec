@@ -10,13 +10,16 @@ import typer
 
 from . import workflow_cli
 from .errors import LoopspecError
+from .plan_guard import MAX_HOOK_INPUT, hook_output
 from .presentation import Presenter, render_init_summary, render_welcome
-from .scaffold import ScaffoldResult, scaffold_tools
+from .scaffold import ScaffoldResult, install_hooks, scaffold_tools
 from .tool_registry import AI_TOOLS
 from .tools_cli import is_interactive, pick_tools, resolve_tools_arg
 
 app = typer.Typer(help="loopspec: a gated, plan-driven workflow CLI.", no_args_is_help=True)
 workflow_cli.register(app)
+hook_app = typer.Typer(help="Agent hooks that guard LoopSpec files.", no_args_is_help=True)
+app.add_typer(hook_app, name="hook")
 
 DEFAULT_HOME = Path("./loopspec")
 
@@ -64,6 +67,16 @@ def version(as_json: bool = JsonOption) -> None:
         typer.echo(json.dumps({"version": installed_version}))
     else:
         typer.echo(installed_version)
+
+
+@hook_app.command("pre-tool-use")
+def pre_tool_use() -> None:
+    """Claude Code / Codex PreToolUse hook: deny direct edits of an approved plan.yaml."""
+
+    # Read one character past the limit so hook_output can tell the input was cut short.
+    output = hook_output(typer.get_text_stream("stdin").read(MAX_HOOK_INPUT + 1))
+    if output:
+        typer.echo(output)
 
 
 def _display_path(path: Path) -> str:
@@ -167,6 +180,7 @@ def init(
         _fail(exc, as_json)
 
     scaffold_result = _scaffold_with_progress(scaffold_root, tool_ids, presenter)
+    hooks = install_hooks(scaffold_root, tool_ids)
 
     result = {
         "workflowHome": str(path.resolve()),
@@ -178,6 +192,7 @@ def init(
         "skippedCommandGeneration": scaffold_result.skipped_command_generation,
         "createdTools": scaffold_result.created,
         "refreshedTools": scaffold_result.refreshed,
+        "hooks": hooks,
         "nextSteps": [f"loopspec change new <change-name> --home {path}"],
     }
 
@@ -201,3 +216,20 @@ def init(
         project_url=PROJECT_URL,
         issues_url=ISSUES_URL,
     )
+    _render_hooks(presenter, hooks)
+
+
+def _render_hooks(presenter: Presenter, hooks: dict[str, dict]) -> None:
+    for tool_id, hook in hooks.items():
+        label = AI_TOOLS[tool_id].label
+        where = _display_path(Path(hook["path"]))
+        if hook["status"] == "skipped":
+            presenter.line(
+                presenter.warning(f"{label} plan guard hook not added to {where}: {hook['reason']}")
+            )
+            continue
+        presenter.line(presenter.success(f"{label} plan guard hook {hook['status']}: {where}"))
+        if tool_id == "codex":
+            presenter.line(
+                presenter.dim("Review and trust it in Codex with /hooks before it runs.")
+            )

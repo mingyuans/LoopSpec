@@ -6,9 +6,9 @@
 
 ## 约定
 
-- 命令统一为 `loopspec <资源> <动作>`，资源名为单数：`change`、`plan`、`node`、`gate`、`fragment`、`profile`。只有 `version` 与 `init` 单独使用。
+- 命令统一为 `loopspec <资源> <动作>`，资源名为单数：`change`、`plan`、`node`、`gate`、`fragment`、`profile`。只有 `version` 与 `init` 单独使用；`hook` 组供 AI 工具的 hook 调用。
 - `-c/--change` 指定 Change，`-p/--plan` 指定三位数字的 Plan 编号，`-n/--node` 指定叶子节点或 Gate 路径，`-f/--file` 指定相对工作区的请求文件，`--digest` 是人确认过的摘要，`--note` 是可选说明。`change` 组的命令以位置参数给出 Change 名。
-- 除 `version` 与 `init` 外，所有命令都接受 `--home`（默认 `./loopspec`），并输出 JSON；唯一例外是 `change status`，默认输出给 LLM 阅读的纯文本报告，带 `--json` 时才输出 JSON。失败时输出 `{"error": <错误码>, "message": <说明>, "fix": <下一步>}`，退出码为 1；用法错误退出码为 2。
+- 除 `version`、`init` 与 `hook` 外，所有命令都接受 `--home`（默认 `./loopspec`），并输出 JSON；唯一例外是 `change status`，默认输出给 LLM 阅读的纯文本报告，带 `--json` 时才输出 JSON。失败时输出 `{"error": <错误码>, "message": <说明>, "fix": <下一步>}`，退出码为 1；用法错误退出码为 2。
 - 执行类命令（`node`、`gate`、`plan rollback`）只作用于活动 Plan。没有活动 Plan 时返回 `plan_not_active`，`fix` 给出下一个规划步骤。每条命令只有一次生效写入，中断后 Change 要么是命令之前、要么是命令之后的状态；尚待归档的返工文件由下一条写入类命令先行搬运。
 
 ## loopspec version
@@ -21,7 +21,22 @@
 loopspec init [PATH] [--tools all|none|<ids>] [--project-root <dir>] [--json]
 ```
 
-在 `PATH`（默认 `./loopspec`）创建工作区：`config.yaml`（`artifacts_dir: changes` 与空的 `workflow`）、`changes/`，以及内置的 `fragments/` 与 `profiles/`，只复制缺失的文件。`--tools` 为指定工具生成 Agent Skill 与 `/lpsx:*` 命令；不带时，交互式终端显示选择器，其他情况不配置任何工具。`--project-root` 指定工具目录的位置（默认工作区的上级目录）。默认输出人类可读摘要，带 `--json` 时输出 JSON。
+在 `PATH`（默认 `./loopspec`）创建工作区：`config.yaml`（`artifacts_dir: changes` 与空的 `workflow`）、`changes/`，以及内置的 `fragments/` 与 `profiles/`，只复制缺失的文件。`--tools` 为指定工具生成 Agent Skill 与 `/lpsx:*` 命令；不带时，交互式终端显示选择器，其他情况不配置任何工具。`--project-root` 指定工具目录的位置（默认工作区的上级目录）。选中 `claude` 或 `codex` 时，还会把 `loopspec hook pre-tool-use` 作为 PreToolUse hook 合并进项目级配置：Claude Code 为 `.claude/settings.json`（matcher `Edit|MultiEdit|Write|NotebookEdit|Bash`），Codex 为 `.codex/hooks.json`（matcher `^apply_patch$|^Bash$`）。只合并、不覆盖：保留已有键与 hook，已有同一命令时不重复添加；文件不是普通文件、不是合法 JSON 或 `hooks` 结构不对时不写入。Codex 的项目级 hook 需要在 Codex 中用 `/hooks` 审阅并信任后才运行。默认输出人类可读摘要，带 `--json` 时输出 JSON，其中 `hooks` 按工具给出 `{path, status, reason?}`，`status` 为 `created`、`updated`、`unchanged` 或 `skipped`。
+
+## loopspec hook pre-tool-use
+
+```bash
+loopspec hook pre-tool-use < <hook 输入 JSON>
+```
+
+Claude Code 与 Codex 的 PreToolUse hook，由 `loopspec init` 配置，不需要手动执行。从 stdin 读取 hook 输入（`tool_name`、`tool_input`、`cwd`），拒绝 LLM 直接改写已确认 Plan 的 `plan.yaml`：
+
+- 受保护文件：解析符号链接与 `..` 后形如 `<Change>/plans/<NNN>/plan.yaml`、Change 根目录有 `.workflow.yaml`，且当前 `meta.status` 为 `approved`。
+- `Edit`、`MultiEdit`、`Write`、`NotebookEdit` 写受保护文件时拒绝；写入结果的 `meta.status` 为 `approved`（例如新建 approved 的 plan.yaml，或把草稿改成 approved）时也拒绝。
+- Codex 的 `apply_patch`：补丁中 Add、Update、Delete、Move 涉及受保护文件时拒绝；新增行把 plan.yaml 写成 `status: approved` 时拒绝。
+- `Bash`：受保护文件是重定向目标，或出现在只读命令（`cat`、`grep`、`head`、`git diff/log/show`、不带 `-i` 的 `yq`、`loopspec` 等；`sed` 不算只读，`git --output`、`rg --pre` 也不算）以外的命令中时拒绝；跟踪 `cd`，展开通配符（包括不含 `plan.yaml` 字样的 `pl?n.yaml`、`*`），引号不配对时按出现的路径处理。这是启发式护栏，不是安全边界；`plan.yaml` 的摘要校验仍是第二道防线。
+
+拒绝时在 stdout 输出 `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": ...}}`，原因指向 `plan validate` + `plan approve -f` 修订，或经人同意后 `plan archive` 再重新规划。其他情况不输出、退出码 0；输入不是合法 JSON 或不是受保护的工具时放行。原则是能检测到就拒绝，检测不了就放行，不影响正常工具调用：输入超过 64 MiB、分析超过 10 秒、分析出错，或 plan.yaml 无法读取或解析时都放行；`bash -c` 嵌套超过 8 层的部分不再展开，其余部分照常检查。草稿与已归档 Plan、`request.yaml`、`state.md`、产物不受限制，CLI 自身写入 `plan.yaml` 不经过 hook。没有参数。
 
 ## loopspec change new
 

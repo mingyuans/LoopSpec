@@ -3,6 +3,8 @@ name: loopspec-archive
 description: Archive one completed LoopSpec change after rechecking its state and evidence.
 ---
 
+Before archiving, check that the change-level `state.md` records the background and the key decisions; if they are missing, fill them in from the conversation and the Plan artifacts first.
+
 When the user requests archiving, preview with `loopspec change archive <change-name> --dry-run`, then run `loopspec change archive <change-name>`.
 
 Archiving rechecks code Gate evidence and full-diff assurance first. A stale PASS is not completion: go back to `/lpsx:continue` or the `loopspec-continue` skill and redo the necessary checks.
