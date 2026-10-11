@@ -1,0 +1,19 @@
+gate: be/security/check
+plan_digest: 321f50cd4c2641d24fa82861e201b30b245c4eff32dd8699f3e20564a4872552
+baseline: ec77d652659013f9c0c202d70891d8aa06af3153
+round: 3
+verdict: PASS
+paths:
+- src/**
+- tests/**
+- builtin/**
+- Makefile
+- pyproject.toml
+- install.sh
+- hatch_version.py
+- uv.lock
+provides:
+- security-review
+scope_digest: a905a0483036be78dddf8fa141c24ddeffe72529322cc7447f8265695dc76807
+report_hash: 33eb4418342c607a3818583490d6cf82c7cbd345d8b8fea58201bc0738f28c2c
+system: false

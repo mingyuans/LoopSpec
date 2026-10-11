@@ -1,0 +1,11 @@
+gate: assurance/check
+plan_digest: 321f50cd4c2641d24fa82861e201b30b245c4eff32dd8699f3e20564a4872552
+baseline: ec77d652659013f9c0c202d70891d8aa06af3153
+round: 1
+verdict: PASS
+paths:
+- '**'
+provides: []
+scope_digest: fbd73b2c22486c9fd2d749514cce30716339e3a48113547b4f157d7568e8cc0a
+report_hash: e8041bff78926fdaa8514631534c66f067d9062366ba952d5bc1ff32d2873c9c
+system: true

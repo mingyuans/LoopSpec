@@ -1,0 +1,18 @@
+gate: be/security/check
+plan_digest: 321f50cd4c2641d24fa82861e201b30b245c4eff32dd8699f3e20564a4872552
+baseline: ec77d652659013f9c0c202d70891d8aa06af3153
+round: 1
+round_id: 001.1:be/security/check:1
+paths:
+- src/**
+- tests/**
+- builtin/**
+- Makefile
+- pyproject.toml
+- install.sh
+- hatch_version.py
+- uv.lock
+provides:
+- security-review
+scope_digest: 5a181e21c23812e3d9bdc6bea3480c0ba4b52bd197cac229377d57259af5b354
+consumed: false

@@ -6,9 +6,9 @@
 
 ## Conventions
 
-- Commands are `loopspec <resource> <verb>`, with singular resources: `change`, `plan`, `node`, `gate`, `fragment`, `profile`. Only `version` and `init` stand alone.
+- Commands are `loopspec <resource> <verb>`, with singular resources: `change`, `plan`, `node`, `gate`, `fragment`, `profile`. Only `version` and `init` stand alone; the `hook` group is called by AI-tool hooks.
 - `-c/--change` names a Change, `-p/--plan` a three-digit Plan number, `-n/--node` a leaf node or Gate path, `-f/--file` a request file relative to the workflow home, `--digest` the digest a human confirmed, `--note` an optional note. `change` commands take the Change name as an argument.
-- Every command except `version` and `init` accepts `--home` (default `./loopspec`) and prints JSON. The one exception is `change status`, which prints a plain-text report for an LLM by default and JSON only with `--json`. On failure it prints `{"error": <code>, "message": <text>, "fix": <next action>}` and exits with status 1; usage errors exit with status 2.
+- Every command except `version`, `init` and `hook` accepts `--home` (default `./loopspec`) and prints JSON. The one exception is `change status`, which prints a plain-text report for an LLM by default and JSON only with `--json`. On failure it prints `{"error": <code>, "message": <text>, "fix": <next action>}` and exits with status 1; usage errors exit with status 2.
 - Execution commands (`node`, `gate`, `plan rollback`) act only on the active Plan. Without one they fail with `plan_not_active` and a `fix` naming the next planning step. Every command takes effect in a single write, so an interrupted command leaves the Change as before or as after; rework files still to be archived are moved first by the next writing command.
 
 ## loopspec version
@@ -21,7 +21,22 @@ Prints the installed version. `--json` prints `{"version": "..."}`.
 loopspec init [PATH] [--tools all|none|<ids>] [--project-root <dir>] [--json]
 ```
 
-Creates the workflow home at `PATH` (default `./loopspec`): `config.yaml` (`artifacts_dir: changes` and an empty `workflow`), `changes/`, and the built-in `fragments/` and `profiles/`, copying only files that are missing. `--tools` writes agent Skills and `/lpsx:*` commands for the listed tools; without it, an interactive terminal shows a picker and anything else configures none. `--project-root` sets where tool directories go (default: the parent of the home). Output is a human summary unless `--json` is given.
+Creates the workflow home at `PATH` (default `./loopspec`): `config.yaml` (`artifacts_dir: changes` and an empty `workflow`), `changes/`, and the built-in `fragments/` and `profiles/`, copying only files that are missing. `--tools` writes agent Skills and `/lpsx:*` commands for the listed tools; without it, an interactive terminal shows a picker and anything else configures none. `--project-root` sets where tool directories go (default: the parent of the home). When `claude` or `codex` is selected it also merges `loopspec hook pre-tool-use` as a PreToolUse hook into the project config: `.claude/settings.json` for Claude Code (matcher `Edit|MultiEdit|Write|NotebookEdit|Bash`) and `.codex/hooks.json` for Codex (matcher `^apply_patch$|^Bash$`). It only merges: existing keys and hooks stay, the same command is never added twice, and a file that is not a regular file, not valid JSON, or has a malformed `hooks` value is left alone. Codex runs project hooks only after you review and trust them with `/hooks`. Output is a human summary unless `--json` is given; the JSON `hooks` field gives `{path, status, reason?}` per tool, with `status` one of `created`, `updated`, `unchanged` or `skipped`.
+
+## loopspec hook pre-tool-use
+
+```bash
+loopspec hook pre-tool-use < <hook input JSON>
+```
+
+The PreToolUse hook for Claude Code and Codex, configured by `loopspec init`; you do not run it yourself. It reads the hook input (`tool_name`, `tool_input`, `cwd`) from stdin and denies direct LLM writes to an approved Plan's `plan.yaml`:
+
+- Protected file: after resolving symlinks and `..`, a path shaped `<Change>/plans/<NNN>/plan.yaml` whose Change root has `.workflow.yaml` and whose current `meta.status` is `approved`.
+- `Edit`, `MultiEdit`, `Write` and `NotebookEdit` are denied on a protected file, and also when the written result has `meta.status: approved` (a new approved plan.yaml, or a draft edited into approved).
+- Codex `apply_patch`: denied when an Add, Update, Delete or Move touches a protected file, or when added lines write `status: approved` into a plan.yaml.
+- `Bash`: denied when a protected file is a redirection target or appears in a command other than a read-only one (`cat`, `grep`, `head`, `git diff/log/show`, `yq` without `-i`, `loopspec`, ...; `sed` never counts as read-only, nor do `git --output` or `rg --pre`). It follows `cd`, expands globs (including ones without the text `plan.yaml`, such as `pl?n.yaml` or `*`), and treats unbalanced quotes by the paths they mention. This is a heuristic guardrail, not a security boundary; the `plan.yaml` digest check stays the second line of defence.
+
+A denial prints `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": ...}}` on stdout; the reason points to a revision with `plan validate` + `plan approve -f`, or `plan archive` and replanning with the human's consent. Otherwise it prints nothing and exits 0, including on input that is not valid JSON or a tool it does not guard. The rule is to deny what it can detect and let through what it cannot, so normal tool calls are never blocked: input over 64 MiB, analysis over 10 seconds, an analysis error, or a plan.yaml that cannot be read or parsed all let the call through; `bash -c` scripts nested more than 8 deep are not unpacked further, and the rest of the command is still checked. Draft and archived Plans, `request.yaml`, `state.md` and artifacts are not restricted, and the CLI's own writes to `plan.yaml` never pass through the hook. No options.
 
 ## loopspec change new
 

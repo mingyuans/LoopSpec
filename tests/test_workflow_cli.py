@@ -41,6 +41,7 @@ TREE = {
     "fragment": {"list", "show", "validate"},
     "profile": {"list", "show", "validate", "save"},
     "registry": {"update", "apply"},
+    "hook": {"pre-tool-use"},
 }
 
 
