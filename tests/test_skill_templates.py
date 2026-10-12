@@ -202,6 +202,13 @@ def test_continue_template_covers_human_decisions_and_code_changes():
     assert "loopspec node instructions -c <change-name> -n <node>" in body
 
 
+def test_continue_template_fans_out_parallel_steps_to_sub_agents():
+    body = next(t for t in SKILL_TEMPLATES if t.verb == "continue").body
+    assert "`parallel: true`" in body and "own sub agent" in body
+    assert "only on that one node" in body and "`concurrent_write`" in body
+    assert "re-read status yourself" in body
+
+
 def test_continue_template_stays_workflow_agnostic():
     body = next(t for t in SKILL_TEMPLATES if t.verb == "continue").body
     assert "instructions approval " not in body

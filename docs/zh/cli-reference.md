@@ -54,7 +54,7 @@ loopspec change status <change> [--json]
 
 默认输出纯文本报告，供 LLM 直接阅读：以顶格的 `=== SECTION ===` 行分节，不使用 Markdown，不含颜色，字节不随终端变化。节序固定为 `OVERVIEW`、`STATE RECORDS`、`PLANS`、`NODES`（有活动 Plan 时）、`GATE FAILURES`（有失败 Gate 时）、`PENDING ROLLBACK`（有待返工时）、`NEXT STEPS`，每节先有一段说明。`STATE RECORDS` 原样引用 Change 级与当前 Plan（活动 Plan，规划中为草稿）的 `state.md`，每行缩进四个空格，标明为不可信数据；已归档 Plan 的 `state.md` 不输出，但 `PLANS` 仍列出全部 Plan。失败时输出 `=== ERROR ===` 报告，退出码为 1。
 
-带 `--json` 时返回 `status`（`unplanned`、`planning`、`active`、`complete`）、`baseline`、`repository`、`activePlan`、`openPlan`、全部 Plan 摘要，以及给出唯一下一条命令的 `nextSteps`。有活动 Plan 时还返回 `plan`、`revision`、`digest`、`nodes`（每个节点的 `status`、输出路径、证据过期时的 `reason`、失败时的 `gate` 详情、跟踪节点的 `taskProgress`）、`instances`（引用汇总）与 `pendingRollback`；为复核已有证据计算了 Diff 且存在被忽略、未排除的路径时，还返回 `warnings`。四种状态都返回 `state`（Change 级 `state.md`）、`planState`（当前 Plan 的 `state.md` 及其 `plan` 编号，未规划时为 `null`）与 `untrustedData`（不可信声明）。`state` 与 `planState` 形如 `{path, content, truncated}`：文件不存在时 `content` 为 `null`；无法读取（符号链接、非普通文件）时另带 `error: "unreadable"`；超过 64 KiB 时保留首尾各 32 KiB 并置 `truncated: true`。参数：`--json`、`--home`。
+带 `--json` 时返回 `status`（`unplanned`、`planning`、`active`、`complete`）、`baseline`、`repository`、`activePlan`、`openPlan`、全部 Plan 摘要，列出全部可执行下一条命令的 `nextSteps`，以及 `parallel`：`nextSteps` 含两条及以上可并行的独立 `node instructions` 命令时为 `true`，否则为 `false`。有活动 Plan 时还返回 `plan`、`revision`、`digest`、`nodes`（每个节点的 `status`、输出路径、证据过期时的 `reason`、失败时的 `gate` 详情、跟踪节点的 `taskProgress`）、`instances`（引用汇总）与 `pendingRollback`；为复核已有证据计算了 Diff 且存在被忽略、未排除的路径时，还返回 `warnings`。四种状态都返回 `state`（Change 级 `state.md`）、`planState`（当前 Plan 的 `state.md` 及其 `plan` 编号，未规划时为 `null`）与 `untrustedData`（不可信声明）。`state` 与 `planState` 形如 `{path, content, truncated}`：文件不存在时 `content` 为 `null`；无法读取（符号链接、非普通文件）时另带 `error: "unreadable"`；超过 64 KiB 时保留首尾各 32 KiB 并置 `truncated: true`。参数：`--json`、`--home`。
 
 ## loopspec change next
 
@@ -62,7 +62,7 @@ loopspec change status <change> [--json]
 loopspec change next <change>
 ```
 
-与 `change status` 使用同一逻辑，只返回 `status`、`isComplete`、当前要处理的节点与 `nextSteps`。参数：`--home`。
+与 `change status` 使用同一逻辑，只返回 `status`、`isComplete`、`node`（第一个要处理的节点）、`nodes`（`nextSteps` 对应的全部节点：rollback 的 Gate、exhausted 的 Gate，或全部就绪叶子）、`parallel` 与 `nextSteps`。参数：`--home`。
 
 ## loopspec change history
 
@@ -152,7 +152,7 @@ loopspec plan rollback -c <change> -p <NNN>
 loopspec node instructions -c <change> -n <node>
 ```
 
-返回执行活动 Plan 中一个就绪（或已完成）叶子节点所需的一切：实时读取的 `instruction`、`template` 或 Gate `templates`，`outputPath` 与 `resolvedOutputPath`，`dependencies`，以及 `priorAttempts`（以前的重做记录与 FAIL 报告，标注为不可信）。代码 Gate 额外返回含 `gate begin` 与 `gate record` 命令的 `gateProtocol`；保障节点返回它的 `gate record` 命令。它持有 Change 写锁，先补完已生效重做记录中待归档的文件，保证新产物不会覆盖尚未归档的文件。参数：`--change`、`--node`、`--home`。
+返回执行活动 Plan 中一个就绪（或已完成）叶子节点所需的一切：实时读取的 `instruction`、`template` 或 Gate `templates`，`outputPath` 与 `resolvedOutputPath`，`dependencies`，以及 `priorAttempts`（以前的重做记录与 FAIL 报告，标注为不可信）。代码 Gate 额外返回含 `gate begin` 与 `gate record` 命令的 `gateProtocol`；保障节点返回它的 `gate record` 命令。已生效重做记录中还有待归档的文件时，它先在 Change 写锁内补完搬运，保证新产物不会覆盖尚未归档的文件；否则只读，因此并行的 Agent 可以同时获取各自的节点。参数：`--change`、`--node`、`--home`。
 
 ## loopspec gate begin
 

@@ -132,6 +132,7 @@ def test_renderer_accounts_for_every_payload_key(tmp_path: Path):
     approve(home, "001")
     payloads.append(status(home))
     payloads.append(status(failing(tmp_path / "b")))
+    assert "parallel" in TOP_KEYS
     top = {key for payload in payloads for key in payload}
     assert top <= TOP_KEYS and top >= TOP_KEYS - {"warnings", "message"}
     nodes = [node for payload in payloads for node in payload.get("nodes", [])]
@@ -331,3 +332,29 @@ def test_every_report_breaks_lines_only_on_newline(tmp_path: Path):
     texts.append(report(failed)[1])
     for text in texts:
         assert_single_line_break(text)
+
+
+def test_parallel_steps_are_announced_as_independent(tmp_path: Path):
+    from tests.test_workflow_runtime import FANOUT_FLOW, REVIEWS
+
+    home = project(tmp_path, code=False)
+    create_approved(home, FANOUT_FLOW)
+    _, text = report(home)
+    single = block(text, "NEXT STEPS")
+    assert single[0] == (
+        "What to do next. Run these in order; the first one is enough to make progress."
+    )
+    assert "in parallel" not in "\n".join(single)
+    pass_node(home, "prd/proposal")
+    _, text = report(home)
+    steps = block(text, "NEXT STEPS")
+    prose = " ".join(steps)
+    assert "independent" in steps[0] and "in parallel" in prose
+    assert "one sub agent per step" in prose and "concurrent_write" in prose
+    assert steps[-3:] == [
+        f"{index}. loopspec node instructions -c {CHANGE} -n {identity}"
+        for index, identity in enumerate(REVIEWS, 1)
+    ]
+    nodes = " ".join(block(text, "NODES"))
+    assert "act on the one named" not in nodes
+    assert "act only on the nodes named in NEXT STEPS" in nodes

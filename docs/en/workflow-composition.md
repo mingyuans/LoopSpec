@@ -187,6 +187,31 @@ flow:
   requires: [qa, be]
 ```
 
+### Parallel branches
+
+Steps that do not depend on each other become ready together. In this sketch a PRD is reviewed by FE, BE and QA at once, and one Gate weighs the three reviews. The review Fragment names are placeholders for Fragments your registry provides.
+
+```yaml
+flow:
+- id: prd
+  use: requirements
+- id: fe-review
+  use: fe-prd-review
+  requires: [prd]
+- id: be-review
+  use: be-prd-review
+  requires: [prd]
+- id: qa-review
+  use: qa-prd-review
+  requires: [prd]
+- id: review-gate
+  use: prd-review-gate
+  requires: [fe-review, be-review, qa-review]
+  on_fail: {reset: [prd], max_retries: 2}
+```
+
+Once `prd` is done, `nextSteps` lists the three review leaves and `parallel` is `true`; an agent may give each to its own sub agent. `review-gate` stays blocked until all three reviews exist. When it fails, the rollback resets `prd` and everything downstream, including the three reviews, and the reviews run in parallel again after the PRD is fixed.
+
 ## Code evidence and assurance
 
 A code Gate's verdict counts only through two commands. `gate begin` pins the content of the Gate's `evidence.paths` relative to the Change baseline and returns a one-time round id; the agent reviews or tests exactly that; `gate record` accepts a report holding only `verdict` and `summary`, rejects it if the pinned code changed, and writes the PASS or FAIL report together with evidence bound to the Plan digest. Editing the code afterwards makes the evidence stale and the Gate `ready` again.

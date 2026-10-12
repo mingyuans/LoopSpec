@@ -8,9 +8,16 @@ from loopspec.workflow_models import ResolvedGate
 from tests.test_workflow_catalog import fragment_path
 from tests.workflow_helpers import (
     CHANGE,
+    DOCS_FLOW,
+    approve,
     create_approved,
+    create_draft,
+    fail_gate,
     invoke,
     loaded,
+    new_change,
+    node_status,
+    pass_node,
     project,
     status,
 )
@@ -146,3 +153,105 @@ def test_gate_protocol_uses_the_command_tree(tmp_path: Path):
         "kind": "assurance",
         "recordCommand": f"loopspec gate record -c {CHANGE} -n assurance/check",
     }
+
+
+FANOUT_FLOW = [
+    {"id": "prd", "use": "requirements"},
+    {"id": "fe-review", "use": "requirements", "requires": ["prd"]},
+    {"id": "be-review", "use": "requirements", "requires": ["prd"]},
+    {"id": "qa-review", "use": "requirements", "requires": ["prd"]},
+    {
+        "id": "review-gate",
+        "use": "qa-testing",
+        "requires": ["fe-review", "be-review", "qa-review"],
+        "on_fail": {"reset": ["prd"], "max_retries": 1},
+    },
+]
+# Dependency order: the compiler breaks ties between independent nodes by id.
+REVIEWS = ["be-review/proposal", "fe-review/proposal", "qa-review/proposal"]
+
+
+def node_steps(*identities: str) -> list[str]:
+    return [f"loopspec node instructions -c {CHANGE} -n {identity}" for identity in identities]
+
+
+def test_parallel_ready_leaves_are_all_listed(tmp_path: Path):
+    home = project(tmp_path, code=False)
+    create_approved(home, FANOUT_FLOW)
+    report = status(home)
+    assert report["nextSteps"] == node_steps("prd/proposal")
+    assert report["parallel"] is False
+    pass_node(home, "prd/proposal")
+    report = status(home)
+    assert report["nextSteps"] == node_steps(*REVIEWS)
+    assert report["parallel"] is True
+    assert node_status(home, "review-gate/test") == "blocked"
+    for done, remaining in ((1, REVIEWS[1:]), (2, REVIEWS[2:])):
+        pass_node(home, REVIEWS[done - 1])
+        report = status(home)
+        assert report["nextSteps"] == node_steps(*remaining)
+        assert report["parallel"] is (len(remaining) > 1)
+        assert node_status(home, "review-gate/test") == "blocked"
+    pass_node(home, REVIEWS[2])
+    report = status(home)
+    assert report["nextSteps"] == node_steps("review-gate/test")
+    assert report["parallel"] is False
+
+
+def test_linear_plan_keeps_a_single_step(tmp_path: Path):
+    home = project(tmp_path, code=False)
+    create_approved(home, MANUAL_FLOW)
+    report = status(home)
+    assert report["nextSteps"] == node_steps("requirements/proposal")
+    assert report["parallel"] is False
+
+
+def test_rollback_and_exhaustion_override_parallel_steps(tmp_path: Path):
+    home = project(tmp_path, code=False)
+    create_approved(home, FANOUT_FLOW)
+    for identity in ("prd/proposal", *REVIEWS):
+        pass_node(home, identity)
+    fail_gate(home, "review-gate/test")
+    report = status(home)
+    assert report["nextSteps"] == [f"loopspec plan rollback -c {CHANGE} -p 001"]
+    assert report["parallel"] is False
+    code, result = invoke(home, "plan", "rollback", "-c", CHANGE, "-p", "001")
+    assert code == 0, result
+    for identity in ("prd/proposal", *REVIEWS):
+        pass_node(home, identity)
+    fail_gate(home, "review-gate/test")
+    report = status(home)
+    assert node_status(home, "review-gate/test") == "exhausted"
+    assert report["nextSteps"] == [] and report["parallel"] is False
+
+
+def test_change_next_lists_every_target_node(tmp_path: Path):
+    home = project(tmp_path, code=False)
+    create_approved(home, FANOUT_FLOW)
+    pass_node(home, "prd/proposal")
+    code, result = invoke(home, "change", "next", CHANGE)
+    assert code == 0, result
+    assert result["node"]["id"] == REVIEWS[0]
+    assert [node["id"] for node in result["nodes"]] == REVIEWS
+    assert result["parallel"] is True
+    assert result["nextSteps"] == node_steps(*REVIEWS)
+    for identity in REVIEWS:
+        pass_node(home, identity)
+    fail_gate(home, "review-gate/test")
+    code, result = invoke(home, "change", "next", CHANGE)
+    assert result["node"]["id"] == "review-gate/test"
+    assert [node["id"] for node in result["nodes"]] == ["review-gate/test"]
+    assert result["parallel"] is False
+
+
+def test_parallel_is_false_outside_active_execution(tmp_path: Path):
+    home = project(tmp_path, code=False)
+    new_change(home)
+    assert status(home)["parallel"] is False
+    create_draft(home, DOCS_FLOW)
+    assert status(home)["parallel"] is False
+    approve(home, "001")
+    for identity in ("requirements/proposal", "design/design", "design/tasks"):
+        pass_node(home, identity)
+    report = status(home)
+    assert report["isComplete"] and report["parallel"] is False

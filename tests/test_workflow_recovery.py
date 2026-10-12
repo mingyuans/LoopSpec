@@ -9,7 +9,7 @@ import yaml
 import loopspec.workflow_attempts as attempts
 import loopspec.workflow_plans as plans
 from loopspec.errors import WorkflowError
-from loopspec.workflow_io import atomic_write
+from loopspec.workflow_io import atomic_write, write_lock
 from tests.workflow_helpers import (
     CHANGE,
     DOCS_FLOW,
@@ -340,3 +340,26 @@ def test_record_listing_paths_outside_the_reset_is_refused(tmp_path, monkeypatch
     code, result = invoke(home, *INSTRUCTIONS, "requirements/proposal")
     assert code == 1 and result["error"] == "history_integrity"
     assert (plan_dir(home) / source).is_file()
+
+
+def test_instructions_read_without_the_lock_when_nothing_is_pending(tmp_path: Path):
+    """Parallel sub agents start with `node instructions`; it must not collide."""
+    home = failed_qa(tmp_path)
+    assert invoke(home, *ROLLBACK)[0] == 0
+    with write_lock(home / "changes" / CHANGE):
+        code, result = invoke(home, *INSTRUCTIONS, "requirements/proposal")
+    assert code == 0, result
+    assert result["status"] == "ready"
+
+
+def test_instructions_still_lock_to_finish_pending_archiving(tmp_path: Path, monkeypatch):
+    home = failed_qa(tmp_path)
+    restore = interrupt(monkeypatch, attempts, "archive_file", 0)
+    assert invoke(home, *ROLLBACK)[0] == 1
+    restore()
+    with write_lock(home / "changes" / CHANGE):
+        code, result = invoke(home, *INSTRUCTIONS, "requirements/proposal")
+    assert code == 1 and result["error"] == "concurrent_write"
+    code, result = invoke(home, *INSTRUCTIONS, "requirements/proposal")
+    assert code == 0, result
+    assert not (plan_dir(home) / "artifacts/qa/test/fail.md").exists()

@@ -107,6 +107,7 @@ def status(home: Path, name: str) -> dict:
         else {"plan": open_plan, **state_view(ctx.root, plan_path(open_plan, "state.md"))},
         "untrustedData": UNTRUSTED_STATE,
         "isComplete": False,
+        "parallel": False,
     }
     if open_plan is None:
         return {
@@ -131,12 +132,14 @@ def status(home: Path, name: str) -> dict:
         **report,
         "status": "complete" if complete else "active",
         "nextSteps": [f"loopspec change archive {name}"] if complete else report["nextSteps"],
+        "parallel": report["parallel"] and not complete,
     }
 
 
 def next_step(home: Path, name: str) -> dict:
     report = status(home, name)
-    node = None
+    node: dict | None = None
+    nodes: list[dict] = []
     if report.get("nodes"):
         target = (report.get("pendingRollback") or {}).get("gate")
         node = next(
@@ -146,11 +149,19 @@ def next_step(home: Path, name: str) -> dict:
                 None,
             ),
         )
+        # `nodes` matches nextSteps: the rollback Gate, else exhausted Gates, else all ready leaves.
+        exhausted, ready = (
+            [item for item in report["nodes"] if item["status"] == wanted]
+            for wanted in ("exhausted", "ready")
+        )
+        nodes = [node] if target and node else exhausted or ready
     return {
         "changeName": name,
         "status": report["status"],
         "isComplete": report["isComplete"],
         "node": node,
+        "nodes": nodes,
+        "parallel": report["parallel"],
         "nextSteps": report["nextSteps"],
     }
 
