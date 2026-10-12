@@ -43,3 +43,51 @@ class WorkflowError(LoopspecError):
     def __init__(self, code: str, message: str, fix: str = "检查配置并重新校验计划。") -> None:
         super().__init__(message, fix)
         self.code = code
+
+
+class UpdateInvalidVersionError(LoopspecError):
+    """A version from `--version` or from a release's checksums.txt is malformed."""
+
+    code = "update_invalid_version"
+
+    def __init__(self, message: str, fix: str | None = None) -> None:
+        super().__init__(message, fix or "Pass a release version such as 2.1.0.")
+
+
+class UpdateFetchFailedError(LoopspecError):
+    code = "update_fetch_failed"
+
+    def __init__(self, message: str, fix: str | None = None) -> None:
+        super().__init__(
+            message,
+            fix
+            or "Check the network and that the release exists, or re-run install.sh: "
+            "curl -fsSL https://raw.githubusercontent.com/mingyuans/LoopSpec/main/install.sh | sh",
+        )
+
+
+class UpdateVerifyFailedError(LoopspecError):
+    """The downloaded wheel does not match its release's checksums.txt."""
+
+    code = "update_verify_failed"
+
+    def __init__(self, message: str, fix: str | None = None) -> None:
+        super().__init__(
+            message, fix or "Nothing was installed. Retry later, or report it if it persists."
+        )
+
+
+class UpdateInstallerMissingError(LoopspecError):
+    code = "update_installer_missing"
+
+    def __init__(self, message: str, fix: str | None = None) -> None:
+        super().__init__(
+            message, fix or "Install uv (https://docs.astral.sh/uv/) or pipx, then re-run."
+        )
+
+
+class UpdateInstallFailedError(LoopspecError):
+    code = "update_install_failed"
+
+    def __init__(self, message: str, fix: str | None = None) -> None:
+        super().__init__(message, fix or "Read the installer output above and re-run.")

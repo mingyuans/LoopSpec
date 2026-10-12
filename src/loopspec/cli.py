@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import sys
+from functools import partial
 from pathlib import Path
 from typing import NoReturn
 
 import typer
 
-from . import workflow_cli
+from . import self_update, workflow_cli
 from .errors import LoopspecError
 from .plan_guard import MAX_HOOK_INPUT, hook_output
 from .presentation import Presenter, render_init_summary, render_welcome
@@ -67,6 +69,60 @@ def version(as_json: bool = JsonOption) -> None:
         typer.echo(json.dumps({"version": installed_version}))
     else:
         typer.echo(installed_version)
+
+
+VersionOption = typer.Option(
+    None, "--version", help="Install this exact release instead of the latest one."
+)
+CheckOption = typer.Option(
+    False, "--check", help="Only report whether a newer release exists; install nothing."
+)
+
+
+@app.command()
+def update(
+    version: str | None = VersionOption,
+    check: bool = CheckOption,
+    as_json: bool = JsonOption,
+) -> None:
+    """Update the loopspec CLI to the latest (or a pinned) release."""
+
+    from . import __version__ as installed_version
+
+    # In JSON mode stdout carries exactly one JSON document, so the installer's
+    # own progress output is sent to stderr instead.
+    run = (
+        partial(self_update.default_runner, stdout=sys.stderr)
+        if as_json
+        else self_update.default_runner
+    )
+    try:
+        result = self_update.run_update(
+            installed_version,
+            version=version,
+            check=check,
+            run=run,
+            on_download=None if as_json else _announce_download,
+        )
+    except LoopspecError as exc:
+        _fail(exc, as_json)
+
+    if as_json:
+        typer.echo(json.dumps(result.to_dict()))
+    elif result.status == "up_to_date":
+        typer.echo(f"loopspec {result.current} is up to date.")
+    elif result.status == "available":
+        command = "loopspec update" + ("" if version is None else f" --version {version}")
+        typer.echo(
+            f"loopspec {result.latest} is available (installed: {result.current}). "
+            f"Run `{command}` to install it."
+        )
+    else:
+        typer.echo(f"Updated loopspec {result.current} -> {result.latest} with {result.installer}.")
+
+
+def _announce_download(version: str) -> None:
+    typer.echo(f"Downloading loopspec {version}...")
 
 
 @hook_app.command("pre-tool-use")

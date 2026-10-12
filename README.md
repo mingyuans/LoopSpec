@@ -53,7 +53,12 @@ Substitute the version you want; the filenames are listed on each release page. 
 ### Update and uninstall
 
 ```bash
-# update: the same command as installing
+# update: verifies the release's SHA256 and reinstalls with uv (or pipx), like install.sh
+loopspec update
+loopspec update --check            # only report whether a newer release exists
+loopspec update --version 2.0.0    # install an exact release
+
+# or, e.g. when the installed CLI is too old to have `update`: the install command
 curl -fsSL https://raw.githubusercontent.com/mingyuans/LoopSpec/main/install.sh | sh
 
 # uninstall

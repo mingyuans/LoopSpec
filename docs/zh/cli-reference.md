@@ -6,14 +6,22 @@
 
 ## 约定
 
-- 命令统一为 `loopspec <资源> <动作>`，资源名为单数：`change`、`plan`、`node`、`gate`、`fragment`、`profile`。只有 `version` 与 `init` 单独使用；`hook` 组供 AI 工具的 hook 调用。
+- 命令统一为 `loopspec <资源> <动作>`，资源名为单数：`change`、`plan`、`node`、`gate`、`fragment`、`profile`。只有 `version`、`update` 与 `init` 单独使用；`hook` 组供 AI 工具的 hook 调用。
 - `-c/--change` 指定 Change，`-p/--plan` 指定三位数字的 Plan 编号，`-n/--node` 指定叶子节点或 Gate 路径，`-f/--file` 指定相对工作区的请求文件，`--digest` 是人确认过的摘要，`--note` 是可选说明。`change` 组的命令以位置参数给出 Change 名。
-- 除 `version`、`init` 与 `hook` 外，所有命令都接受 `--home`（默认 `./loopspec`），并输出 JSON；唯一例外是 `change status`，默认输出给 LLM 阅读的纯文本报告，带 `--json` 时才输出 JSON。失败时输出 `{"error": <错误码>, "message": <说明>, "fix": <下一步>}`，退出码为 1；用法错误退出码为 2。
+- 除 `version`、`update`、`init` 与 `hook` 外，所有命令都接受 `--home`（默认 `./loopspec`），并输出 JSON；唯一例外是 `change status`，默认输出给 LLM 阅读的纯文本报告，带 `--json` 时才输出 JSON。失败时输出 `{"error": <错误码>, "message": <说明>, "fix": <下一步>}`，退出码为 1；用法错误退出码为 2。
 - 执行类命令（`node`、`gate`、`plan rollback`）只作用于活动 Plan。没有活动 Plan 时返回 `plan_not_active`，`fix` 给出下一个规划步骤。每条命令只有一次生效写入，中断后 Change 要么是命令之前、要么是命令之后的状态；尚待归档的返工文件由下一条写入类命令先行搬运。
 
 ## loopspec version
 
 打印已安装的版本号。`--json` 输出 `{"version": "..."}`。
+
+## loopspec update
+
+```bash
+loopspec update [--version <X.Y.Z>] [--check] [--json]
+```
+
+升级 loopspec CLI 本身，做法与 `install.sh` 相同。先下载 Release 的 `checksums.txt`：默认取最新 Release（`https://github.com/mingyuans/LoopSpec/releases/latest/download/checksums.txt`），带 `--version` 时取该 tag 的，并从其中的 wheel 行读出版本。该版本就是已安装版本时直接结束，不安装。否则从 tag 下载 wheel，要求 `checksums.txt` 中恰好一行精确命名该文件且 SHA256 一致，然后用 `uv tool install --force`（没有 uv 时用 `pipx install --force`）安装已校验的本地文件；没有跳过校验的选项。`--version` 总是安装指定版本，即使与已安装版本相同，也可用于回退到旧版本。`--check` 只报告是否有新版本，不下载 wheel。版本号无论来自参数还是 `checksums.txt`，都必须形如 `2.1.0`（可带 `a`、`b`、`rc`、`dev` 或 `post` 后缀）才会被使用。下载只走 https（包括重定向），30 秒超时，`checksums.txt` 上限 64 KiB、wheel 上限 50 MiB；安装器不经过 shell 执行。与 `install.sh` 一样，校验能防下载损坏或被替换，不能防 Release 本身被攻破。默认输出一行人类可读文本；带 `--json` 时输出 `{"status", "current", "latest", "installer"}`，`status` 为 `up_to_date`、`available`（`--check` 时）或 `updated`，`installer` 为 `uv`、`pipx`，未安装时为 `null`，此时安装器自身的输出写到 stderr。参数：`--version`、`--check`、`--json`。
 
 ## loopspec init
 
@@ -289,3 +297,8 @@ loopspec registry apply --plan <planId> [--resolve <path>=local|upstream]... [--
 | `registry_invalid` | registry 树无法读取、`path` 不存在，或超过大小与数量限额。 |
 | `registry_plan_stale` | 没有当前计划、计划 ID 不一致，或 `registry update` 之后暂存文件或本地文件被修改。 |
 | `registry_conflict_unresolved` | 有冲突没有 `--resolve`。 |
+| `update_invalid_version` | `update` 收到或读到的版本号不是合法的 Release 版本。 |
+| `update_fetch_failed` | `update` 无法下载 Release 文件：网络错误、超时、超过大小上限、非 https 地址，或 `checksums.txt` 中没有 wheel。 |
+| `update_verify_failed` | wheel 在 `checksums.txt` 中不是恰好一行，或 SHA256 不一致；未安装任何内容。 |
+| `update_installer_missing` | `PATH` 中既没有 `uv` 也没有 `pipx`。 |
+| `update_install_failed` | 安装器以非零状态退出。 |

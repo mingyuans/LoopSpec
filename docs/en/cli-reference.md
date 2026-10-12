@@ -6,14 +6,22 @@
 
 ## Conventions
 
-- Commands are `loopspec <resource> <verb>`, with singular resources: `change`, `plan`, `node`, `gate`, `fragment`, `profile`. Only `version` and `init` stand alone; the `hook` group is called by AI-tool hooks.
+- Commands are `loopspec <resource> <verb>`, with singular resources: `change`, `plan`, `node`, `gate`, `fragment`, `profile`. Only `version`, `update` and `init` stand alone; the `hook` group is called by AI-tool hooks.
 - `-c/--change` names a Change, `-p/--plan` a three-digit Plan number, `-n/--node` a leaf node or Gate path, `-f/--file` a request file relative to the workflow home, `--digest` the digest a human confirmed, `--note` an optional note. `change` commands take the Change name as an argument.
-- Every command except `version`, `init` and `hook` accepts `--home` (default `./loopspec`) and prints JSON. The one exception is `change status`, which prints a plain-text report for an LLM by default and JSON only with `--json`. On failure it prints `{"error": <code>, "message": <text>, "fix": <next action>}` and exits with status 1; usage errors exit with status 2.
+- Every command except `version`, `update`, `init` and `hook` accepts `--home` (default `./loopspec`) and prints JSON. The one exception is `change status`, which prints a plain-text report for an LLM by default and JSON only with `--json`. On failure it prints `{"error": <code>, "message": <text>, "fix": <next action>}` and exits with status 1; usage errors exit with status 2.
 - Execution commands (`node`, `gate`, `plan rollback`) act only on the active Plan. Without one they fail with `plan_not_active` and a `fix` naming the next planning step. Every command takes effect in a single write, so an interrupted command leaves the Change as before or as after; rework files still to be archived are moved first by the next writing command.
 
 ## loopspec version
 
 Prints the installed version. `--json` prints `{"version": "..."}`.
+
+## loopspec update
+
+```bash
+loopspec update [--version <X.Y.Z>] [--check] [--json]
+```
+
+Updates the loopspec CLI itself, the same way `install.sh` does. It downloads the release's `checksums.txt` -- the latest release's from `https://github.com/mingyuans/LoopSpec/releases/latest/download/checksums.txt`, or with `--version` that tag's -- and reads the version from its wheel line. When that version is the one installed, it stops and installs nothing. Otherwise it downloads the wheel from the tag, requires exactly one `checksums.txt` line naming that exact file and a matching SHA256, and installs the verified local file with `uv tool install --force` (or `pipx install --force` when uv is missing). There is no option to skip the check. `--version` always installs the given release, even the installed one, and can move to an older release. `--check` only reports whether a newer release exists and downloads no wheel. Versions, from the option or from `checksums.txt`, must look like `2.1.0` (optionally with an `a`, `b`, `rc`, `dev` or `post` suffix) before they are used. Downloads are https only, redirects included, time out after 30 seconds and are capped at 64 KiB for `checksums.txt` and 50 MiB for the wheel. The installer runs without a shell. The check guards against corrupted or swapped downloads, not against a compromised release, as with `install.sh`. Prints a human-readable line by default; `--json` prints `{"status", "current", "latest", "installer"}`, where `status` is `up_to_date`, `available` (with `--check`) or `updated`, and `installer` is `uv`, `pipx` or `null` when nothing was installed; the installer's own output then goes to stderr. Options: `--version`, `--check`, `--json`.
 
 ## loopspec init
 
@@ -289,3 +297,8 @@ Writes the latest `registry update` plan after the human confirmed it. Every `co
 | `registry_invalid` | The registry tree is unreadable, `path` is missing, or a size or count limit was exceeded. |
 | `registry_plan_stale` | No current plan, the plan id differs, or staged or local files changed since `registry update`. |
 | `registry_conflict_unresolved` | A conflict has no `--resolve`. |
+| `update_invalid_version` | A version given to or read by `update` is not a release version. |
+| `update_fetch_failed` | `update` could not download a release file: network error, timeout, size limit, non-https URL, or a `checksums.txt` without a wheel. |
+| `update_verify_failed` | The wheel has no single `checksums.txt` line or its SHA256 differs; nothing was installed. |
+| `update_installer_missing` | Neither `uv` nor `pipx` is on `PATH`. |
+| `update_install_failed` | The installer exited with a non-zero status. |
