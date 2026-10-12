@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -439,8 +440,11 @@ def patch_run_update(monkeypatch: pytest.MonkeyPatch, outcome: UpdateResult | Ex
 def test_cli_help_lists_the_options() -> None:
     result = cli.invoke(app, ["update", "--help"])
     assert result.exit_code == 0
+    # CI (GITHUB_ACTIONS / FORCE_COLOR) makes rich colour the help, splitting
+    # "--version" into "-" and "-version" with ANSI codes; compare plain text.
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
     for option in ("--version", "--check", "--json"):
-        assert option in result.stdout
+        assert option in plain
 
 
 def test_cli_json_success(monkeypatch: pytest.MonkeyPatch) -> None:
