@@ -1,0 +1,22 @@
+diffDigest: 8a51d3eba112080627ccdd57302a8398e89ea09ea0c38e435cbd0292b7f162c2
+baseline: 6e17a2ca75a778982427e893a07d4aaba849724b
+warnings: null
+unknown_paths: []
+missing_evidence: []
+stale_evidence: []
+missing_fragments: []
+diverged_commits: []
+requiredCapabilities:
+  src/loopspec/cli.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/workflow_resources.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_cli.py:
+  - backend-tests
+  - pr-review
+  - security-review
+passed: true
