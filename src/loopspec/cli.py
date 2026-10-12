@@ -43,6 +43,14 @@ ProjectRootOption = typer.Option(
         "Defaults to the parent of the workflow home, i.e. your project root."
     ),
 )
+UpdateResourcesOption = typer.Option(
+    False,
+    "--update-resources",
+    help=(
+        "Copy missing built-in fragments/profiles even when the workflow home "
+        "already has some, without asking."
+    ),
+)
 PROJECT_URL = "https://github.com/mingyuans/LoopSpec"
 ISSUES_URL = f"{PROJECT_URL}/issues"
 DEFAULT_CONFIG = "artifacts_dir: changes\nworkflow: {}\n"
@@ -177,6 +185,19 @@ def _welcome_and_pick(presenter: Presenter, scaffold_root: Path) -> list[str]:
     return pick_tools(scaffold_root)
 
 
+def _confirm_resource_update(presenter: Presenter) -> bool:
+    """Ask before touching an existing catalog; anything but yes keeps it."""
+
+    presenter.line(
+        presenter.warning("fragments/ or profiles/ already exist in the workflow home.")
+    )
+    try:
+        answer = input("Copy missing built-in fragments/profiles into them? [y/N] ")
+    except EOFError:
+        return False
+    return answer.strip().lower() in {"y", "yes"}
+
+
 def _init_counts(result: ScaffoldResult) -> tuple[int, int]:
     written = [path for paths in result.written_files.values() for path in paths]
     skills = sum(1 for path in written if path.endswith("SKILL.md"))
@@ -188,6 +209,7 @@ def init(
     path: Path = HomePathArgument,
     tools: str | None = ToolsOption,
     project_root: Path | None = ProjectRootOption,
+    update_resources: bool = UpdateResourcesOption,
     as_json: bool = JsonOption,
 ) -> None:
     """Initialize a workflow home."""
@@ -203,12 +225,27 @@ def init(
         config_path.write_text(DEFAULT_CONFIG, encoding="utf-8")
         created_files.append("config.yaml")
 
-    from .workflow_resources import install_resources
+    from .workflow_resources import install_resources, resources_present
 
-    try:
-        copied_workflows = install_resources(path)
-    except LoopspecError as exc:
-        _fail(exc, as_json)
+    # An existing catalog may be hand-tuned or registry-synced; re-running init
+    # to refresh skills must not quietly re-add built-ins the user removed.
+    install = update_resources or not resources_present(path)
+    if not install and presenter is not None and is_interactive():
+        install = _confirm_resource_update(presenter)
+
+    copied_workflows: list[str] = []
+    if install:
+        try:
+            copied_workflows = install_resources(path)
+        except LoopspecError as exc:
+            _fail(exc, as_json)
+    elif presenter is not None:
+        presenter.line(
+            presenter.dim(
+                "Kept existing fragments/profiles; "
+                "rerun with --update-resources to add missing built-ins."
+            )
+        )
 
     if presenter is not None:
         presenter.line(presenter.ready(f"Workflow home ready at {_display_path(path)}"))
@@ -243,6 +280,7 @@ def init(
         "projectRoot": str(scaffold_root),
         "createdFiles": created_files,
         "copiedWorkflowResources": copied_workflows,
+        "resourcesUpdate": "installed" if install else "skipped",
         "toolsConfigured": tool_ids,
         "scaffoldedFiles": scaffold_result.written_files,
         "skippedCommandGeneration": scaffold_result.skipped_command_generation,

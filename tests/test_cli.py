@@ -59,6 +59,120 @@ def test_init_keeps_existing_resources(tmp_path: Path):
     assert data["nextSteps"] == [f"loopspec change new <change-name> --home {home}"]
 
 
+# --------------------------------------------------------------------------- #
+# existing fragments/profiles: init only refreshes them after confirmation
+# --------------------------------------------------------------------------- #
+
+RESOURCE_PROMPT = "already exist"
+
+
+def configured_home(tmp_path: Path) -> Path:
+    """A home whose catalog the user has trimmed: one built-in Profile deleted."""
+
+    home = init_home(tmp_path)
+    (home / "profiles/bugfix.yaml").unlink()
+    return home
+
+
+def test_first_init_installs_resources(tmp_path: Path):
+    code, data = run("init", str(tmp_path / "wf"), "--json")
+    assert code == 0
+    assert data["resourcesUpdate"] == "installed"
+    assert data["copiedWorkflowResources"]
+    assert (tmp_path / "wf/fragments/requirements/fragment.yaml").is_file()
+    assert (tmp_path / "wf/profiles/bugfix.yaml").is_file()
+
+
+def test_json_rerun_skips_existing_resources(tmp_path: Path):
+    home = configured_home(tmp_path)
+    code, data = run("init", str(home), "--json")
+    assert code == 0
+    assert data["resourcesUpdate"] == "skipped"
+    assert data["copiedWorkflowResources"] == []
+    assert not (home / "profiles/bugfix.yaml").exists()
+
+
+def test_update_resources_flag_fills_missing_without_overwriting(tmp_path: Path):
+    home = configured_home(tmp_path)
+    (home / "profiles/large-feature.yaml").write_text("customized")
+    code, data = run("init", str(home), "--json", "--update-resources")
+    assert code == 0
+    assert data["resourcesUpdate"] == "installed"
+    assert data["copiedWorkflowResources"] == ["profiles/bugfix.yaml"]
+    assert (home / "profiles/bugfix.yaml").is_file()
+    assert (home / "profiles/large-feature.yaml").read_text() == "customized"
+
+
+def test_non_interactive_human_rerun_skips_with_hint(tmp_path: Path):
+    home = configured_home(tmp_path)
+    output = human_init("init", str(home))
+    assert RESOURCE_PROMPT not in output
+    assert "--update-resources" in output
+    assert not (home / "profiles/bugfix.yaml").exists()
+
+
+@pytest.mark.parametrize("answer", ["n\n", "\n", ""])
+def test_interactive_rerun_declined_keeps_resources(tmp_path: Path, monkeypatch, answer: str):
+    home = configured_home(tmp_path)
+    monkeypatch.setattr("loopspec.cli.is_interactive", lambda: True)
+    result = runner.invoke(app, ["init", str(home), "--tools", "none"], input=answer)
+    assert result.exit_code == 0, result.stdout
+    assert RESOURCE_PROMPT in result.stdout
+    assert not (home / "profiles/bugfix.yaml").exists()
+
+
+@pytest.mark.parametrize("answer", ["y\n", "YES\n"])
+def test_interactive_rerun_confirmed_installs_resources(
+    tmp_path: Path, monkeypatch, answer: str
+):
+    home = configured_home(tmp_path)
+    monkeypatch.setattr("loopspec.cli.is_interactive", lambda: True)
+    result = runner.invoke(app, ["init", str(home), "--tools", "none"], input=answer)
+    assert result.exit_code == 0, result.stdout
+    assert (home / "profiles/bugfix.yaml").is_file()
+
+
+def test_interactive_update_resources_flag_skips_prompt(tmp_path: Path, monkeypatch):
+    home = configured_home(tmp_path)
+    monkeypatch.setattr("loopspec.cli.is_interactive", lambda: True)
+    result = runner.invoke(app, ["init", str(home), "--tools", "none", "--update-resources"])
+    assert result.exit_code == 0, result.stdout
+    assert RESOURCE_PROMPT not in result.stdout
+    assert (home / "profiles/bugfix.yaml").is_file()
+
+
+def test_rerun_with_tools_refreshes_skills_but_not_resources(tmp_path: Path):
+    project_root = tmp_path / "proj"
+    project_root.mkdir()
+    home = configured_home(project_root)
+    code, data = run("init", str(home), "--tools", "claude", "--json")
+    assert code == 0
+    assert data["resourcesUpdate"] == "skipped"
+    assert (project_root / ".claude/skills/loopspec-new/SKILL.md").is_file()
+    assert not (home / "profiles/bugfix.yaml").exists()
+
+
+def test_only_fragments_present_counts_as_existing(tmp_path: Path):
+    home = tmp_path / "wf"
+    (home / "fragments/custom").mkdir(parents=True)
+    (home / "fragments/custom/fragment.yaml").write_text("custom")
+    code, data = run("init", str(home), "--json")
+    assert code == 0
+    assert data["resourcesUpdate"] == "skipped"
+    assert not (home / "fragments/requirements").exists()
+    assert not (home / "profiles/bugfix.yaml").exists()
+
+
+def test_empty_resource_dirs_count_as_first_init(tmp_path: Path):
+    home = tmp_path / "wf"
+    (home / "fragments").mkdir(parents=True)
+    (home / "profiles").mkdir()
+    code, data = run("init", str(home), "--json")
+    assert code == 0
+    assert data["resourcesUpdate"] == "installed"
+    assert (home / "profiles/bugfix.yaml").is_file()
+
+
 @pytest.fixture(autouse=True)
 def isolated_codex_home(tmp_path: Path, monkeypatch) -> Path:
     """Keep Codex's global prompt scaffolding out of the developer's real ~/.codex.

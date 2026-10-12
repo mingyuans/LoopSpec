@@ -32,5 +32,5 @@
 
 1. Before upgrading, finish and archive in-flight 1.x Changes with LoopSpec 1.x. 2.0.0 does not migrate them; recreate unfinished work with `loopspec change new` and plan it again.
 2. Remove the 1.x fields from `config.yaml`; `schemas/` in the workspace is no longer read and may be deleted.
-3. Run `loopspec init --tools <your tools>` to add the built-in Fragments and Profiles and refresh the Skills.
+3. Run `loopspec init --tools <your tools> --update-resources` to add the built-in Fragments and Profiles and refresh the Skills.
 4. Adjust `evidence.paths` in the code review Fragments and `paths` in `change-assurance/rules.yaml` to your repository layout.

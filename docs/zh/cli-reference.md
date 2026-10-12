@@ -26,10 +26,10 @@ loopspec update [--version <X.Y.Z>] [--check] [--json]
 ## loopspec init
 
 ```bash
-loopspec init [PATH] [--tools all|none|<ids>] [--project-root <dir>] [--json]
+loopspec init [PATH] [--tools all|none|<ids>] [--project-root <dir>] [--update-resources] [--json]
 ```
 
-在 `PATH`（默认 `./loopspec`）创建工作区：`config.yaml`（`artifacts_dir: changes` 与空的 `workflow`）、`changes/`，以及内置的 `fragments/` 与 `profiles/`，只复制缺失的文件。`--tools` 为指定工具生成 Agent Skill 与 `/lpsx:*` 命令；不带时，交互式终端显示选择器，其他情况不配置任何工具。`--project-root` 指定工具目录的位置（默认工作区的上级目录）。选中 `claude` 或 `codex` 时，还会把 `loopspec hook pre-tool-use` 作为 PreToolUse hook 合并进项目级配置：Claude Code 为 `.claude/settings.json`（matcher `Edit|MultiEdit|Write|NotebookEdit|Bash`），Codex 为 `.codex/hooks.json`（matcher `^apply_patch$|^Bash$`）。只合并、不覆盖：保留已有键与 hook，已有同一命令时不重复添加；文件不是普通文件、不是合法 JSON 或 `hooks` 结构不对时不写入。Codex 的项目级 hook 需要在 Codex 中用 `/hooks` 审阅并信任后才运行。默认输出人类可读摘要，带 `--json` 时输出 JSON，其中 `hooks` 按工具给出 `{path, status, reason?}`，`status` 为 `created`、`updated`、`unchanged` 或 `skipped`。
+在 `PATH`（默认 `./loopspec`）创建工作区：`config.yaml`（`artifacts_dir: changes` 与空的 `workflow`）、`changes/`，以及内置的 `fragments/` 与 `profiles/`，只复制缺失的文件。`fragments/` 或 `profiles/` 中已有内容时，未经同意不改动两者：交互式终端询问 `[y/N]`（只有 `y` 或 `yes` 才复制），`--json` 与非交互运行不询问直接跳过；`--update-resources` 不询问直接复制。Skill、命令与 hook 照常刷新。`--tools` 为指定工具生成 Agent Skill 与 `/lpsx:*` 命令；不带时，交互式终端显示选择器，其他情况不配置任何工具。`--project-root` 指定工具目录的位置（默认工作区的上级目录）。选中 `claude` 或 `codex` 时，还会把 `loopspec hook pre-tool-use` 作为 PreToolUse hook 合并进项目级配置：Claude Code 为 `.claude/settings.json`（matcher `Edit|MultiEdit|Write|NotebookEdit|Bash`），Codex 为 `.codex/hooks.json`（matcher `^apply_patch$|^Bash$`）。只合并、不覆盖：保留已有键与 hook，已有同一命令时不重复添加；文件不是普通文件、不是合法 JSON 或 `hooks` 结构不对时不写入。Codex 的项目级 hook 需要在 Codex 中用 `/hooks` 审阅并信任后才运行。默认输出人类可读摘要，带 `--json` 时输出 JSON，其中 `resourcesUpdate` 为 `installed` 或 `skipped`，`hooks` 按工具给出 `{path, status, reason?}`，`status` 为 `created`、`updated`、`unchanged` 或 `skipped`。
 
 ## loopspec hook pre-tool-use
 

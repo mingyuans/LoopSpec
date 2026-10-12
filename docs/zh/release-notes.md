@@ -32,5 +32,5 @@
 
 1. 升级前用 LoopSpec 1.x 完成并归档进行中的 1.x Change。2.0.0 不迁移它们；未完成的工作用 `loopspec change new` 重新建立并规划。
 2. 删除 `config.yaml` 中的 1.x 字段；工作区中的 `schemas/` 不再读取，可以删除。
-3. 执行 `loopspec init --tools <你的工具>`，补齐内置 Fragment 与 Profile 并刷新 Skill。
+3. 执行 `loopspec init --tools <你的工具> --update-resources`，补齐内置 Fragment 与 Profile 并刷新 Skill。
 4. 按仓库实际目录调整代码审查 Fragment 的 `evidence.paths` 与 `change-assurance/rules.yaml` 的 `paths`。

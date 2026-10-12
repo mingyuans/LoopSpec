@@ -10,6 +10,18 @@ from .builtin_resources import builtin_root
 from .errors import WorkflowError
 from .workflow_io import ResourceBundle, atomic_write, directory, exists, relative_path
 
+RESOURCE_KINDS = ("fragments", "profiles")
+
+
+def resources_present(home: Path) -> bool:
+    """Whether the home already has a catalog, so refreshing it needs consent."""
+
+    for kind in RESOURCE_KINDS:
+        target = home / kind
+        if target.is_dir() and not target.is_symlink() and any(target.iterdir()):
+            return True
+    return False
+
 
 def install_resources(home: Path) -> list[str]:
     source = builtin_root()
@@ -37,7 +49,7 @@ def install_resources(home: Path) -> list[str]:
                 else:
                     raise WorkflowError("unsafe_path", "内置资源不能包含链接或特殊文件")
 
-    for kind in ("fragments", "profiles"):
+    for kind in RESOURCE_KINDS:
         with directory(home, kind, create=True):
             pass
         visit(kind, 0)
