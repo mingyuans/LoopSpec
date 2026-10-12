@@ -23,7 +23,7 @@
 
 ## 2. Execute
 
-Loop on `loopspec change status <change>` and run the single command in `nextSteps`:
+Loop on `loopspec change status <change>` and run the commands in `nextSteps`:
 
 | `status` | Do |
 | --- | --- |
@@ -31,6 +31,8 @@ Loop on `loopspec change status <change>` and run the single command in `nextSte
 | `planning` | Show the draft and wait for confirmation. |
 | `active` | Run `nextSteps`, usually `node instructions`. |
 | `complete` | Stop and report; archive only on request. |
+
+When several leaves are ready at once, `nextSteps` lists one `node instructions` command for each and `parallel` is `true`; the text report says the steps are independent. Ready leaves never depend on each other, so you may run them in parallel, one sub agent per node. Each sub agent works only on its own node and never runs a rollback, a revision or an archive. A write command that fails with `concurrent_write` is retried unchanged. Once all of them finish, read the status again. A pending rollback or an exhausted Gate always takes precedence: `nextSteps` then holds only the rollback, or nothing.
 
 For `loopspec node instructions -c <change> -n <node>`:
 

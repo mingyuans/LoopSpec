@@ -26,6 +26,7 @@
 - `workflow.excluded_paths` 按名称或完整路径把任意路径排除出 Diff；被 Git 忽略但未排除的路径只作为告警写进保障报告，不再中止命令。
 - 证据摘要只绑定基线与工作树中的交付内容，不再包含暂存区：Gate 通过后执行 `git add` 或 `git commit` 不会让证据失效；在基线之后提交再继续修改也不再报 `index_worktree_mismatch`；但 HEAD 中既不是基线也不是工作区内容的提交会使保障判 FAIL（`diverged_commits`），交付前需提交最终内容。此前开发版本记录的代码 Gate 与保障证据会失效，需要重跑。
 - `on_fail` 编译进每个 Gate；每个 Gate 一条策略，冲突即报错。
+- `nextSteps` 列出全部就绪叶子，`parallel: true` 表示这些步骤互相独立、可以并行（例如每个节点一个 sub agent）；`change next` 新增 `nodes`。
 
 ### 升级步骤
 

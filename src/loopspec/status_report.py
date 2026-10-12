@@ -53,6 +53,7 @@ TOP_KEYS = {
     "instances",
     "pendingRollback",
     "nextSteps",
+    "parallel",
 }
 OMITTED_TOP_KEYS = {"instances", "untrustedData"}
 NODE_KEYS = {
@@ -115,10 +116,10 @@ PROMPT_NODES = (
     "ready (dependencies met, output not written yet), blocked (waiting on the nodes\n"
     "named in its notes), failed (a gate rejected the work and a rollback is\n"
     "available), exhausted (a gate rejected the work and no retries are left; stop\n"
-    "and ask a human). Do not pick a node yourself -- act on the one named in NEXT\n"
-    "STEPS. A path like dir/{pass,fail}.md means the node is a gate that writes\n"
-    "exactly one of the two. A node whose output is a glob lists every file it\n"
-    "currently matches, one per line, indented under its first line."
+    "and ask a human). Do not pick nodes yourself -- act only on the nodes named\n"
+    "in NEXT STEPS. A path like dir/{pass,fail}.md means the node is a gate that\n"
+    "writes exactly one of the two. A node whose output is a glob lists every file\n"
+    "it currently matches, one per line, indented under its first line."
 )
 
 PROMPT_GATE_FAILURES = (
@@ -136,6 +137,14 @@ PROMPT_PENDING_ROLLBACK = (
 PROMPT_NEXT_STEPS = (
     "What to do next. Run these in order; the first one is enough to make progress.\n"
     "Run them as written rather than composing your own."
+)
+
+PROMPT_NEXT_STEPS_PARALLEL = (
+    "What to do next. These steps are independent of each other: run them in\n"
+    "parallel, for example one sub agent per step, each working only on its own\n"
+    "node. A write command that fails with concurrent_write can simply be retried.\n"
+    "When all of them have finished, read the status report again. Run them as\n"
+    "written rather than composing your own."
 )
 
 PROMPT_NEXT_STEPS_COMPLETE = (
@@ -329,7 +338,12 @@ def _next_steps(payload: dict) -> list[str]:
             if exhausted
             else NO_NEXT_STEPS
         ]
-    prompt = PROMPT_NEXT_STEPS_COMPLETE if payload["isComplete"] else PROMPT_NEXT_STEPS
+    if payload["isComplete"]:
+        prompt = PROMPT_NEXT_STEPS_COMPLETE
+    elif payload.get("parallel"):
+        prompt = PROMPT_NEXT_STEPS_PARALLEL
+    else:
+        prompt = PROMPT_NEXT_STEPS
     return [SECTION_NEXT_STEPS, prompt, "", *steps]
 
 

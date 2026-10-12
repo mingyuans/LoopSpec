@@ -1,0 +1,42 @@
+diffDigest: f9dd9a466baeac74ec308884192cc7925bc4da85b32271543a73f0800feb3b9d
+baseline: 1c5ce6ad00450d3639c64501523fd377492fbfc9
+warnings: null
+unknown_paths: []
+missing_evidence: []
+stale_evidence: []
+missing_fragments: []
+diverged_commits: []
+requiredCapabilities:
+  src/loopspec/status_report.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/workflow_changes.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/workflow_cli.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/workflow_runtime.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_skill_templates.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_status_report.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_workflow_recovery.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_workflow_runtime.py:
+  - backend-tests
+  - pr-review
+  - security-review
+passed: true

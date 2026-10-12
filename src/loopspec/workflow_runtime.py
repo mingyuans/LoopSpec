@@ -214,8 +214,9 @@ def status(loaded: LoadedPlan) -> dict:
     elif any(entry["status"] == "exhausted" for entry in entries.values()):
         next_steps = []
     else:
-        ready = next((key for key, item in entries.items() if item["status"] == "ready"), None)
-        next_steps = [f"loopspec node instructions -c {name} -n {ready}"] if ready else []
+        # Leaves that are ready together never depend on each other, so they may run in parallel.
+        ready = [key for key, item in entries.items() if item["status"] == "ready"]
+        next_steps = [f"loopspec node instructions -c {name} -n {key}" for key in ready]
     result = {
         "plan": plan,
         "revision": loaded.document.meta.revision,
@@ -226,6 +227,7 @@ def status(loaded: LoadedPlan) -> dict:
         "pendingRollback": rollback,
         "isComplete": complete,
         "nextSteps": next_steps,
+        "parallel": rollback is None and len(next_steps) > 1,
     }
     # The Diff is computed only to recheck existing evidence; warnings come with it.
     if snapshot is not None and snapshot.warnings():

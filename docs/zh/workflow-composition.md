@@ -187,6 +187,31 @@ flow:
   requires: [qa, be]
 ```
 
+### 并行分支
+
+互不依赖的步骤会同时就绪。下面的示意中，PRD 同时由 FE、BE、QA 评审，再由一个 Gate 综合三份评审。评审 Fragment 名称是占位，需由你的 registry 提供。
+
+```yaml
+flow:
+- id: prd
+  use: requirements
+- id: fe-review
+  use: fe-prd-review
+  requires: [prd]
+- id: be-review
+  use: be-prd-review
+  requires: [prd]
+- id: qa-review
+  use: qa-prd-review
+  requires: [prd]
+- id: review-gate
+  use: prd-review-gate
+  requires: [fe-review, be-review, qa-review]
+  on_fail: {reset: [prd], max_retries: 2}
+```
+
+`prd` 完成后，`nextSteps` 列出三个评审叶子且 `parallel` 为 `true`，Agent 可以为每个叶子各派一个 sub agent。三份评审都完成前 `review-gate` 保持 blocked。它 FAIL 时，rollback 重置 `prd` 及全部下游（包括三份评审），修复 PRD 后再次并行评审。
+
 ## 代码证据与保障
 
 代码 Gate 的结论只通过两条命令生效。`gate begin` 以 Change 基线为准固定该 Gate `evidence.paths` 范围内的内容，返回一次性的轮次编号；Agent 只审查或测试这部分内容；`gate record` 只接受头部仅含 `verdict` 与 `summary` 的报告，固定的代码发生变化则拒绝，否则写出 PASS 或 FAIL 报告与绑定 Plan 摘要的证据。之后再改代码，证据过期，Gate 回到 `ready`。

@@ -54,7 +54,7 @@ loopspec change status <change> [--json]
 
 By default prints a plain-text report for an LLM to read: sections start with a `=== SECTION ===` line at column zero, with no Markdown, no colour and the same bytes on every terminal. The section order is fixed: `OVERVIEW`, `STATE RECORDS`, `PLANS`, `NODES` (with an active Plan), `GATE FAILURES` (when a Gate failed), `PENDING ROLLBACK` (when a rollback is due) and `NEXT STEPS`, each opening with a short explanation. `STATE RECORDS` quotes the change-level `state.md` and the current Plan's (the active Plan, or the draft while planning) verbatim, every line indented by four spaces and marked as untrusted data; archived Plans' `state.md` is left out, while `PLANS` still lists every Plan. On failure it prints an `=== ERROR ===` report and exits with status 1.
 
-With `--json` it returns `status` (`unplanned`, `planning`, `active`, `complete`), `baseline`, `repository`, `activePlan`, `openPlan`, a summary of every Plan, and `nextSteps` with the single next command. With an active Plan it adds `plan`, `revision`, `digest`, `nodes` (each with `status`, output paths, `reason` for stale evidence, `gate` details for failures and `taskProgress` for tracked nodes), `instances` (reference summaries) and `pendingRollback`, plus `warnings` when the diff was computed to recheck evidence and ignored paths are not excluded. In every state it also returns `state` (the change-level `state.md`), `planState` (the current Plan's `state.md` with its `plan` number, `null` when unplanned) and `untrustedData` (an untrusted-data notice). `state` and `planState` look like `{path, content, truncated}`: `content` is `null` when the file is missing, an unreadable file (symlink, not a regular file) adds `error: "unreadable"`, and a file over 64 KiB keeps its first and last 32 KiB with `truncated: true`. Options: `--json`, `--home`.
+With `--json` it returns `status` (`unplanned`, `planning`, `active`, `complete`), `baseline`, `repository`, `activePlan`, `openPlan`, a summary of every Plan, `nextSteps` with every command that can run next, and `parallel`: `true` when `nextSteps` holds two or more independent `node instructions` commands that may run in parallel, otherwise `false`. With an active Plan it adds `plan`, `revision`, `digest`, `nodes` (each with `status`, output paths, `reason` for stale evidence, `gate` details for failures and `taskProgress` for tracked nodes), `instances` (reference summaries) and `pendingRollback`, plus `warnings` when the diff was computed to recheck evidence and ignored paths are not excluded. In every state it also returns `state` (the change-level `state.md`), `planState` (the current Plan's `state.md` with its `plan` number, `null` when unplanned) and `untrustedData` (an untrusted-data notice). `state` and `planState` look like `{path, content, truncated}`: `content` is `null` when the file is missing, an unreadable file (symlink, not a regular file) adds `error: "unreadable"`, and a file over 64 KiB keeps its first and last 32 KiB with `truncated: true`. Options: `--json`, `--home`.
 
 ## loopspec change next
 
@@ -62,7 +62,7 @@ With `--json` it returns `status` (`unplanned`, `planning`, `active`, `complete`
 loopspec change next <change>
 ```
 
-Same logic as `change status`, returning only `status`, `isComplete`, the node to work on and `nextSteps`. Options: `--home`.
+Same logic as `change status`, returning only `status`, `isComplete`, `node` (the first node to work on), `nodes` (every node behind `nextSteps`: the rollback Gate, the exhausted Gates, or all ready leaves), `parallel` and `nextSteps`. Options: `--home`.
 
 ## loopspec change history
 
@@ -152,7 +152,7 @@ For an effective FAIL in the active Plan, applies that Gate's own `on_fail`: arc
 loopspec node instructions -c <change> -n <node>
 ```
 
-Returns what an agent needs to execute one ready (or done) leaf node of the active Plan: the live `instruction`, `template` or Gate `templates`, `outputPath` and `resolvedOutputPath`, `dependencies`, and `priorAttempts` (earlier rework records and FAIL reports, marked untrusted). Code Gates add `gateProtocol` with the `gate begin` and `gate record` commands; the assurance node adds its `gate record` command. It takes the Change's write lock and first finishes archiving files of effective rework records, so new outputs never overwrite files still to be archived. Options: `--change`, `--node`, `--home`.
+Returns what an agent needs to execute one ready (or done) leaf node of the active Plan: the live `instruction`, `template` or Gate `templates`, `outputPath` and `resolvedOutputPath`, `dependencies`, and `priorAttempts` (earlier rework records and FAIL reports, marked untrusted). Code Gates add `gateProtocol` with the `gate begin` and `gate record` commands; the assurance node adds its `gate record` command. When effective rework records still have files to archive, it first finishes those moves under the Change's write lock, so new outputs never overwrite files still to be archived; otherwise it only reads, so parallel agents can fetch their nodes at the same time. Options: `--change`, `--node`, `--home`.
 
 ## loopspec gate begin
 

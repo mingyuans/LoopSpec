@@ -233,11 +233,17 @@ def register(app: typer.Typer) -> None:
         from .workflow_state import open_change
 
         def action() -> dict:
-            from .workflow_attempts import settled
+            from .workflow_attempts import pending_sources, settled
             from .workflow_io import write_lock
+            from .workflow_state import active_plan
 
-            # Finish archiving an effective rework record before the agent writes new outputs.
-            with write_lock(open_change(home, change_name).root):
+            # Reading needs no lock, so parallel sub agents can start their nodes together;
+            # only unfinished rework archiving must be completed (under the lock) first.
+            ctx = open_change(home, change_name)
+            loaded = active_plan(ctx)
+            if not pending_sources(loaded):
+                return instructions(loaded, identity)
+            with write_lock(ctx.root):
                 return instructions(settled(open_change(home, change_name)), identity)
 
         run(action)

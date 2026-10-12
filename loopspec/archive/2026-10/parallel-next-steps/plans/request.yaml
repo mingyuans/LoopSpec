@@ -1,0 +1,20 @@
+based_on: large-feature
+flow:
+- id: requirements
+  use: requirements
+  requires: []
+- id: design
+  use: design
+  requires: [requirements]
+- id: be
+  use: backend-implementation
+  requires: [design]
+- id: qa
+  use: qa-testing
+  requires: [be]
+  on_fail:
+    reset: [be]
+    max_retries: 3
+- id: assurance
+  use: change-assurance
+  requires: [qa]

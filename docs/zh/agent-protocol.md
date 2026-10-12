@@ -23,7 +23,7 @@
 
 ## 2. 执行
 
-循环执行 `loopspec change status <change>`，并运行 `nextSteps` 中唯一的命令：
+循环执行 `loopspec change status <change>`，并运行 `nextSteps` 中的命令：
 
 | `status` | 做什么 |
 | --- | --- |
@@ -31,6 +31,8 @@
 | `planning` | 展示草稿并等待确认。 |
 | `active` | 执行 `nextSteps`，通常是 `node instructions`。 |
 | `complete` | 停下汇报；只在被要求时归档。 |
+
+同时有多个叶子就绪时，`nextSteps` 为每个叶子各列一条 `node instructions` 命令，且 `parallel` 为 `true`；文本报告会说明这些步骤互相独立。就绪的叶子之间不存在依赖，可以并行执行，每个节点派一个 sub agent。每个 sub agent 只处理自己的节点，不执行 rollback、修订或归档。写命令返回 `concurrent_write` 时原样重试。全部完成后再读一次 status。待执行的 rollback 或 exhausted 的 Gate 始终优先：此时 `nextSteps` 只有 rollback 命令，或为空。
 
 对于 `loopspec node instructions -c <change> -n <node>`：
 
