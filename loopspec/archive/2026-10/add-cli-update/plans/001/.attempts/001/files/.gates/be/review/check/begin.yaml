@@ -1,0 +1,18 @@
+gate: be/review/check
+plan_digest: 321f50cd4c2641d24fa82861e201b30b245c4eff32dd8699f3e20564a4872552
+baseline: b1d59372a81aae5dabef4a4a39f7403a440c0e17
+round: 1
+round_id: 001.1:be/review/check:1
+paths:
+- src/**
+- tests/**
+- builtin/**
+- Makefile
+- pyproject.toml
+- install.sh
+- hatch_version.py
+- uv.lock
+provides:
+- pr-review
+scope_digest: c5c49cb7ee096911c33a6e6c14db5528ce9aab913e191e624902bec0514e421e
+consumed: true

@@ -1,0 +1,30 @@
+diffDigest: dbcfd457c2b4d115303143266c2f8185e37928571417030b5989f6e689f1e5ae
+baseline: b1d59372a81aae5dabef4a4a39f7403a440c0e17
+warnings: null
+unknown_paths: []
+missing_evidence: []
+stale_evidence: []
+missing_fragments: []
+diverged_commits: []
+requiredCapabilities:
+  src/loopspec/cli.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/errors.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/self_update.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_self_update.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_workflow_cli.py:
+  - backend-tests
+  - pr-review
+  - security-review
+passed: true
