@@ -6,7 +6,7 @@
 
 ## 约定
 
-- 命令统一为 `loopspec <资源> <动作>`，资源名为单数：`change`、`plan`、`node`、`gate`、`fragment`、`profile`。只有 `version`、`update` 与 `init` 单独使用；`hook` 组供 AI 工具的 hook 调用。
+- 命令统一为 `loopspec <资源> <动作>`，资源名为单数：`change`、`plan`、`node`、`gate`、`state`、`fragment`、`profile`。只有 `version`、`update` 与 `init` 单独使用；`hook` 组供 AI 工具的 hook 调用。
 - `-c/--change` 指定 Change，`-p/--plan` 指定三位数字的 Plan 编号，`-n/--node` 指定叶子节点或 Gate 路径，`-f/--file` 指定相对工作区的请求文件，`--digest` 是人确认过的摘要，`--note` 是可选说明。`change` 组的命令以位置参数给出 Change 名。
 - 除 `version`、`update`、`init` 与 `hook` 外，所有命令都接受 `--home`（默认 `./loopspec`），并输出 JSON；唯一例外是 `change status`，默认输出给 LLM 阅读的纯文本报告，带 `--json` 时才输出 JSON。失败时输出 `{"error": <错误码>, "message": <说明>, "fix": <下一步>}`，退出码为 1；用法错误退出码为 2。
 - 执行类命令（`node`、`gate`、`plan rollback`）只作用于活动 Plan。没有活动 Plan 时返回 `plan_not_active`，`fix` 给出下一个规划步骤。每条命令只有一次生效写入，中断后 Change 要么是命令之前、要么是命令之后的状态；尚待归档的返工文件由下一条写入类命令先行搬运。
@@ -52,7 +52,7 @@ Claude Code 与 Codex 的 PreToolUse hook，由 `loopspec init` 配置，不需�
 loopspec change new <change>
 ```
 
-创建一个未规划的 Change：`.workflow.yaml`（format 4，没有 Plan，没有基线）、带分段模板的 `state.md` 与 `plans/`。不编译也没有可执行节点。对已有 Change 重复执行时返回它，并带 `reusedChange: true`。参数：`--home`。
+创建一个未规划的 Change：`.workflow.yaml`（format 4，没有 Plan，没有基线）、带分段模板的 `state.md`（背景、目标与边界、决策、待解决问题、参考，末尾是引擎追加的 Plan 记录）与 `plans/`。不编译也没有可执行节点。对已有 Change 重复执行时返回它，并带 `reusedChange: true`。参数：`--home`。
 
 ## loopspec change status
 
@@ -160,7 +160,7 @@ loopspec plan rollback -c <change> -p <NNN>
 loopspec node instructions -c <change> -n <node>
 ```
 
-返回执行活动 Plan 中一个就绪（或已完成）叶子节点所需的一切：实时读取的 `instruction`、`template` 或 Gate `templates`，`outputPath` 与 `resolvedOutputPath`，`dependencies`，以及 `priorAttempts`（以前的重做记录与 FAIL 报告，标注为不可信）。代码 Gate 额外返回含 `gate begin` 与 `gate record` 命令的 `gateProtocol`；保障节点返回它的 `gate record` 命令。已生效重做记录中还有待归档的文件时，它先在 Change 写锁内补完搬运，保证新产物不会覆盖尚未归档的文件；否则只读，因此并行的 Agent 可以同时获取各自的节点。参数：`--change`、`--node`、`--home`。
+返回执行活动 Plan 中一个就绪（或已完成）叶子节点所需的一切：实时读取的 `instruction`、`template` 或 Gate `templates`，`outputPath` 与 `resolvedOutputPath`，`dependencies`，以及 `priorAttempts`（以前的重做记录与 FAIL 报告，标注为不可信）。代码 Gate 额外返回含 `gate begin` 与 `gate record` 命令的 `gateProtocol`；保障节点返回它的 `gate record` 命令。每个叶子还会得到 `stateProtocol`：适合该节点的 `state add` 命令，与模板同源于同一张段落注册表，每项含 `when`、`contentBoundary`、`format`、`required`、`optional` 与 `command`。Change 级命令只带 Change；Plan 级命令固定实际的 Change、Plan 与节点；Gate 节点还会多出 `rework`。已生效重做记录中还有待归档的文件时，它先在 Change 写锁内补完搬运，保证新产物不会覆盖尚未归档的文件；否则只读，因此并行的 Agent 可以同时获取各自的节点。参数：`--change`、`--node`、`--home`。
 
 ## loopspec gate begin
 
@@ -178,6 +178,30 @@ loopspec gate record -c <change> -n <assurance-node>
 ```
 
 代码 Gate 必须带 `--round` 与 `--report`。报告位于 Plan 的 `artifacts/` 下，头部只含 `verdict` 与 `summary`。轮次未被使用且固定的代码未变化时，写出 PASS 或 FAIL 报告与绑定 Plan 摘要的证据，并返回同样的 `warnings`。保障节点拒绝这两个参数：CLI 按保障规则检查完整 Diff，写出带诊断的系统 PASS 或 FAIL；告警不影响结论，会写进系统报告的 `summary` 与诊断的 `warnings`；保障规则的 `unknown_paths` 为 `warn` 时，不匹配任何规则的路径也作为告警写入。被忽略的文件从不计入 Diff 与证据摘要。参数：`--change`、`--node`、`--round`、`--report`、`--home`。
+
+## loopspec state add
+
+```bash
+loopspec state add -c <change> --section <key> --text <content> [--scope change|plan] [-p <plan>] [-n <node>] [--actor HUMAN|MODEL --by <who>]
+```
+
+在 Change 写锁内，把一行单行记录追加到 Change 级或 Plan 级 `state.md` 的对应段落。这是唯一的 state 写操作：解决问题、替代决策、验证假设或更正记录，都通过追加一条引用旧记录的新记录来表达，不分配条目 ID。输出 `changeName`、`scope`、`plan`（Change 级为 `null`）、`section`、`path` 与追加的 `line`。参数：`--change`、`--section`、`--text`、`--scope`、`--plan`、`--node`、`--actor`、`--by`、`--home`。
+
+| 段落 | 层级 | 必填 | 条目 |
+| --- | --- | --- | --- |
+| `background`、`goals`、`reference` | change | `--text` | `- YYYY-MM-DD 内容` |
+| `decision` | change | `--text`、`--actor`、`--by` | `- YYYY-MM-DD [HUMAN: 谁] 内容` 或 `- YYYY-MM-DD [MODEL: Agent 角色] 内容` |
+| `open-question` | change 或 plan | `--scope`、`--text` | `- YYYY-MM-DD 内容`；Plan 级带 `--node` 时为 `- YYYY-MM-DD [节点] 内容` |
+| `assumption`、`deviation` | plan | `--text`、`--node` | `- YYYY-MM-DD [节点] 内容` |
+| `rework` | plan | `--text`、`--node`（Gate） | `- YYYY-MM-DD [Gate] attempt N（rollback #S）：内容` |
+
+- **层级与 Plan。**只存在于一层的段落不需要 `--scope`，显式给出时必须一致；`open-question` 两层都有，必须显式 `--scope`。Change 级记录拒绝 `-p` 与 `-n`。Plan 级记录使用 `-p`，省略时取当前 open Plan（draft 或 approved）；写记录不会批准或推进 Plan。已归档的 Plan 返回 `plan_archived`，不存在的返回 `plan_not_found`。
+- **谁作出决策。**`--actor` 为 `HUMAN` 或 `MODEL`，`--by` 写实际作出决策的用户或 Agent 角色，而不是代写者。`decision` 两者都必填，其他段落传入则拒绝。该标签只是来源声明，不是经过校验的身份，也不是正式批准；不要猜测身份。
+- **文本。**`--text` 与 `--by` 先折叠为单行（换行与控制字符被规范化），规范化后必须非空；`--text` 最多 1000 个字符，`--by` 最多 64 个。任何位置出现 `<!--` 或 `-->` 都会被拒绝。每条记录都写成 `- ` 开头的 bullet，因此标题之类的内容不会变成标题。非法输入返回 `workflow_invalid`，且不写任何内容。
+- **节点。**`--node` 必须是所选 Plan 的叶子节点；`rework` 还要求它是 Gate。它只是数据，不会进入任何文件路径。
+- **返工轮次。**`N` 是该 Gate 已提交的 rollback 次数，`S` 是它最新一次 rollback 的全局序号（即 `.attempts/` 目录号，也就是 `plan rollback` 返回的 `attempt`）。两者一般不相等，调用方不能传入任何一个；没有已提交 rollback 的 Gate 返回 `state_rework_no_rollback`。
+- **安全追加。**命令完整读取文件（链接、特殊文件与超过 2 MiB 读取限额的文件会被拒绝），找到完整的 `## <标题>` 行，在该段最后一个非空行之后拼接原始字节插入，再原子回写。其余字节，包括 CRLF 换行、缺失的末尾换行与引擎写入的尾段，保持不变。文件或标题缺失返回 `state_section_missing`，标题重复返回 `state_section_ambiguous`；不会创建或猜测任何内容。
+- **锁。**它与生命周期命令使用同一把写锁。锁被占用时返回 `concurrent_write` 且不写入，请原样重试同一条命令；CLI 自己不会重试，手工编辑也不受该锁保护。
 
 ## loopspec fragment list
 
@@ -290,7 +314,10 @@ loopspec registry apply --plan <planId> [--resolve <path>=local|upstream]... [--
 | `concurrent_input_change` | 读取代码期间代码发生变化。 |
 | `concurrent_source_change` | 读取期间文件发生变化。 |
 | `concurrent_path_change` | 操作期间目录被替换。 |
-| `concurrent_write` | 另一条命令持有该 Change 的写锁。 |
+| `concurrent_write` | 另一条命令持有该 Change 的写锁；没有写入任何内容，原样重试即可。 |
+| `state_section_missing` | `state add` 找不到 `state.md` 或对应标题；没有写入也没有猜测。 |
+| `state_section_ambiguous` | 该标题在 `state.md` 中出现了多次；需要人工合并段落。 |
+| `state_rework_no_rollback` | 对没有已提交 rollback 的 Gate 执行 `state add --section rework`。 |
 | `registry_not_configured` | `config.yaml` 没有配置 `registry`。 |
 | `registry_unavailable` | 未安装 `git` 或它不在 `PATH` 中。 |
 | `registry_fetch_failed` | `ls-remote` 或拉取失败、超时、tag 不存在，或 registry 在预检与拉取之间发生变化。 |

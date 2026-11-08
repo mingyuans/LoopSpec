@@ -57,12 +57,12 @@ Every command takes effect in a single write. If one is interrupted, the Change 
     profiles/<name>.yaml
     changes/AFD1111/
       .workflow.yaml             # Change-level state (machine)
-      state.md                   # Change-level notes (human + LLM, engine appends events)
+      state.md                   # Change-level notes (`loopspec state add`; engine appends Plan records)
       plans/
         request.yaml             # request files the agent writes
         001/
           plan.yaml              # meta + spec of one Plan
-          state.md               # Plan-level notes (human + LLM, engine appends events)
+          state.md               # Plan-level notes (`loopspec state add`; engine appends events)
           artifacts/             # this Plan's artifacts
           .gates/                # code Gate evidence and assurance diagnostics
           .gate-rounds/          # review round history
@@ -74,11 +74,16 @@ The Git diff checked by code Gates and assurance excludes exactly `.workflow.yam
 
 ## state.md records
 
-The Change root and every Plan directory each hold a `state.md` that records the background, decisions and progress of the work. Humans and LLMs may edit them directly. The engine only prints the change-level file and the current Plan's verbatim in `change status`; it never parses them or uses them to derive state, deduplicate or validate anything, so they never affect evidence or the diff.
+The Change root and every Plan directory each hold a `state.md`. It keeps what someone taking over the work must know but cannot rebuild from code, artifacts and workflow state: why the work exists, the trade-offs that were made, assumptions not yet verified, deviations from the design and open questions. The engine only prints the change-level file and the current Plan's verbatim in `change status`; it never uses their content to derive state, decide a Gate or validate anything, so they never affect evidence or the diff.
 
-- **Change level** (template from `change new`): background, goals / non-goals, key decisions (`- YYYY-MM-DD (who confirmed): decision; reason`, append only), references and the Plan record.
-- **Plan level** (template from `plan create`): human decisions, assumptions and deviations, rework notes and events.
-- **Engine events**: after `plan create`, `plan approve` (revisions included), `plan rollback` and `plan archive` take effect, the engine appends one line to the end of the file, for example `- 2026-10-08T06:22:43+00:00 · approve · revision 1 · digest 321f50cd`; `plan archive` also appends `archive plan <NNN>` at the change level. Events are written after the command's deciding write, so a crash in between can lose a line: `state.md` is not a complete audit log.
+Write records with `loopspec state add` (see the CLI reference). It checks the parameters, appends one single-line bullet to the end of the matching section and keeps every other byte of the file. Editing by hand stays possible, but a hand edit is neither validated nor protected by the Change write lock, and nothing forces anyone to record anything: the framework only guarantees the format and the safe append when `state add` is used. `node instructions` returns a `stateProtocol` with the exact commands for the node at hand.
+
+- **Change level** (the continuous memory of the work; template from `change new`): `background`, `goals` (goals and boundaries), `decision`, `open-question`, `reference`, and at the very end the engine's Plan records.
+- **Plan level** (the memory of one approach; template from `plan create`): `assumption`, `deviation`, `open-question`, `rework`, and at the very end the engine's events.
+- **Decisions** live only at the Change level, as `- YYYY-MM-DD [HUMAN: <who>] text` or `- YYYY-MM-DD [MODEL: <Agent role>] text`. The tag names who actually decided, not who typed the line; it states a source, it is not an identity check and not a formal approval. A decision kept in the Change does not apply to later Plans by itself, so say in the text which Plan or node it covers. A suggestion that still needs a human answer is an `open-question`, never a HUMAN decision.
+- **Corrections are new records.** Resolving a question, replacing a decision, verifying an assumption or correcting a line is another `state add` that refers to the earlier line in its text. The CLI assigns no entry ids and does not compute which decision is current or which question is open.
+- **Engine sections** (the Plan records at the change level, the events at the Plan level) are written only by the engine and are closed to `state add`. After `plan create`, `plan approve` (revisions included), `plan rollback` and `plan archive` take effect, the engine appends one line. Each new line is a readable sentence that names the Change, the Plan, the action, the resulting status or version and a technical reference such as the digest (the sentence itself is written in Chinese). An approval line states that this Plan was approved, not that every artifact or technical design was; a rollback line states that rework files were reset, not that business code was reverted; an archive line states that the Plan was archived, not that the requirement was accepted. Lines written by earlier versions keep their original wording. Events are written after the command's deciding write, so a crash in between can lose a line: `state.md` is not a complete audit log.
+- **Older files** keep their old headings. `state add` neither renames nor guesses them: it fails with `state_section_missing` and leaves the file untouched until someone tidies it by hand.
 
 ## What LoopSpec does not do
 

@@ -57,12 +57,12 @@ Plan 自身的 `meta.status` 只记录人的决定：`draft`、`approved` 或 `a
     profiles/<name>.yaml
     changes/AFD1111/
       .workflow.yaml             # Change-level state (machine)
-      state.md                   # Change-level notes (human + LLM, engine appends events)
+      state.md                   # Change-level notes (`loopspec state add`; engine appends Plan records)
       plans/
         request.yaml             # request files the agent writes
         001/
           plan.yaml              # meta + spec of one Plan
-          state.md               # Plan-level notes (human + LLM, engine appends events)
+          state.md               # Plan-level notes (`loopspec state add`; engine appends events)
           artifacts/             # this Plan's artifacts
           .gates/                # code Gate evidence and assurance diagnostics
           .gate-rounds/          # review round history
@@ -74,11 +74,16 @@ Plan 自身的 `meta.status` 只记录人的决定：`draft`、`approved` 或 `a
 
 ## state.md 记录
 
-Change 根与每个 Plan 目录下各有一份 `state.md`，记录需求背景、决策与执行过程。人与 LLM 都可以直接编辑；引擎只在 `change status` 中原样输出 Change 级与当前 Plan 的全文，从不解析其内容，也不据此判断状态、去重或校验，因此它不影响证据与 Diff。
+Change 根与每个 Plan 目录下各有一份 `state.md`，保存接手的人或 Agent 必须知道、却无法只靠代码、产物和流程状态还原的信息：为什么做、做过哪些取舍、尚未验证的假设、相对设计的偏离以及未解决的问题。引擎只在 `change status` 中原样输出 Change 级与当前 Plan 的全文；它从不用其内容推导状态、判定 Gate 或校验任何东西，因此它们不影响证据与 Diff。
 
-- **Change 级**（`change new` 生成模板）：背景、目标 / 非目标、关键决策（`- YYYY-MM-DD（确认人）：决策；理由`，只追加）、参考、Plan 记录。
-- **Plan 级**（`plan create` 生成模板）：人工决策、假设与偏离、返工记录、事件。
-- **引擎事件**：`plan create`、`plan approve`（含修订）、`plan rollback`、`plan archive` 生效后，引擎向文件末尾追加一行，例如 `- 2026-10-08T06:22:43+00:00 · approve · revision 1 · digest 321f50cd`；`plan archive` 同时在 Change 级追加 `archive plan <NNN>`。事件写在命令的生效写入之后，中途崩溃可能缺少一行，因此 `state.md` 不是完整的审计记录。
+用 `loopspec state add` 写记录（见 CLI 参考）。它校验参数，把一行单行 bullet 追加到对应段落末尾，并保持文件其余字节不变。仍然可以手工编辑，但手工编辑既不被校验，也不受 Change 写锁保护；也没有机制强制任何人记录：框架只保证使用 `state add` 时格式正确、追加安全。`node instructions` 会返回 `stateProtocol`，给出当前节点可用的确切命令。
+
+- **Change 级**（需求的连续记忆；`change new` 生成模板）：`background`（背景）、`goals`（目标与边界）、`decision`（决策）、`open-question`（待解决问题）、`reference`（参考），最末是引擎追加的 Plan 记录。
+- **Plan 级**（一次方案的执行记忆；`plan create` 生成模板）：`assumption`（假设）、`deviation`（偏离）、`open-question`、`rework`（返工记录），最末是引擎追加的事件。
+- **决策**只存在于 Change 级，写成 `- YYYY-MM-DD [HUMAN: 谁] 内容` 或 `- YYYY-MM-DD [MODEL: Agent 角色] 内容`。标签表示实际作出决策的主体，而不是代写者；它只是来源声明，不是身份校验，也不是正式批准。保存在 Change 中的决策不会自动对后续 Plan 生效，正文里要写明它适用的 Plan 或节点。仍需人回答的建议写成 `open-question`，不能记成 HUMAN 决策。
+- **更正都是新记录。** 解决问题、替代决策、验证假设或更正某条记录，都是再执行一次 `state add`，在正文里引用先前那一条。CLI 不分配条目 ID，也不计算哪个决策当前有效、哪些问题仍未解决。
+- **引擎段**（Change 级的 Plan 记录、Plan 级的事件）只由引擎写入，不开放给 `state add`。`plan create`、`plan approve`（含修订）、`plan rollback`、`plan archive` 生效后，引擎追加一行。新写入的每一行都是可读的中文句子，写明 Change、Plan、动作、结果状态或版本，以及 digest 之类的技术引用。批准行表示该 Plan 获批，不代表所有产物或技术设计获批；返工行表示返工文件已重置，不代表业务代码回退；归档行表示该 Plan 已归档，不代表需求验收完成。旧版本写下的行保持原文。事件写在命令的生效写入之后，中途崩溃可能缺少一行，因此 `state.md` 不是完整的审计记录。
+- **旧文件**保留旧标题。`state add` 不会改名或猜测映射：它返回 `state_section_missing` 且不改文件，直到有人手工整理。
 
 ## LoopSpec 不做什么
 

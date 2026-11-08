@@ -6,7 +6,7 @@
 
 ## Conventions
 
-- Commands are `loopspec <resource> <verb>`, with singular resources: `change`, `plan`, `node`, `gate`, `fragment`, `profile`. Only `version`, `update` and `init` stand alone; the `hook` group is called by AI-tool hooks.
+- Commands are `loopspec <resource> <verb>`, with singular resources: `change`, `plan`, `node`, `gate`, `state`, `fragment`, `profile`. Only `version`, `update` and `init` stand alone; the `hook` group is called by AI-tool hooks.
 - `-c/--change` names a Change, `-p/--plan` a three-digit Plan number, `-n/--node` a leaf node or Gate path, `-f/--file` a request file relative to the workflow home, `--digest` the digest a human confirmed, `--note` an optional note. `change` commands take the Change name as an argument.
 - Every command except `version`, `update`, `init` and `hook` accepts `--home` (default `./loopspec`) and prints JSON. The one exception is `change status`, which prints a plain-text report for an LLM by default and JSON only with `--json`. On failure it prints `{"error": <code>, "message": <text>, "fix": <next action>}` and exits with status 1; usage errors exit with status 2.
 - Execution commands (`node`, `gate`, `plan rollback`) act only on the active Plan. Without one they fail with `plan_not_active` and a `fix` naming the next planning step. Every command takes effect in a single write, so an interrupted command leaves the Change as before or as after; rework files still to be archived are moved first by the next writing command.
@@ -52,7 +52,7 @@ A denial prints `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permiss
 loopspec change new <change>
 ```
 
-Creates an unplanned Change: `.workflow.yaml` (format 4, no Plan, no baseline), a sectioned `state.md` template and `plans/`. Nothing is compiled or executable. Re-running on an existing Change returns it with `reusedChange: true`. Options: `--home`.
+Creates an unplanned Change: `.workflow.yaml` (format 4, no Plan, no baseline), a sectioned `state.md` template (background, goals and boundaries, decisions, open questions, references and, at the end, the engine's Plan records) and `plans/`. Nothing is compiled or executable. Re-running on an existing Change returns it with `reusedChange: true`. Options: `--home`.
 
 ## loopspec change status
 
@@ -160,7 +160,7 @@ For an effective FAIL in the active Plan, applies that Gate's own `on_fail`: arc
 loopspec node instructions -c <change> -n <node>
 ```
 
-Returns what an agent needs to execute one ready (or done) leaf node of the active Plan: the live `instruction`, `template` or Gate `templates`, `outputPath` and `resolvedOutputPath`, `dependencies`, and `priorAttempts` (earlier rework records and FAIL reports, marked untrusted). Code Gates add `gateProtocol` with the `gate begin` and `gate record` commands; the assurance node adds its `gate record` command. When effective rework records still have files to archive, it first finishes those moves under the Change's write lock, so new outputs never overwrite files still to be archived; otherwise it only reads, so parallel agents can fetch their nodes at the same time. Options: `--change`, `--node`, `--home`.
+Returns what an agent needs to execute one ready (or done) leaf node of the active Plan: the live `instruction`, `template` or Gate `templates`, `outputPath` and `resolvedOutputPath`, `dependencies`, and `priorAttempts` (earlier rework records and FAIL reports, marked untrusted). Code Gates add `gateProtocol` with the `gate begin` and `gate record` commands; the assurance node adds its `gate record` command. Every leaf also gets a `stateProtocol`: the `state add` commands that fit the node, generated from the same section registry as the templates, with `when`, `contentBoundary`, `format`, `required`, `optional` and `command` for each. Change-level commands carry only the Change; Plan-level commands are pinned to the actual Change, Plan and node; a Gate node also gets `rework`. When effective rework records still have files to archive, it first finishes those moves under the Change's write lock, so new outputs never overwrite files still to be archived; otherwise it only reads, so parallel agents can fetch their nodes at the same time. Options: `--change`, `--node`, `--home`.
 
 ## loopspec gate begin
 
@@ -178,6 +178,30 @@ loopspec gate record -c <change> -n <assurance-node>
 ```
 
 For a code Gate, `--round` and `--report` are required. The report lives under the Plan's `artifacts/` and its header holds only `verdict` and `summary`. The round must be unused and the pinned code unchanged; then the PASS or FAIL report and evidence bound to the Plan digest are written, and the same `warnings` are returned. For the assurance node both options are refused: the CLI checks the full diff against the assurance rules and writes the system PASS or FAIL with diagnostics. Warnings never change the verdict; they go into the system report's `summary` and the diagnostics' `warnings`. With `unknown_paths: warn` in the assurance rules, changed paths matching no rule are reported there as warnings too. Ignored files never count toward the diff or evidence digests. Options: `--change`, `--node`, `--round`, `--report`, `--home`.
+
+## loopspec state add
+
+```bash
+loopspec state add -c <change> --section <key> --text <content> [--scope change|plan] [-p <plan>] [-n <node>] [--actor HUMAN|MODEL --by <who>]
+```
+
+Appends one single-line record to the matching section of the Change-level or the Plan-level `state.md`, under the Change's write lock. It is the only state write operation: resolving a question, replacing a decision, verifying an assumption or correcting a record is done by adding a new record that refers to the earlier one, and no entry ids are assigned. Prints `changeName`, `scope`, `plan` (`null` at the change level), `section`, `path` and the appended `line`. Options: `--change`, `--section`, `--text`, `--scope`, `--plan`, `--node`, `--actor`, `--by`, `--home`.
+
+| Section | Layer | Required | Entry |
+| --- | --- | --- | --- |
+| `background`, `goals`, `reference` | change | `--text` | `- YYYY-MM-DD text` |
+| `decision` | change | `--text`, `--actor`, `--by` | `- YYYY-MM-DD [HUMAN: who] text` or `- YYYY-MM-DD [MODEL: Agent role] text` |
+| `open-question` | change or plan | `--scope`, `--text` | `- YYYY-MM-DD text`; at the plan level with `--node`: `- YYYY-MM-DD [node] text` |
+| `assumption`, `deviation` | plan | `--text`, `--node` | `- YYYY-MM-DD [node] text` |
+| `rework` | plan | `--text`, `--node` (a Gate) | `- YYYY-MM-DD [Gate] attempt N (rollback #S): text` |
+
+- **Layer and plan.** A section that exists in one layer needs no `--scope`; an explicit `--scope` must match. `open-question` exists in both layers and always needs an explicit `--scope`. Change-level records reject `-p` and `-n`. Plan-level records use `-p`, or the open Plan (draft or approved) when it is omitted, and writing a record never approves or advances a Plan. An archived Plan is refused with `plan_archived`; a missing one with `plan_not_found`.
+- **Who decided.** `--actor` is `HUMAN` or `MODEL` and `--by` names the user or the Agent role that actually made the decision, not who typed it. Both are required for `decision` and rejected elsewhere. The tag is a statement of source, not a verified identity or a formal approval; never guess an identity.
+- **Text.** `--text` and `--by` are folded to one line (newlines and control characters are normalised) and must be non-empty after that; `--text` is at most 1000 characters, `--by` at most 64. Any `<!--` or `-->` is rejected. Every entry is written as a `- ` bullet, so content such as a heading never becomes a heading. Invalid input fails with `workflow_invalid` and writes nothing.
+- **Node.** `--node` must be a leaf node of the selected Plan; for `rework` it must be a Gate. It is data only and never part of a file path.
+- **Rework round.** `N` is the number of committed rollbacks of that Gate and `S` is the global sequence number of its latest rollback (the number of the `.attempts/` directory and of the `attempt` that `plan rollback` returns). They differ in general, you cannot pass either, and a Gate without a committed rollback fails with `state_rework_no_rollback`.
+- **Safe append.** The command reads the whole file (links, special files and files over the 2 MiB read limit are refused), finds the exact `## <heading>` line, inserts the entry after the last non-blank line of that section by splicing raw bytes, and writes the file back atomically. Every other byte, including CRLF line endings, a missing final newline and the engine-written tail, stays as it was. A missing file or heading fails with `state_section_missing`, a repeated heading with `state_section_ambiguous`; nothing is created or guessed.
+- **Locking.** It takes the same write lock as the lifecycle commands. When the lock is held it fails with `concurrent_write` and writes nothing; retry the same command unchanged. The CLI never retries by itself, and hand edits are not covered by the lock.
 
 ## loopspec fragment list
 
@@ -290,7 +314,10 @@ Writes the latest `registry update` plan after the human confirmed it. Every `co
 | `concurrent_input_change` | Code changed while it was being read. |
 | `concurrent_source_change` | A file changed while it was being read. |
 | `concurrent_path_change` | A directory was replaced during an operation. |
-| `concurrent_write` | Another command holds the Change's write lock. |
+| `concurrent_write` | Another command holds the Change's write lock; nothing was written, retry unchanged. |
+| `state_section_missing` | `state add` found no `state.md`, or no such heading; nothing was written or guessed. |
+| `state_section_ambiguous` | The heading occurs more than once in `state.md`; a human must merge the sections. |
+| `state_rework_no_rollback` | `state add --section rework` for a Gate without a committed rollback. |
 | `registry_not_configured` | `config.yaml` has no `registry`. |
 | `registry_unavailable` | `git` is not installed or not on `PATH`. |
 | `registry_fetch_failed` | `ls-remote` or fetch failed, timed out, the tag does not exist, or the registry moved between check and fetch. |

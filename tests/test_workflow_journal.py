@@ -53,12 +53,10 @@ def test_templates_and_create_event(tmp_path: Path):
     assert text.startswith(plan_state_template("001"))
     assert events(plan_state(home)) == [line for line in text.splitlines() if line.startswith("- ")]
     [line] = events(plan_state(home))
-    assert re.fullmatch(rf"- {STAMP} · create · digest {digest8(home)}", line)
-    for heading in ("## 背景", "## 目标 / 非目标", "## 关键决策", "## 参考", "## Plan 记录"):
-        assert heading in CHANGE_STATE_TEMPLATE
-    assert CHANGE_STATE_TEMPLATE.rstrip().splitlines()[-1].startswith("<!--")
-    assert plan_state_template("001").index("## 事件") > plan_state_template("001").index(
-        "## 返工记录"
+    assert re.fullmatch(
+        rf"- {STAMP} · 已为 Change {CHANGE} 创建 Plan 001 草稿 · 状态：待批准"
+        rf" · 计划定义校验值（digest）：{digest8(home)}",
+        line,
     )
 
 
@@ -68,7 +66,7 @@ def test_note_is_folded_to_one_line(tmp_path: Path):
     new_change(home)
     create_draft(home, DOCS_FLOW, args=["--note", "first\r\nsecond\tthird\x07 \n"])
     [line] = events(plan_state(home))
-    assert line.endswith(" · note: first second third")
+    assert line.endswith(" · 备注：first second third")
 
 
 # T3
@@ -78,9 +76,11 @@ def test_replacing_a_draft_appends_replace_draft(tmp_path: Path):
     create_draft(home, DOCS_FLOW)
     create_draft(home, BUGFIX_FLOW, args=["--note", "换成 bugfix"])
     lines = events(plan_state(home))
-    assert len(lines) == 2 and " · create · " in lines[0]
+    assert len(lines) == 2 and f" · 已为 Change {CHANGE} 创建 Plan 001 草稿 · " in lines[0]
     assert re.fullmatch(
-        rf"- {STAMP} · replace-draft · digest {digest8(home)} · note: 换成 bugfix", lines[1]
+        rf"- {STAMP} · 已更新 Change {CHANGE} 的 Plan 001 草稿 · 状态：待批准"
+        rf" · 计划定义校验值（digest）：{digest8(home)} · 备注：换成 bugfix",
+        lines[1],
     )
 
 
@@ -94,7 +94,9 @@ def test_approve_appends_once_and_failures_append_nothing(tmp_path: Path):
     assert code == 1 and plan_state(home).read_bytes() == before
     approve(home, "001")
     assert re.fullmatch(
-        rf"- {STAMP} · approve · revision 1 · digest {digest8(home)}", events(plan_state(home))[-1]
+        rf"- {STAMP} · 已批准 Change {CHANGE} 的 Plan 001 · 计划版本：1 · 状态：可执行"
+        rf" · 计划定义校验值（digest）：{digest8(home)}",
+        events(plan_state(home))[-1],
     )
     after = plan_state(home).read_bytes()
     approve(home, "001")
@@ -125,8 +127,9 @@ def test_revision_appends_revise_and_stale_revision_appends_nothing(tmp_path: Pa
     )  # fmt: skip
     assert code == 0, result
     assert re.fullmatch(
-        rf"- {STAMP} · revise · revision 1 → 2 · digest {preview['digest'][:8]}"
-        r" · rerun: design/design, design/tasks",
+        rf"- {STAMP} · 已修订 Change {CHANGE} 的 Plan 001 · 计划版本：1 → 2"
+        r" · 需要重跑的节点：design/design, design/tasks"
+        rf" · 计划定义校验值（digest）：{preview['digest'][:8]}",
         events(plan_state(home))[-1],
     )
 
@@ -145,8 +148,9 @@ def test_rollback_appends_and_no_failed_gate_appends_nothing(tmp_path: Path):
     assert code == 0, result
     reset = ", ".join(result["reset"])
     assert re.fullmatch(
-        rf"- {STAMP} · rollback · gate qa/test · attempt {result['attempt']}"
-        rf" · reset: {re.escape(reset)}",
+        rf"- {STAMP} · 已对 Change {CHANGE} 的 Plan 001 执行返工重置（不回退业务代码）"
+        rf" · 来源 Gate：qa/test · 返工记录全局序号：{result['attempt']}"
+        rf" · 重置范围：{re.escape(reset)}",
         events(plan_state(home))[-1],
     )
 
@@ -158,9 +162,14 @@ def test_archive_appends_to_both_levels_once(tmp_path: Path):
     create_draft(home, DOCS_FLOW)
     code, _ = invoke(home, "plan", "archive", "-c", CHANGE, "-p", "001", "--note", "范围\n变化")
     assert code == 0
-    assert re.fullmatch(rf"- {STAMP} · archive · note: 范围 变化", events(plan_state(home))[-1])
     assert re.fullmatch(
-        rf"- {STAMP} · archive plan 001 · note: 范围 变化", events(change_state(home))[-1]
+        rf"- {STAMP} · 已归档 Change {CHANGE} 的 Plan 001 · 状态：已归档 · 备注：范围 变化",
+        events(plan_state(home))[-1],
+    )
+    assert re.fullmatch(
+        rf"- {STAMP} · Change {CHANGE} 的 Plan 001 已归档 · 状态：已归档（不代表需求验收完成）"
+        r" · 备注：范围 变化",
+        events(change_state(home))[-1],
     )
     plan_before, change_before = plan_state(home).read_bytes(), change_state(home).read_bytes()
     assert invoke(home, "plan", "archive", "-c", CHANGE, "-p", "001")[0] == 0
@@ -176,7 +185,7 @@ def test_handwritten_content_is_kept_and_not_glued(tmp_path: Path):
     plan_state(home).write_text("手写，末尾没有换行")
     approve(home, "001")
     lines = plan_state(home).read_text().splitlines()
-    assert lines[0] == "手写，末尾没有换行" and " · approve · " in lines[1]
+    assert lines[0] == "手写，末尾没有换行" and " · 已批准 Change " in lines[1]
 
 
 # T9
@@ -188,7 +197,7 @@ def test_missing_file_is_recreated(tmp_path: Path):
     result = approve(home, "001")
     assert "warnings" not in result
     [line] = plan_state(home).read_text().splitlines()
-    assert " · approve · " in line
+    assert " · 已批准 Change " in line
 
 
 # T10
@@ -209,7 +218,7 @@ def test_unwritable_state_warns_and_never_escapes(tmp_path: Path):
     code, result = invoke(home, "plan", "archive", "-c", CHANGE, "-p", "001")
     assert code == 0 and result["status"] == "archived"
     assert result["warnings"] == ["state_append_failed: plans/001/state.md"]
-    assert " · archive plan 001" in change_state(home).read_text()
+    assert f" · Change {CHANGE} 的 Plan 001 已归档" in change_state(home).read_text()
 
 
 # T11

@@ -73,6 +73,9 @@ def register(app: typer.Typer) -> None:
         help="Sync fragments and profiles from the configured git registry.",
         no_args_is_help=True,
     )
+    state = typer.Typer(
+        help="Append records to the Change and Plan state.md.", no_args_is_help=True
+    )
     app.add_typer(change, name="change")
     app.add_typer(plan, name="plan")
     app.add_typer(node, name="node")
@@ -80,6 +83,7 @@ def register(app: typer.Typer) -> None:
     app.add_typer(fragment, name="fragment")
     app.add_typer(profile, name="profile")
     app.add_typer(registry, name="registry")
+    app.add_typer(state, name="state")
 
     # ------------------------------------------------------------------ change
 
@@ -247,6 +251,45 @@ def register(app: typer.Typer) -> None:
                 return instructions(settled(open_change(home, change_name)), identity)
 
         run(action)
+
+    # ------------------------------------------------------------------- state
+
+    @state.command("add")
+    def state_add(
+        change_name: str = CHANGE,
+        section: str = typer.Option(..., "--section", help="Section key, e.g. decision."),
+        text: str = typer.Option(..., "--text", help="One-line content of the record."),
+        scope: str | None = typer.Option(
+            None, "--scope", help="change or plan; required when the section exists in both."
+        ),
+        plan_id: str | None = typer.Option(
+            None, "-p", "--plan", help="Plan number; defaults to the open Plan (plan scope only)."
+        ),
+        node: str | None = typer.Option(None, "-n", "--node", help="Leaf node or Gate id."),
+        actor: str | None = typer.Option(
+            None, "--actor", help="HUMAN or MODEL: who actually made the decision."
+        ),
+        by: str | None = typer.Option(
+            None, "--by", help="The actual decision maker: the user or an Agent role."
+        ),
+        home: Path = HOME,
+    ) -> None:
+        """Append one record to the matching section of state.md (append only)."""
+        from .workflow_state_notes import add
+
+        run(
+            lambda: add(
+                home,
+                change_name,
+                section=section,
+                text=text,
+                scope=scope,
+                plan=plan_id,
+                node=node,
+                actor=actor,
+                by=by,
+            )
+        )
 
     # -------------------------------------------------------------------- gate
 

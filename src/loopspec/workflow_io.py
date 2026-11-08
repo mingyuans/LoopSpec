@@ -147,6 +147,70 @@ def read_bytes(root: Path, path: str, *, limit: int = MAX_FILE_BYTES) -> bytes:
             os.close(fd)
 
 
+_IDENTITY_ATTRS = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns", "st_nlink")
+
+
+def _file_identity(info: os.stat_result) -> tuple[int, ...]:
+    return tuple(getattr(info, attr) for attr in _IDENTITY_ATTRS)
+
+
+def read_regular_file(
+    root: Path, path: str, *, limit: int = MAX_FILE_BYTES
+) -> tuple[bytes, tuple[int, ...]] | None:
+    """Read a whole regular file safely; None if it is missing.
+
+    Symlinks, non-regular files and hard-linked files raise unsafe_path (a hard link
+    would expose or modify a file outside the Change); anything over `limit` raises
+    resource_limit instead of being truncated. The returned identity lets the caller
+    detect a replacement or edit before writing back (see `ensure_file_identity`).
+    """
+    parts = relative_path(path).split("/")
+    try:
+        with directory(root, "/".join(parts[:-1])) as parent:
+            fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            try:
+                before = os.fstat(fd)
+                if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+                    raise WorkflowError("unsafe_path", "必须是没有硬链接的普通文件")
+                if before.st_size > limit:
+                    raise WorkflowError("resource_limit", "输入超过读取限额")
+                data = bytearray()
+                while len(data) <= limit:
+                    piece = os.read(fd, min(65536, limit + 1 - len(data)))
+                    if not piece:
+                        break
+                    data.extend(piece)
+                after = os.fstat(fd)
+                linked = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+                if _file_identity(before) != _file_identity(after):
+                    raise WorkflowError("concurrent_source_change", "读取期间文件内容变化")
+                if (linked.st_dev, linked.st_ino) != (after.st_dev, after.st_ino):
+                    raise WorkflowError("concurrent_path_change", "读取期间文件身份变化")
+                if len(data) > limit:
+                    raise WorkflowError("resource_limit", "输入超过读取限额")
+                return bytes(data), _file_identity(after)
+            finally:
+                os.close(fd)
+    except WorkflowError as exc:
+        if isinstance(exc.__cause__, FileNotFoundError):
+            return None
+        raise
+
+
+def ensure_file_identity(root: Path, path: str, identity: tuple[int, ...]) -> None:
+    """Fail unless the file is still the one `read_regular_file` returned `identity` for."""
+    parts = relative_path(path).split("/")
+    with directory(root, "/".join(parts[:-1])) as parent:
+        try:
+            info = os.stat(parts[-1], dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            raise WorkflowError("concurrent_path_change", "写回前文件已不存在") from None
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise WorkflowError("unsafe_path", "必须是没有硬链接的普通文件")
+        if _file_identity(info) != identity:
+            raise WorkflowError("concurrent_source_change", "写回前文件内容或身份变化")
+
+
 def read_capped(root: Path, path: str, limit: int) -> tuple[bytes, bytes, int] | None:
     """Head and tail (limit/2 each) of a regular file once it exceeds limit; None if missing."""
     parts = relative_path(path).split("/")

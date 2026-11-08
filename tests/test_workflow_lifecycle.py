@@ -171,7 +171,8 @@ def test_archive_approved_plan_keeps_its_directory(tmp_path: Path):
     after = {key: value for key, value in snapshot(plan_dir).items() if key not in kept}
     assert after == before
     appended = (plan_dir / "state.md").read_text().removeprefix(state_before)
-    assert appended.endswith(" · archive · note: 需求变化\n") and appended.count("\n") == 1
+    assert appended.endswith(" · 状态：已归档 · 备注：需求变化\n") and appended.count("\n") == 1
+    assert f"已归档 Change {CHANGE} 的 Plan 001" in appended
     meta = yaml.safe_load((plan_dir / "plan.yaml").read_text())["meta"]
     assert meta["status"] == "archived" and meta["archive_note"] == "需求变化"
     report = status(home)

@@ -168,7 +168,7 @@ spec:
 
 ## Change-level state
 
-`changes/<change>/.workflow.yaml` holds only what belongs to the Change rather than to one Plan. It stores no Plan pointers: the open Plan is the one whose `meta.status` is `draft` or `approved`, the active Plan is the `approved` one, and a new Plan gets the highest existing number plus one. Two open Plans fail with `history_integrity`. The Change status is derived and never stored.
+`changes/<change>/.workflow.yaml` holds only what belongs to the Change rather than to one Plan. It stores no Plan pointers: the open Plan is the one whose `meta.status` is `draft` or `approved`, the active Plan is the `approved` one, and a new Plan gets the highest existing number plus one. Two open Plans fail with `history_integrity`. The Change status is derived and never stored. The human-readable `state.md` files beside it are separate from this machine state and never take part in any decision; `loopspec state add` writes them under the Change's write lock (see the overview).
 
 <!-- loopspec:example=change-state -->
 ```yaml
@@ -235,6 +235,7 @@ There is no transaction file and no interrupted status. Every command has exactl
 | `plan archive` | `plan.yaml` archived. | The same write. |
 | `plan rollback` | `record.yaml`, then each listed file, the FAIL report last. | `record.yaml` |
 | `plan approve -f` (revision) | `record.yaml`, then `plan.yaml` replaced, then each listed file. | `plan.yaml` |
+| `state add` | The target `state.md` replaced atomically after one entry was spliced in. | The same write. |
 
 - A rollback record takes effect when written; a revision record takes effect once `plan.yaml` reaches its revision number. A revision record that never took effect is ignored, left out of history and `priorAttempts`, and replaced by the next record.
 - Files an effective record still has to archive count as absent, so the reset nodes are ready to run again at once. `node instructions`, `gate`, `plan rollback`, `plan approve`, `plan archive` and `change archive` first finish those moves under the Change's write lock; `change status` only reads.
