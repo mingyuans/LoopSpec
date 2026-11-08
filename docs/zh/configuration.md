@@ -99,7 +99,7 @@ files:
 
 ### 何时读取
 
-创建 Plan 时检查约束，确认或修订时按当时的文件再次检查。执行期间 Diff 排除项与保障规则也实时读取。`<home>/.cache/`（registry 同步缓存）与当前 Change 的 `.workflow.yaml`、`state.md`、`plans/` 始终不计入 Diff，无需配置。因此修改 `config.yaml` 会立即影响正在执行的 Plan（包括放宽规则），应当作需要评审的项目代码对待。
+创建 Plan 时检查约束，确认或修订时按当时的文件再次检查。执行期间 Diff 排除项与保障规则也实时读取。`<home>/.cache/`（registry 同步缓存）、memory topic 文件 `<home>/memory/{topic}.md`（跨 Change 的 memory）与当前 Change 的 `.workflow.yaml`、`state.md`、`plans/` 始终不计入 Diff，无需配置。因此修改 `config.yaml` 会立即影响正在执行的 Plan（包括放宽规则），应当作需要评审的项目代码对待。
 
 ## 保障规则
 

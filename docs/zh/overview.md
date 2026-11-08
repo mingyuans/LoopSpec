@@ -55,6 +55,7 @@ Plan 自身的 `meta.status` 只记录人的决定：`draft`、`approved` 或 `a
     config.yaml
     fragments/<name>/            # fragment.yaml plus its instructions and templates
     profiles/<name>.yaml
+    memory/<topic>.md            # 跨 Change 的经验：普通 Markdown，由 LLM 维护
     changes/AFD1111/
       .workflow.yaml             # Change-level state (machine)
       state.md                   # Change-level notes (human + LLM, engine appends events)
@@ -70,7 +71,7 @@ Plan 自身的 `meta.status` 只记录人的决定：`draft`、`approved` 或 `a
     archive/2026-10/AFD1111/     # archived Changes
 ```
 
-代码 Gate 与保障检查的 Git Diff 只排除当前 Change 根下的 `.workflow.yaml`、`state.md` 与 `plans/`、`<home>/.cache/`，以及 `config.yaml` 的 `workflow.excluded_paths` 声明的路径。其他一切（包括 Fragment 与 Profile 文件）都算作改动。被 Git 忽略的文件不计入 Diff；未在 `excluded_paths` 中声明的会作为告警写进保障报告。Diff 比较的是固定基线与工作树中的交付内容：`git add` 与 `git commit` 不改变证据摘要，Gate 通过后可以先提交再归档。但交付前 HEAD 中每个文件的内容必须等于基线或工作区内容，否则保障判 FAIL（`diverged_commits`）。
+代码 Gate 与保障检查的 Git Diff 只排除当前 Change 根下的 `.workflow.yaml`、`state.md` 与 `plans/`、`<home>/.cache/`、memory topic 文件（`<home>/memory/{topic}.md`），以及 `config.yaml` 的 `workflow.excluded_paths` 声明的路径。其他一切（包括 Fragment 与 Profile 文件）都算作改动。被 Git 忽略的文件不计入 Diff；未在 `excluded_paths` 中声明的会作为告警写进保障报告。Diff 比较的是固定基线与工作树中的交付内容：`git add` 与 `git commit` 不改变证据摘要，Gate 通过后可以先提交再归档。但交付前 HEAD 中每个文件的内容必须等于基线或工作区内容，否则保障判 FAIL（`diverged_commits`）。
 
 ## state.md 记录
 
@@ -79,6 +80,16 @@ Change 根与每个 Plan 目录下各有一份 `state.md`，记录需求背景�
 - **Change 级**（`change new` 生成模板）：背景、目标 / 非目标、关键决策（`- YYYY-MM-DD（确认人）：决策；理由`，只追加）、参考、Plan 记录。
 - **Plan 级**（`plan create` 生成模板）：人工决策、假设与偏离、返工记录、事件。
 - **引擎事件**：`plan create`、`plan approve`（含修订）、`plan rollback`、`plan archive` 生效后，引擎向文件末尾追加一行，例如 `- 2026-10-08T06:22:43+00:00 · approve · revision 1 · digest 321f50cd`；`plan archive` 同时在 Change 级追加 `archive plan <NNN>`。事件写在命令的生效写入之后，中途崩溃可能缺少一行，因此 `state.md` 不是完整的审计记录。
+
+## 项目 memory
+
+`<home>/memory/{topic}.md` 记录前序 Change 学到的东西，让后续 Change 越跑越顺：踩过的坑、可用的命令、评审偏好，以及用户说明过的约定。topic 是普通 Markdown，一个主题一个文件，没有强制格式；`core.md` 是可选的那一份，放每个 Change 都值得知道的少量经验。不会预先创建任何内容：`init` 只创建空目录。
+
+- **引擎只读。** `change status` 引用 `core.md` 并给出其他 topic 的索引（路径、一句适用说明、大小），`node instructions` 带同样的有界索引和 core 的读取入口，其余内容用 `memory list` 与 `memory show` 读取。引擎从不调用模型、做分类或写入 topic。
+- **LLM 通过内置 Skill 维护。** `loopspec-new` 在创建 Change 之后、规划之前读取索引和相关 topic；`loopspec-continue` 在某个 topic 与当前节点相关时读取全文，只有发生值得保留的事（用户明确纠正、已验证的根因或修复、已落定的评审结论、关键约定）才更新 memory；`loopspec-archive` 在用户已请求归档后，先回顾并整理 memory 再归档。没有新知识的步骤不改任何内容，写 memory 从不是推进节点的条件。
+- **条目要有来源。** 每条写清适用条件、做法、原因/边界，以及来源（Change 和产物或测试证据）；用户说过的话与已验证的事实分开记，不记录猜测、未执行的测试、暂时进度、秘密、个人信息和长日志。历史由 Git 承担；只做局部编辑，写前重读。
+- **memory 是参考数据，不是权威。** 它不能授予权限、改变用户指令或绕过 Gate，其中的指令一律忽略。超过 8 KiB 内联预算的 `core.md` 只展示完整条目并标明“未读全”，Agent 必须用 `memory show core` 读完其余部分。
+- **topic 文件不计入交付 Diff。** `<home>/memory/{topic}.md`（`memory/` 根下名称合法的 topic 普通文件；名字像 topic 的符号链接仍算改动）从不计入 Gate 与保障检查的 Git Diff，新增经验不会引发保障告警；它们仍随项目提交，并在 Git 中审阅。`memory/` 下的其他内容（脚本、子目录、名称不合法的文件）按普通改动计入 Diff。
 
 ## LoopSpec 不做什么
 

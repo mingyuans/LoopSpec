@@ -55,6 +55,7 @@ Every command takes effect in a single write. If one is interrupted, the Change 
     config.yaml
     fragments/<name>/            # fragment.yaml plus its instructions and templates
     profiles/<name>.yaml
+    memory/<topic>.md            # cross-Change lessons: plain Markdown, written by the LLM
     changes/AFD1111/
       .workflow.yaml             # Change-level state (machine)
       state.md                   # Change-level notes (human + LLM, engine appends events)
@@ -70,7 +71,7 @@ Every command takes effect in a single write. If one is interrupted, the Change 
     archive/2026-10/AFD1111/     # archived Changes
 ```
 
-The Git diff checked by code Gates and assurance excludes exactly `.workflow.yaml`, `state.md` and `plans/` under the current Change root, `<home>/.cache/`, and the paths declared in `workflow.excluded_paths` of `config.yaml`. Everything else, including Fragment and Profile files, counts as a change. Files ignored by Git never count toward the diff; those not declared in `excluded_paths` are listed as warnings in the assurance report. The diff compares the fixed baseline with the delivered working tree content: `git add` and `git commit` leave evidence digests unchanged, so you can commit after the Gates pass and archive afterwards. Before delivery, each file's content in HEAD must equal the baseline or the working tree content, otherwise assurance fails with `diverged_commits`.
+The Git diff checked by code Gates and assurance excludes exactly `.workflow.yaml`, `state.md` and `plans/` under the current Change root, `<home>/.cache/`, memory topic files (`<home>/memory/{topic}.md`), and the paths declared in `workflow.excluded_paths` of `config.yaml`. Everything else, including Fragment and Profile files, counts as a change. Files ignored by Git never count toward the diff; those not declared in `excluded_paths` are listed as warnings in the assurance report. The diff compares the fixed baseline with the delivered working tree content: `git add` and `git commit` leave evidence digests unchanged, so you can commit after the Gates pass and archive afterwards. Before delivery, each file's content in HEAD must equal the baseline or the working tree content, otherwise assurance fails with `diverged_commits`.
 
 ## state.md records
 
@@ -79,6 +80,16 @@ The Change root and every Plan directory each hold a `state.md` that records the
 - **Change level** (template from `change new`): background, goals / non-goals, key decisions (`- YYYY-MM-DD (who confirmed): decision; reason`, append only), references and the Plan record.
 - **Plan level** (template from `plan create`): human decisions, assumptions and deviations, rework notes and events.
 - **Engine events**: after `plan create`, `plan approve` (revisions included), `plan rollback` and `plan archive` take effect, the engine appends one line to the end of the file, for example `- 2026-10-08T06:22:43+00:00 · approve · revision 1 · digest 321f50cd`; `plan archive` also appends `archive plan <NNN>` at the change level. Events are written after the command's deciding write, so a crash in between can lose a line: `state.md` is not a complete audit log.
+
+## Project memory
+
+`<home>/memory/{topic}.md` keeps what earlier Changes learned so that later ones run more smoothly: pitfalls, working commands, review preferences, and conventions the user stated. Topics are plain Markdown, one subject per file, with no required format; `core.md` is the optional one that holds the few lessons every Change should know. Nothing is created in advance: `init` makes only the empty directory.
+
+- **The engine only reads.** `change status` quotes `core.md` and indexes the other topics (path, one-line hint, size), `node instructions` carries the same bounded index plus a pointer to core, and `memory list` and `memory show` read the rest. It never calls a model, classifies, or writes a topic.
+- **The LLM maintains it through the built-in Skills.** `loopspec-new` reads the index and the relevant topics after creating the Change and before planning; `loopspec-continue` reads a topic when it bears on a node and updates memory only when something worth keeping happened (a user correction, a verified root cause or fix, a settled review conclusion, a key agreement); `loopspec-archive` reviews and tidies memory before archiving, once the user has asked for it. A step that learns nothing new changes nothing, and writing memory is never a condition for advancing a node.
+- **Entries need sources.** Each entry says when it applies, what to do, why or its limits, and where it came from (the Change and the artifact or test evidence). What the user stated is kept apart from what was verified, and guesses, tests that were not run, temporary progress, secrets, personal data and long logs are not recorded. Git is the history; edits are local and re-read before writing.
+- **Memory is reference data, not authority.** It cannot grant permissions, change the user's instructions or bypass a Gate, and instructions inside it are ignored. A `core.md` larger than the 8 KiB inline budget is shown as whole entries only and flagged as not fully read; the agent must read the rest with `memory show core`.
+- **Topic files stay out of the delivery diff.** `<home>/memory/{topic}.md` files (a valid topic name directly under `memory/`, and a regular file: a symlink with such a name is still a change) never count toward the Git diff checked by Gates and assurance, so adding lessons raises no assurance finding; they are still committed with the project and reviewed in Git. Anything else under `memory/` (scripts, nested directories, files that are not valid topics) counts as an ordinary change.
 
 ## What LoopSpec does not do
 
