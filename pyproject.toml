@@ -67,4 +67,16 @@ warn_redundant_casts = true
 testpaths = ["tests"]
 markers = [
     "subprocess: runs the installed loopspec executable in a child process",
+    "catalog: BDD scenarios of tests/features/catalog.feature",
+    "change: BDD scenarios of tests/features/change.feature",
+    "init: BDD scenarios of tests/features/init.feature",
+    "memory: BDD scenarios of tests/features/memory.feature",
+    "node_gate: BDD scenarios of tests/features/node_gate.feature",
+    "plan: BDD scenarios of tests/features/plan.feature",
+    "plan_guard: BDD scenarios of tests/features/plan_guard.feature",
+    "plan_revision: BDD scenarios of tests/features/plan_revision.feature",
+    "registry: BDD scenarios of tests/features/registry.feature",
+    "state_add: BDD scenarios of tests/features/state_add.feature",
+    "update: BDD scenarios of tests/features/update.feature",
+    "version: BDD scenarios of tests/features/version.feature",
 ]

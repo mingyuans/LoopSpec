@@ -1,63 +1,72 @@
-Feature: Recording decisions and notes with loopspec state add
-  The command appends one line to the right section of state.md,
-  keeps every other byte, and tells the caller who decided.
+# language: zh-CN
+@state_add
+功能: 用 loopspec state add 记录决策与笔记
+  命令只向 state.md 的对应小节追加一行，保留其余所有字节，
+  并标明是谁做出的决策。
 
-  Background:
-    Given an approved plan in an isolated project
+  背景:
+    假如 隔离项目中有一个已批准的缺陷修复 Plan
 
-  Scenario: A human decision names who decided
-    When the user records a decision by "HUMAN" named "张 三"
-    Then the Change state lists that decision tagged "[HUMAN: 张 三]"
+  场景: 人工决策标明决策人
+    当 用户记录一条由 "HUMAN" 做出、决策人为 "张 三" 的决策
+    那么 命令成功
+    并且 Change 状态中这条决策带有标记 "[HUMAN: 张 三]"
 
-  Scenario: A model decision names the Agent role
-    When the user records a decision by "MODEL" named "后端 Agent"
-    Then the Change state lists that decision tagged "[MODEL: 后端 Agent]"
+  场景: 模型决策标明 Agent 角色
+    当 用户记录一条由 "MODEL" 做出、决策人为 "后端 Agent" 的决策
+    那么 命令成功
+    并且 Change 状态中这条决策带有标记 "[MODEL: 后端 Agent]"
 
-  Scenario: An open question needs an explicit scope
-    When an open question is added without a scope
-    Then the command fails with "workflow_invalid"
-    And no state file changed
-    When an open question is added with scope "change"
-    Then it appears in the Change state only
-    When an open question is added with scope "plan"
-    Then it appears in the Plan state only
-    And the entry has no node tag
+  场景: 待定问题必须显式指定范围
+    当 不指定范围添加一个待定问题
+    那么 命令失败，错误码为 "workflow_invalid"
+    并且 没有任何状态文件变化
+    当 以范围 "change" 添加一个待定问题
+    那么 命令成功
+    并且 它只出现在 Change 状态中
+    当 以范围 "plan" 添加一个待定问题
+    那么 命令成功
+    并且 它只出现在 Plan 状态中
+    并且 该条目没有节点标记
 
-  Scenario: A plan-level open question may name a node
-    When an open question is added with scope "plan" and node "requirements/proposal"
-    Then the entry carries the node tag "[requirements/proposal]"
+  场景: Plan 级待定问题可以指定节点
+    当 以范围 "plan"、节点 "requirements/proposal" 添加一个待定问题
+    那么 命令成功
+    并且 该条目带有节点标记 "[requirements/proposal]"
 
-  Scenario: A correction is appended and the original stays
-    Given a recorded note "第一版"
-    When a correcting note is added
-    Then both notes are present in order
+  场景: 更正以追加方式记录，原记录保留
+    假如 已记录一条笔记 "第一版"
+    当 追加一条更正笔记
+    那么 命令成功
+    并且 两条笔记都在且顺序不变
 
-  Scenario: Line endings of untouched text survive a CRLF file
-    Given the Change state uses CRLF line endings
-    When a reference is recorded
-    Then every line ending in the file is still CRLF
-    And the text around the target section is byte-identical
+  场景: CRLF 文件中未改动文本的换行符保持不变
+    假如 Change 状态使用 CRLF 换行
+    当 记录一条参考
+    那么 命令成功
+    并且 文件中所有换行符仍是 CRLF
+    并且 目标小节前后的文本逐字节一致
 
-  Scenario: A busy lock is reported and a retry succeeds
-    Given another command holds the Change write lock
-    When a note is added
-    Then the command fails with "concurrent_write"
-    And no state file changed
-    When the lock is released and the same command is retried
-    Then the note is recorded
+  场景: 写锁被占用时报错，释放后重试成功
+    假如 另一个命令持有 Change 写锁
+    当 添加一条笔记
+    那么 命令失败，错误码为 "concurrent_write"
+    并且 没有任何状态文件变化
+    当 释放写锁并原样重试同一命令
+    那么 笔记已被记录
 
-  Scenario: Rework rounds count per Gate
-    When a rework note is attempted for "qa/test"
-    Then the command fails with "state_rework_no_rollback"
-    And no state file changed
-    When the "qa/test" Gate fails and is rolled back
-    And a rework note is recorded for "qa/test"
-    And the "qa/test" Gate fails and is rolled back
-    And a rework note is recorded for "qa/test"
-    Then the first rework note reads "attempt 1" with its rollback number
-    And the second rework note reads "attempt 2" with its rollback number
+  场景: 返工轮次按 Gate 分别计数
+    当 尝试为 "qa/test" 记录返工笔记
+    那么 命令失败，错误码为 "state_rework_no_rollback"
+    并且 没有任何状态文件变化
+    假如 "qa/test" Gate 失败并回滚
+    并且 已为 "qa/test" 记录一条返工笔记
+    并且 "qa/test" Gate 失败并回滚
+    并且 已为 "qa/test" 记录一条返工笔记
+    那么 第一条返工笔记写明 "attempt 1" 及其回滚编号
+    并且 第二条返工笔记写明 "attempt 2" 及其回滚编号
 
   @subprocess
-  Scenario: The installed command line records a decision
-    When the installed "loopspec" executable records a decision
-    Then it exits with status 0 and the line is in the Change state
+  场景: 安装后的命令行能记录决策
+    当 已安装的 "loopspec" 可执行文件记录一条决策
+    那么 退出码为 0 且该行出现在 Change 状态中
