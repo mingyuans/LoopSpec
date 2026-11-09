@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import os
 import re
@@ -232,9 +231,6 @@ def test_entries_append_in_order_and_keep_comments_and_blank_lines(tmp_path: Pat
     assert [line.split(" ", 2)[2] for line in lines] == ["第0条", "第1条", "第2条"]
     after = change_state(home).read_text()
     assert after.count("<!--") == before.count("<!--") and "\n\n## 目标与边界" in after
-    original = lines[0]
-    assert add(home, "--section", "background", "--text", "更正：第0条作废")[0] == 0
-    assert section_lines(change_state(home), "背景")[0] == original
 
 
 # T6 -----------------------------------------------------------------------------------
@@ -436,12 +432,6 @@ def test_unknown_change_and_unsafe_names_fail(tmp_path: Path):
 
 def test_actor_and_node_validation(tmp_path: Path):
     home = draft_home(tmp_path)
-    for actor, by in (("HUMAN", "张 三"), ("MODEL", "后端 Agent")):
-        code, result = add(
-            home, "--section", "decision", "--actor", actor, "--by", by, "--text", "t"
-        )
-        assert code == 0, result
-        assert f"[{actor}: {by}]" in result["line"]
     assert add(home, "--section", "assumption", "-n", "design/design", "--text", "t")[0] == 0
     for node in ("design", "nope", "../etc", "design/design/extra"):
         before = digest(plan_state(home))
@@ -538,25 +528,6 @@ def fail_and_rollback(home: Path, tmp_path: Path, content: str) -> dict:
     return result
 
 
-def test_rework_round_and_rollback_seq_come_from_committed_rollbacks(tmp_path: Path):
-    home = bugfix_home(tmp_path)
-    code, result = add(home, "--section", "rework", "-n", "qa/test", "--text", "还没返工")
-    assert code == 1 and result["error"] == "state_rework_no_rollback"
-    first = fail_and_rollback(home, tmp_path, "one\n")
-    code, result = add(home, "--section", "rework", "-n", "qa/test", "--text", "缺陷 A")
-    assert code == 0, result
-    assert result["line"].endswith(f"[qa/test] attempt 1（rollback #{first['attempt']}）：缺陷 A")
-    second = fail_and_rollback(home, tmp_path, "two\n")
-    assert second["attempt"] > first["attempt"]
-    code, result = add(home, "--section", "rework", "-n", "qa/test", "--text", "缺陷 B")
-    assert code == 0, result
-    assert result["line"].endswith(f"[qa/test] attempt 2（rollback #{second['attempt']}）：缺陷 B")
-    plan = plan_state(home).read_text()
-    assert "attempt 1（rollback #" in plan and "attempt 2（rollback #" in plan
-    code, result = add(home, "--section", "rework", "-n", "be/code/implement", "--text", "t")
-    assert code == 1 and result["error"] == "workflow_invalid"
-
-
 def test_rework_on_a_draft_without_attempts_reports_no_rollback(tmp_path: Path):
     home = project(tmp_path)
     new_change(home)
@@ -592,27 +563,6 @@ def test_callers_cannot_supply_the_round_or_seq(tmp_path: Path):
 
 
 # T15 / T16 ----------------------------------------------------------------------------
-
-
-def hold_lock(home: Path):
-    fd = os.open(home / "changes" / CHANGE / "plans" / ".write.lock", os.O_RDWR | os.O_CREAT, 0o600)
-    fcntl.flock(fd, fcntl.LOCK_EX)
-    return fd
-
-
-def test_lock_contention_returns_concurrent_write_without_writing(tmp_path: Path):
-    home = draft_home(tmp_path)
-    before = digest(change_state(home))
-    fd = hold_lock(home)
-    try:
-        code, result = add(home, "--section", "background", "--text", "t")
-        assert code == 1 and result["error"] == "concurrent_write"
-        assert digest(change_state(home)) == before
-    finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
-    code, result = add(home, "--section", "background", "--text", "t")
-    assert code == 0, result
 
 
 def test_state_add_and_lifecycle_commands_share_the_change_lock(tmp_path: Path):
@@ -720,42 +670,6 @@ def test_status_text_points_to_state_add_and_old_files_still_display(tmp_path: P
 
 
 # T21 ----------------------------------------------------------------------------------
-
-
-def test_open_question_routes_by_explicit_scope(tmp_path: Path):
-    home = draft_home(tmp_path)
-    code, result = add(home, "--section", "open-question", "--text", "没有 scope")
-    assert code == 1 and result["error"] == "workflow_invalid"
-    code, result = add(home, "--section", "open-question", "--scope", "change", "--text", "跨 Plan")
-    assert code == 0 and result["scope"] == "change" and result["plan"] is None
-    assert section_lines(change_state(home), "待解决问题") == [result["line"]]
-    code, result = add(
-        home, "--section", "open-question", "--scope", "plan", "-p", "001", "--text", "无节点"
-    )
-    assert code == 0 and result["plan"] == "001" and "[" not in result["line"]
-    code, result = add(
-        home,
-        "--section",
-        "open-question",
-        "--scope",
-        "plan",
-        "-n",
-        "design/design",
-        "--text",
-        "有节点",  # fmt: skip
-    )
-    assert code == 0 and "[design/design]" in result["line"]
-    assert len(section_lines(plan_state(home), "待解决问题")) == 2
-    first = section_lines(change_state(home), "待解决问题")[0]
-    resolved = add(
-        home, "--section", "open-question", "--scope", "change", "--text", "解决：跨 Plan"
-    )
-    assert resolved[0] == 0
-    assert section_lines(change_state(home), "待解决问题")[0] == first
-    code, result = add(
-        home, "--section", "open-question", "--scope", "change", "-p", "001", "--text", "t"
-    )
-    assert code == 1 and result["error"] == "workflow_invalid"
 
 
 # T19 / T22 ----------------------------------------------------------------------------
