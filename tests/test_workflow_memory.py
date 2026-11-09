@@ -745,7 +745,7 @@ def test_memory_path_errors_say_what_to_fix(tmp_path: Path):
     os.link(outside, memory(home) / "hard.md")
     with pytest.raises(WorkflowError) as exc:
         wm.read_topic(home, "hard")
-    assert "硬链接" in exc.value.fix
+    assert "hard links" in exc.value.fix
     real = tmp_path / "elsewhere"
     real.mkdir()
     other_root = tmp_path / "other"
@@ -754,7 +754,7 @@ def test_memory_path_errors_say_what_to_fix(tmp_path: Path):
     (other / "memory").symlink_to(real)
     with pytest.raises(WorkflowError) as exc:
         wm.list_topics(other)
-    assert "符号链接" in exc.value.fix and "配置" not in exc.value.fix
+    assert "symlink" in exc.value.fix and "config" not in exc.value.fix
 
 
 def test_this_file_has_no_invisible_line_separators():
@@ -794,7 +794,8 @@ def test_a_permission_problem_does_not_blame_symlinks(tmp_path: Path):
             wm.list_topics(home)
     finally:
         memory(home).chmod(0o755)
-    assert code_of(exc) == "unsafe_path" and "符号链接" not in exc.value.fix
+    assert code_of(exc) == "unsafe_path"
+    assert "symlink" not in exc.value.fix and "permissions" in exc.value.fix
 
 
 def test_pointer_reports_a_broken_core_without_raising(tmp_path: Path):
@@ -817,3 +818,62 @@ def test_status_still_reports_when_there_are_too_many_topics(tmp_path: Path, mon
     assert "topic index unavailable: memory_too_many" in "\n".join(block(text, "MEMORY"))
     payload = status(home)["memory"]
     assert payload["error"] == "memory_too_many" and payload["topics"] == []
+
+
+def test_every_memory_error_message_and_advice_is_english(tmp_path: Path, monkeypatch):
+    home = home_fixture(tmp_path)
+    outside = tmp_path / "outside.md"
+    outside.write_text("x")
+    os.link(outside, memory(home) / "hard.md")
+    put(home, "huge", "x" * (MAX_FILE_BYTES + 1))
+    raised: list[WorkflowError] = []
+
+    def capture(action):
+        with pytest.raises(WorkflowError) as exc:
+            action()
+        raised.append(exc.value)
+
+    capture(lambda: wm.read_topic(home, "hard"))
+    capture(lambda: wm.read_topic(home, "huge"))
+    capture(lambda: wm.read_topic(home, "missing"))
+    capture(lambda: wm.read_topic(home, "../x"))
+    capture(lambda: wm.list_topics(home, offset=-1))
+    monkeypatch.setattr(wm, "TOPIC_SCAN_MAX", 1)
+    capture(lambda: wm.list_topics(home))
+    monkeypatch.setattr(wm, "TOPIC_SCAN_MAX", 5000)
+    monkeypatch.setattr(wm, "ENTRY_SCAN_MAX", 1)
+    capture(lambda: wm.list_topics(home))
+    real = tmp_path / "elsewhere"
+    real.mkdir()
+    other_root = tmp_path / "other"
+    other_root.mkdir()
+    other = home_fixture(other_root)
+    (other / "memory").symlink_to(real)
+    capture(lambda: wm.list_topics(other))
+    capture(lambda: wm.read_topic(other, "core"))
+    assert len(raised) == 9
+    for error in raised:
+        assert error.message.isascii() and error.fix.isascii(), (error.code, error.message)
+    assert wm.UNTRUSTED.isascii()
+
+
+def test_the_memory_module_has_no_chinese_text_except_the_hint_marker():
+    source = Path(wm.__file__).read_text(encoding="utf-8")
+    import re
+
+    offenders = [
+        line
+        for line in source.splitlines()
+        if re.search(r"[\u3000-\u303f\u4e00-\u9fff\uff00-\uffef]", line)
+    ]
+    assert len(offenders) == 1 and "_HINT_RE" in offenders[0]
+
+
+def test_symlinks_and_permissions_get_different_advice(tmp_path: Path):
+    home = home_fixture(tmp_path)
+    real = tmp_path / "elsewhere"
+    real.mkdir()
+    (home / "memory").symlink_to(real)
+    with pytest.raises(WorkflowError) as linked:
+        wm.list_topics(home)
+    assert "symlink" in linked.value.message and "symlink" in linked.value.fix
