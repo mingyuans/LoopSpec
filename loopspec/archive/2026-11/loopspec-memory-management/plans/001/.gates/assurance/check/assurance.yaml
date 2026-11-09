@@ -1,0 +1,62 @@
+diffDigest: 451276e318329ab7414077c31f7fb2ad01f32667b7c02a1f4117988b5af7e4a9
+baseline: 70a2d0b9b8d1a5e3c8e56ed3d6c39253683622cc
+warnings: null
+unknown_paths: []
+missing_evidence: []
+stale_evidence: []
+missing_fragments: []
+diverged_commits: []
+requiredCapabilities:
+  src/loopspec/cli.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/status_report.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/workflow_changes.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/workflow_cli.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/workflow_diff.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/workflow_memory.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/workflow_runtime.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_cli.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_skill_templates.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_status_report.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_workflow_cli.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_workflow_diff.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_workflow_memory.py:
+  - backend-tests
+  - pr-review
+  - security-review
+passed: true

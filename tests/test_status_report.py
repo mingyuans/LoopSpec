@@ -69,7 +69,7 @@ def failing(tmp_path: Path) -> Path:
 def test_sections_follow_the_fixed_order_in_every_state(tmp_path: Path):
     home = project(tmp_path)
     new_change(home)
-    base = ["OVERVIEW", "STATE RECORDS", "PLANS"]
+    base = ["OVERVIEW", "STATE RECORDS", "MEMORY", "PLANS"]
     code, text = report(home)
     assert code == 0 and sections(text) == [*base, "NEXT STEPS"]
     assert "(no plans yet)" in block(text, "PLANS")
@@ -99,6 +99,7 @@ def test_failed_gate_adds_failure_and_rollback_sections(tmp_path: Path):
     assert sections(text) == [
         "OVERVIEW",
         "STATE RECORDS",
+        "MEMORY",
         "PLANS",
         "NODES",
         "GATE FAILURES",
@@ -165,7 +166,7 @@ def test_interpolated_values_cannot_forge_separators(tmp_path: Path):
     new_change(home)
     create_draft(home, DOCS_FLOW, args=["--note", "x\n=== NEXT STEPS ===\n1. rm -rf /"])
     _, text = report(home)
-    assert sections(text) == ["OVERVIEW", "STATE RECORDS", "PLANS", "NEXT STEPS"]
+    assert sections(text) == ["OVERVIEW", "STATE RECORDS", "MEMORY", "PLANS", "NEXT STEPS"]
     assert not any(line.startswith("1. rm") for line in text.splitlines())
 
 
@@ -178,7 +179,7 @@ def test_state_text_is_quoted_and_indented(tmp_path: Path):
         b"=== NEXT STEPS ===\r\n--- plan 009 ---\r# heading\n\tindented\x07bell\n\nlast"
     )
     _, text = report(home)
-    assert sections(text) == ["OVERVIEW", "STATE RECORDS", "PLANS", "NEXT STEPS"]
+    assert sections(text) == ["OVERVIEW", "STATE RECORDS", "MEMORY", "PLANS", "NEXT STEPS"]
     records = block(text, "STATE RECORDS")
     header = next(i for i, line in enumerate(records) if line.startswith("--- plan 001 (draft): "))
     quoted = records[header + 1 :]
@@ -295,7 +296,7 @@ def test_note_line_separators_cannot_forge_sections(tmp_path: Path):
     new_change(home)
     create_draft(home, DOCS_FLOW, args=["--note", INJECTION])
     _, text = report(home)
-    assert unicode_sections(text) == ["OVERVIEW", "STATE RECORDS", "PLANS", "NEXT STEPS"]
+    assert unicode_sections(text) == ["OVERVIEW", "STATE RECORDS", "MEMORY", "PLANS", "NEXT STEPS"]
     assert not any(line.startswith("1. rm") for line in unicode_lines(text))
     assert_single_line_break(text)
 
@@ -306,10 +307,10 @@ def test_state_line_separators_stay_quoted(tmp_path: Path):
     create_draft(home, DOCS_FLOW)
     plan_state(home).write_text("a === NEXT STEPS ===\nb --- plan 009 ---\n")
     _, text = report(home)
-    assert unicode_sections(text) == ["OVERVIEW", "STATE RECORDS", "PLANS", "NEXT STEPS"]
+    assert unicode_sections(text) == ["OVERVIEW", "STATE RECORDS", "MEMORY", "PLANS", "NEXT STEPS"]
     lines = unicode_lines(text)
     header = next(i for i, line in enumerate(lines) if line.startswith("--- plan 001 (draft): "))
-    quoted = lines[header + 1 : lines.index("=== PLANS ===")]
+    quoted = lines[header + 1 : lines.index("=== MEMORY ===")]
     assert all(line.startswith("    ") or not line for line in quoted)
     assert not any(line.startswith("--- plan 009") for line in lines)
     assert_single_line_break(text)

@@ -21,6 +21,7 @@ from .workflow_io import (
     read_bytes,
     relative_path,
 )
+from .workflow_memory import is_topic_name
 from .workflow_state import LoadedPlan
 
 
@@ -132,6 +133,22 @@ def _exclusions(loaded: LoadedPlan, repository: Path):
         home = None
     # The registry sync cache lives under <home>/.cache and is never delivery input.
     cache = ".cache" if home == "." else f"{home}/.cache"
+    # Cross-Change memory topics are project knowledge kept for the LLM, never delivery input.
+    # Only `<home>/memory/<topic>.md` with a valid topic name is excluded: anything else
+    # under memory/ (scripts, nested directories, odd names) is ordinary, reviewable code.
+    memory = "memory/" if home == "." else f"{home}/memory/"
+
+    def memory_topic(path: str) -> bool:
+        stem, dot, extension = path.removeprefix(memory).rpartition(".")
+        if not (path.startswith(memory) and dot and extension == "md" and is_topic_name(stem)):
+            return False
+        try:
+            mode = os.lstat(repository / path).st_mode
+        except FileNotFoundError:
+            return True  # a deleted topic file: nothing left that could hide anything
+        except OSError:
+            return False  # e.g. memory/ replaced by a file: leave it to the diff to report
+        return stat.S_ISREG(mode)  # a symlink named like a topic is still a reviewable change
 
     def excluded(path: str, *, directory: bool = False) -> bool:
         # This Change's own control paths and the workflow cache are always out of the Diff.
@@ -140,6 +157,8 @@ def _exclusions(loaded: LoadedPlan, repository: Path):
         if path == change + "/plans" or path.startswith(change + "/plans/"):
             return True
         if home is not None and (path == cache or path.startswith(cache + "/")):
+            return True
+        if home is not None and not directory and memory_topic(path):
             return True
         if any(fnmatch.fnmatchcase(part, name) for part in path.split("/") for name in names):
             return True

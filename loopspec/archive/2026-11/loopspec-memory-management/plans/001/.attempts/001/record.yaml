@@ -1,0 +1,36 @@
+seq: 1
+kind: rollback
+created: '2026-11-08T09:34:21+00:00'
+plan_digest: b64310fca84dedb44becfcad5a4394f947016757bb4bb218c2036e03417161fe
+reset:
+- assurance/check
+- be/code/implement
+- be/review/check
+- be/security/check
+- be/tests/check
+files:
+- source: .gates/be/security/check/begin.yaml
+  destination: .attempts/001/files/.gates/be/security/check/begin.yaml
+  sha256: 35bf6ea38757225f575216e627e12fb66a277a826cc89b6a404ee6bd0b107861
+- source: .gates/be/security/check/evidence.yaml
+  destination: .attempts/001/files/.gates/be/security/check/evidence.yaml
+  sha256: 0039c641742073a11692d1fa3865682188c15589dffe24e03601520287365af3
+- source: .gates/be/tests/check/begin.yaml
+  destination: .attempts/001/files/.gates/be/tests/check/begin.yaml
+  sha256: c1b14d9f64a9450dc2714797d45fe4ce2d74b355bc420c921a9320b40b9f22f3
+- source: .gates/be/tests/check/evidence.yaml
+  destination: .attempts/001/files/.gates/be/tests/check/evidence.yaml
+  sha256: 9e429e44adde7b17e2be8da38ffad51959fd5c63d1a3e921b893fb55a0aeed45
+- source: artifacts/be/code/implementation.md
+  destination: .attempts/001/files/artifacts/be/code/implementation.md
+  sha256: d68db8bae6e78db67e628cf68e2b201d8a4184ca48268bdd4694b1c5f4b4ff8a
+- source: artifacts/be/tests/check/pass.md
+  destination: .attempts/001/files/artifacts/be/tests/check/pass.md
+  sha256: 773d1f61a6f3d8ddde60a39192e25e9f889143c49d7361e7a35480cdb22cb5fb
+- source: artifacts/be/security/check/fail.md
+  destination: .attempts/001/files/artifacts/be/security/check/fail.md
+  sha256: 71ee157cd5f9d88c8a5d48c92197a428b789db6b1fb4fb8d350f8b349d98a283
+gate: be/security/check
+failure_digest: 71ee157cd5f9d88c8a5d48c92197a428b789db6b1fb4fb8d350f8b349d98a283
+target_digest: null
+revision: null

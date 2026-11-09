@@ -1,0 +1,5 @@
+format_version: 4
+change_name: loopspec-memory-management
+created: '2026-11-08T07:24:18+00:00'
+baseline: 70a2d0b9b8d1a5e3c8e56ed3d6c39253683622cc
+repository: /Users/xq.yan/worktrees/LoopSpec/memory-management

@@ -10,6 +10,7 @@ from pathlib import Path
 from .errors import WorkflowError
 from .workflow_io import atomic_write, directory, exists
 from .workflow_journal import CHANGE_STATE_TEMPLATE, UNTRUSTED_STATE, state_view
+from .workflow_memory import summary as memory_summary
 from .workflow_models import PLAN_RE, ChangeState
 from .workflow_state import (
     STATE_FILE,
@@ -106,6 +107,7 @@ def status(home: Path, name: str) -> dict:
         if open_plan is None
         else {"plan": open_plan, **state_view(ctx.root, plan_path(open_plan, "state.md"))},
         "untrustedData": UNTRUSTED_STATE,
+        "memory": memory_summary(home),
         "isComplete": False,
         "parallel": False,
     }

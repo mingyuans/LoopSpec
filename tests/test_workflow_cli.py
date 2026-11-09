@@ -43,6 +43,7 @@ TREE = {
     "profile": {"list", "show", "validate", "save"},
     "registry": {"update", "apply"},
     "hook": {"pre-tool-use"},
+    "memory": {"list", "show"},
 }
 
 

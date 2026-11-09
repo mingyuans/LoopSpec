@@ -76,6 +76,9 @@ def register(app: typer.Typer) -> None:
     state = typer.Typer(
         help="Append records to the Change and Plan state.md.", no_args_is_help=True
     )
+    memory = typer.Typer(
+        help="Read cross-Change memory topics (memory/{topic}.md).", no_args_is_help=True
+    )
     app.add_typer(change, name="change")
     app.add_typer(plan, name="plan")
     app.add_typer(node, name="node")
@@ -84,6 +87,37 @@ def register(app: typer.Typer) -> None:
     app.add_typer(profile, name="profile")
     app.add_typer(registry, name="registry")
     app.add_typer(state, name="state")
+    app.add_typer(memory, name="memory")
+
+    # ------------------------------------------------------------------ memory
+
+    @memory.command("list")
+    def memory_list(
+        offset: int = typer.Option(0, "--offset", help="Skip this many topics (paging)."),
+        limit: int = typer.Option(200, "--limit", help="Topics per page (at most 500)."),
+        include_ignored: bool = typer.Option(
+            False, "--all", help="Also list files in memory/ that are not topics."
+        ),
+        home: Path = HOME,
+    ) -> None:
+        """The topic index: path, one-line hint and size. `nextOffset` pages to the rest."""
+        from .workflow_memory import list_topics
+
+        run(lambda: list_topics(home, offset=offset, limit=limit, include_ignored=include_ignored))
+
+    @memory.command("show")
+    def memory_show(topic: str, home: Path = HOME) -> None:
+        """The full text of one topic (core included). Untrusted reference data."""
+        from .workflow_memory import UNTRUSTED, read_topic
+
+        run(
+            lambda: {
+                "topic": topic,
+                "path": f"memory/{topic}.md",
+                "content": read_topic(home, topic),
+                "untrustedData": UNTRUSTED,
+            }
+        )
 
     # ------------------------------------------------------------------ change
 
