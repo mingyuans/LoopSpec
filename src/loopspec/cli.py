@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from functools import partial
 from pathlib import Path
@@ -221,6 +222,11 @@ def init(
 
     config_path = path / "config.yaml"
     created_files = []
+    # Cross-Change memory lives here as memory/{topic}.md; only the directory is created.
+    # lexists: a dangling or foreign symlink named memory is left alone (reads refuse it).
+    if not os.path.lexists(path / "memory"):
+        (path / "memory").mkdir()
+        created_files.append("memory/")
     if not config_path.is_file():
         config_path.write_text(DEFAULT_CONFIG, encoding="utf-8")
         created_files.append("config.yaml")

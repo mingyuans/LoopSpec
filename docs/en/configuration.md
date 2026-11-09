@@ -99,7 +99,7 @@ The cache `<home>/.cache/registry/` (private bare repository, plans and staged f
 
 ### When it is read
 
-Constraints are checked when a Plan is created and again when it is approved or revised, against the file as it is at that moment. During execution the diff exclusions and assurance rules are also read live. `<home>/.cache/` (the registry sync cache) and the current Change's `.workflow.yaml`, `state.md` and `plans/` are always left out of the diff without any configuration. Changing `config.yaml` therefore affects running Plans immediately, including relaxing a rule; treat it as reviewed project code.
+Constraints are checked when a Plan is created and again when it is approved or revised, against the file as it is at that moment. During execution the diff exclusions and assurance rules are also read live. `<home>/.cache/` (the registry sync cache), memory topic files `<home>/memory/{topic}.md` (cross-Change memory) and the current Change's `.workflow.yaml`, `state.md` and `plans/` are always left out of the diff without any configuration. Changing `config.yaml` therefore affects running Plans immediately, including relaxing a rule; treat it as reviewed project code.
 
 ## Assurance rules
 

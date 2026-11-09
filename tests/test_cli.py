@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -474,3 +475,45 @@ def test_interactive_path_renders_welcome_and_runs_picker_together(tmp_path: Pat
 # --------------------------------------------------------------------------- #
 # artifacts
 # --------------------------------------------------------------------------- #
+
+
+def test_init_creates_an_empty_memory_directory(tmp_path: Path):
+    home = tmp_path / "wf"
+    result = runner.invoke(app, ["init", str(home), "--tools", "none", "--json"])
+    assert result.exit_code == 0
+    assert (home / "memory").is_dir() and list((home / "memory").iterdir()) == []
+    assert "memory/" in json.loads(result.stdout)["createdFiles"]
+
+
+def test_init_rerun_keeps_existing_memory_untouched(tmp_path: Path):
+    home = tmp_path / "wf"
+    runner.invoke(app, ["init", str(home), "--tools", "none", "--json"])
+    topic = home / "memory" / "core.md"
+    topic.write_text("# Core\n\n## a\nkeep me\n")
+    os.utime(topic, ns=(1_000_000_000, 1_000_000_000))
+    before = (topic.read_bytes(), topic.stat().st_mtime_ns)
+    result = runner.invoke(app, ["init", str(home), "--tools", "none", "--json"])
+    assert result.exit_code == 0
+    assert (topic.read_bytes(), topic.stat().st_mtime_ns) == before
+    assert "memory/" not in json.loads(result.stdout)["createdFiles"]
+
+
+def test_init_does_not_crash_on_a_dangling_memory_symlink(tmp_path: Path):
+    home = tmp_path / "wf"
+    home.mkdir()
+    (home / "memory").symlink_to(tmp_path / "nowhere")
+    result = runner.invoke(app, ["init", str(home), "--tools", "none", "--json"])
+    assert result.exit_code == 0, result.stdout
+    assert (home / "memory").is_symlink() and not (tmp_path / "nowhere").exists()
+    assert "memory/" not in json.loads(result.stdout)["createdFiles"]
+
+
+def test_init_leaves_a_memory_symlink_to_a_directory_alone(tmp_path: Path):
+    home = tmp_path / "wf"
+    home.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (home / "memory").symlink_to(elsewhere)
+    result = runner.invoke(app, ["init", str(home), "--tools", "none", "--json"])
+    assert result.exit_code == 0, result.stdout
+    assert (home / "memory").is_symlink() and list(elsewhere.iterdir()) == []
