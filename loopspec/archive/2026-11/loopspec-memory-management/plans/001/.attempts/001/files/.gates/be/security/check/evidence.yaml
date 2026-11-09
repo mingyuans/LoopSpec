@@ -1,0 +1,19 @@
+gate: be/security/check
+plan_digest: b64310fca84dedb44becfcad5a4394f947016757bb4bb218c2036e03417161fe
+baseline: 70a2d0b9b8d1a5e3c8e56ed3d6c39253683622cc
+round: 1
+verdict: FAIL
+paths:
+- src/**
+- tests/**
+- builtin/**
+- Makefile
+- pyproject.toml
+- install.sh
+- hatch_version.py
+- uv.lock
+provides:
+- security-review
+scope_digest: cdc986f44f5ae7dfb0291f44a21ff0c3a6c52e90b814bf3a8f6288191e635c14
+report_hash: 71ee157cd5f9d88c8a5d48c92197a428b789db6b1fb4fb8d350f8b349d98a283
+system: false

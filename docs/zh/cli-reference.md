@@ -29,7 +29,7 @@ loopspec update [--version <X.Y.Z>] [--check] [--json]
 loopspec init [PATH] [--tools all|none|<ids>] [--project-root <dir>] [--update-resources] [--json]
 ```
 
-在 `PATH`（默认 `./loopspec`）创建工作区：`config.yaml`（`artifacts_dir: changes` 与空的 `workflow`）、`changes/`，以及内置的 `fragments/` 与 `profiles/`，只复制缺失的文件。`fragments/` 或 `profiles/` 中已有内容时，未经同意不改动两者：交互式终端询问 `[y/N]`（只有 `y` 或 `yes` 才复制），`--json` 与非交互运行不询问直接跳过；`--update-resources` 不询问直接复制。Skill、命令与 hook 照常刷新。`--tools` 为指定工具生成 Agent Skill 与 `/lpsx:*` 命令；不带时，交互式终端显示选择器，其他情况不配置任何工具。`--project-root` 指定工具目录的位置（默认工作区的上级目录）。选中 `claude` 或 `codex` 时，还会把 `loopspec hook pre-tool-use` 作为 PreToolUse hook 合并进项目级配置：Claude Code 为 `.claude/settings.json`（matcher `Edit|MultiEdit|Write|NotebookEdit|Bash`），Codex 为 `.codex/hooks.json`（matcher `^apply_patch$|^Bash$`）。只合并、不覆盖：保留已有键与 hook，已有同一命令时不重复添加；文件不是普通文件、不是合法 JSON 或 `hooks` 结构不对时不写入。Codex 的项目级 hook 需要在 Codex 中用 `/hooks` 审阅并信任后才运行。默认输出人类可读摘要，带 `--json` 时输出 JSON，其中 `resourcesUpdate` 为 `installed` 或 `skipped`，`hooks` 按工具给出 `{path, status, reason?}`，`status` 为 `created`、`updated`、`unchanged` 或 `skipped`。
+在 `PATH`（默认 `./loopspec`）创建工作区：`config.yaml`（`artifacts_dir: changes` 与空的 `workflow`）、`changes/`，以及内置的 `fragments/` 与 `profiles/`，只复制缺失的文件。`fragments/` 或 `profiles/` 中已有内容时，未经同意不改动两者：交互式终端询问 `[y/N]`（只有 `y` 或 `yes` 才复制），`--json` 与非交互运行不询问直接跳过；`--update-resources` 不询问直接复制。Skill、命令与 hook 照常刷新。`--tools` 为指定工具生成 Agent Skill 与 `/lpsx:*` 命令；不带时，交互式终端显示选择器，其他情况不配置任何工具。`--project-root` 指定工具目录的位置（默认工作区的上级目录）。选中 `claude` 或 `codex` 时，还会把 `loopspec hook pre-tool-use` 作为 PreToolUse hook 合并进项目级配置：Claude Code 为 `.claude/settings.json`（matcher `Edit|MultiEdit|Write|NotebookEdit|Bash`），Codex 为 `.codex/hooks.json`（matcher `^apply_patch$|^Bash$`）。只合并、不覆盖：保留已有键与 hook，已有同一命令时不重复添加；文件不是普通文件、不是合法 JSON 或 `hooks` 结构不对时不写入。Codex 的项目级 hook 需要在 Codex 中用 `/hooks` 审阅并信任后才运行。默认输出人类可读摘要，带 `--json` 时输出 JSON，其中 `resourcesUpdate` 为 `installed` 或 `skipped`，`hooks` 按工具给出 `{path, status, reason?}`，`status` 为 `created`、`updated`、`unchanged` 或 `skipped`。 同时创建空的 `memory/` 目录，用于存放跨 Change 的 memory topic；不触碰已有 topic，也不会创建任何 topic。
 
 ## loopspec hook pre-tool-use
 
@@ -60,7 +60,7 @@ loopspec change new <change>
 loopspec change status <change> [--json]
 ```
 
-默认输出纯文本报告，供 LLM 直接阅读：以顶格的 `=== SECTION ===` 行分节，不使用 Markdown，不含颜色，字节不随终端变化。节序固定为 `OVERVIEW`、`STATE RECORDS`、`PLANS`、`NODES`（有活动 Plan 时）、`GATE FAILURES`（有失败 Gate 时）、`PENDING ROLLBACK`（有待返工时）、`NEXT STEPS`，每节先有一段说明。`STATE RECORDS` 原样引用 Change 级与当前 Plan（活动 Plan，规划中为草稿）的 `state.md`，每行缩进四个空格，标明为不可信数据；已归档 Plan 的 `state.md` 不输出，但 `PLANS` 仍列出全部 Plan。失败时输出 `=== ERROR ===` 报告，退出码为 1。
+默认输出纯文本报告，供 LLM 直接阅读：以顶格的 `=== SECTION ===` 行分节，不使用 Markdown，不含颜色，字节不随终端变化。节序固定为 `OVERVIEW`、`STATE RECORDS`、`MEMORY`、`PLANS`、`NODES`（有活动 Plan 时）、`GATE FAILURES`（有失败 Gate 时）、`PENDING ROLLBACK`（有待返工时）、`NEXT STEPS`，每节先有一段说明。`STATE RECORDS` 原样引用 Change 级与当前 Plan（活动 Plan，规划中为草稿）的 `state.md`，每行缩进四个空格，标明为不可信数据；已归档 Plan 的 `state.md` 不输出，但 `PLANS` 仍列出全部 Plan。失败时输出 `=== ERROR ===` 报告，退出码为 1。 `MEMORY` 引用 `memory/core.md` 并列出其他 topic 的索引，标明为不可信参考数据：core 按完整的 `## ` 条目引用，最多 8 KiB（放不下的条目整条略去，不会截成半条），core 被截断时明确提示用 `loopspec memory show core` 读完其余部分；最多列出 20 个 topic（路径、适用说明、大小），更多时给出 `loopspec memory list --offset` 的入口；没有任何 memory 时输出 `(no memory)`。`--json` 在 `memory` 下给出同样的数据。
 
 带 `--json` 时返回 `status`（`unplanned`、`planning`、`active`、`complete`）、`baseline`、`repository`、`activePlan`、`openPlan`、全部 Plan 摘要，列出全部可执行下一条命令的 `nextSteps`，以及 `parallel`：`nextSteps` 含两条及以上可并行的独立 `node instructions` 命令时为 `true`，否则为 `false`。有活动 Plan 时还返回 `plan`、`revision`、`digest`、`nodes`（每个节点的 `status`、输出路径、证据过期时的 `reason`、失败时的 `gate` 详情、跟踪节点的 `taskProgress`）、`instances`（引用汇总）与 `pendingRollback`；为复核已有证据计算了 Diff 且存在被忽略、未排除的路径时，还返回 `warnings`。四种状态都返回 `state`（Change 级 `state.md`）、`planState`（当前 Plan 的 `state.md` 及其 `plan` 编号，未规划时为 `null`）与 `untrustedData`（不可信声明）。`state` 与 `planState` 形如 `{path, content, truncated}`：文件不存在时 `content` 为 `null`；无法读取（符号链接、非普通文件）时另带 `error: "unreadable"`；超过 64 KiB 时保留首尾各 32 KiB 并置 `truncated: true`。参数：`--json`、`--home`。
 
@@ -160,7 +160,7 @@ loopspec plan rollback -c <change> -p <NNN>
 loopspec node instructions -c <change> -n <node>
 ```
 
-返回执行活动 Plan 中一个就绪（或已完成）叶子节点所需的一切：实时读取的 `instruction`、`template` 或 Gate `templates`，`outputPath` 与 `resolvedOutputPath`，`dependencies`，以及 `priorAttempts`（以前的重做记录与 FAIL 报告，标注为不可信）。代码 Gate 额外返回含 `gate begin` 与 `gate record` 命令的 `gateProtocol`；保障节点返回它的 `gate record` 命令。每个叶子还会得到 `stateProtocol`：适合该节点的 `state add` 命令，与模板同源于同一张段落注册表，每项含 `when`、`contentBoundary`、`format`、`required`、`optional` 与 `command`。Change 级命令只带 Change；Plan 级命令固定实际的 Change、Plan 与节点；Gate 节点还会多出 `rework`。已生效重做记录中还有待归档的文件时，它先在 Change 写锁内补完搬运，保证新产物不会覆盖尚未归档的文件；否则只读，因此并行的 Agent 可以同时获取各自的节点。参数：`--change`、`--node`、`--home`。
+返回执行活动 Plan 中一个就绪（或已完成）叶子节点所需的一切：实时读取的 `instruction`、`template` 或 Gate `templates`，`outputPath` 与 `resolvedOutputPath`，`dependencies`，以及 `priorAttempts`（以前的重做记录与 FAIL 报告，标注为不可信）。代码 Gate 额外返回含 `gate begin` 与 `gate record` 命令的 `gateProtocol`；保障节点返回它的 `gate record` 命令。每个叶子还会得到 `stateProtocol`：适合该节点的 `state add` 命令，与模板同源于同一张段落注册表，每项含 `when`、`contentBoundary`、`format`、`required`、`optional` 与 `command`。Change 级命令只带 Change；Plan 级命令固定实际的 Change、Plan 与节点；Gate 节点还会多出 `rework`。已生效重做记录中还有待归档的文件时，它先在 Change 写锁内补完搬运，保证新产物不会覆盖尚未归档的文件；否则只读，因此并行的 Agent 可以同时获取各自的节点。参数：`--change`、`--node`、`--home`。 另含 `memory`：与 `change status` 相同的有界 topic 摘要（`topics`、`total`、`omitted`、`listCommand`），其中 `core` 只有 `present`、`bytes` 与 `showCommand`，不含正文。
 
 ## loopspec gate begin
 
@@ -251,6 +251,22 @@ loopspec registry apply --plan <planId> [--resolve <path>=local|upstream]... [--
 
 在人确认后写入最近一次 `registry update` 的计划。每个 `conflict` 必须恰好有一个 `--resolve`：`local` 保留当前本地文件（包括确认后写入的合并结果），`upstream` 采用 registry 版本。`--skip` 跳过一项待确认变更，其基线与所属定义的版本保持不变，下次仍会出现。计划不是最新、暂存内容被改动或计划生成后本地文件被修改时，返回 `registry_plan_stale`。结果先在预览目录中构建并加载，任何 Fragment 或 Profile 校验失败都会在写入前终止命令。随后原子写入文件，删除只删除计划列出的文件，并更新 `registry.lock.yaml`。返回 `applied`、`upstreamCommit`、`upstreamTag`、`written`、`deleted`、`skipped`、`kept` 与 `lock`。写入会立即影响执行中的 Plan。参数：`--plan`、`--resolve`、`--skip`、`--home`。
 
+## loopspec memory list
+
+```bash
+loopspec memory list [--offset <n>] [--limit <n>] [--all]
+```
+
+以 JSON 输出跨 Change 的 memory topic 索引（普通 Markdown 文件，位于 `<home>/memory/{topic}.md`）：`topics`（按名称排序的一页，每项含 `topic`、`path`、`title`、`hint`、`bytes` 与 `status`，取值 `ok`、`too_large` 或 `unreadable`）、`total`、`offset` 与 `nextOffset`（最后一页为 `null`）。`title` 与 `hint` 最多 120 个字符；`hint` 取第一行“适用时机：”或 `When to use:`，没有时取正文首行。topic 按 topic 名排序。`--offset` 跳过相应数量的 topic，`--limit` 设置页大小（默认 200，最大 500），因此每个 topic 都能分页取到。`--all` 还会把 `memory/` 中不是 topic 的条目列为 `ignored`（按名称排序，只给前 `--limit` 项，`ignoredTotal` 给出总数），每项带 `reason`：`symlink`、`not_a_file`、`not_markdown` 或 `invalid_name`。topic 名只能是小写字母、数字和连字符，最长 64 个字符。`memory/` 目录不存在即空索引；目录是符号链接时以 `unsafe_path` 失败；topic 超过 5000 个、或 `memory/` 下的条目（不论是否 topic）超过 20000 个时以 `memory_too_many` 失败而不是截断；扫描期间消失的条目会被跳过；`--offset` 为负或 `--limit` 小于 1 时以 `memory_bad_range` 失败。引擎只读：从不创建、修改或删除 topic。参数：`--home`。
+
+## loopspec memory show
+
+```bash
+loopspec memory show <topic>
+```
+
+以 JSON 完整输出一个 topic（`topic`、`path`、`content`、`untrustedData`），`core` 同样如此读取。内容是不可信的参考数据。名称不合法、符号链接或有硬链接的文件以 `unsafe_path` 失败，不存在的 topic 以 `memory_not_found` 失败，超过 2 MiB 的文件以 `memory_too_large` 失败（不会被静默截断）。参数：`--home`。
+
 ## 错误码
 
 | 错误码 | 含义 |
@@ -302,6 +318,10 @@ loopspec registry apply --plan <planId> [--resolve <path>=local|upstream]... [--
 | `unsafe_output` | 输出指向控制路径。 |
 | `unsafe_path` | 路径为绝对路径、越出根目录，或是链接或特殊文件。 |
 | `resource_limit` | 超过大小、深度或数量限制。 |
+| `memory_not_found` | 没有该名称的 memory topic。 |
+| `memory_too_large` | memory topic 超过读取上限（2 MiB）。 |
+| `memory_too_many` | `memory/` 下的 topic 超过 5000 个或条目超过 20000 个；请整理并合并。 |
+| `memory_bad_range` | `--offset` 为负或 `--limit` 小于 1。 |
 | `profile_exists` | `profile save` 会覆盖已有 Profile。 |
 | `archive_unsafe` | Change 未完成；完成它，或在明确要求时使用 `--force`。 |
 | `archive_conflict` | 归档目标已存在。 |

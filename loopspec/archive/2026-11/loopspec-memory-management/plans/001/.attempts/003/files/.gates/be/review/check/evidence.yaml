@@ -1,0 +1,19 @@
+gate: be/review/check
+plan_digest: b64310fca84dedb44becfcad5a4394f947016757bb4bb218c2036e03417161fe
+baseline: 70a2d0b9b8d1a5e3c8e56ed3d6c39253683622cc
+round: 2
+verdict: FAIL
+paths:
+- src/**
+- tests/**
+- builtin/**
+- Makefile
+- pyproject.toml
+- install.sh
+- hatch_version.py
+- uv.lock
+provides:
+- pr-review
+scope_digest: 94aa3a0d2bd58c0a07fbb309e1f847b70314895644ac6b9bae73178ec646fa9d
+report_hash: e4a50ee0c1c8862c6393fb22bd08e0fc1cd8684680c650579e3a6335b1009a77
+system: false

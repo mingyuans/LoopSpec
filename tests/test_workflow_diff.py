@@ -1,4 +1,5 @@
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -417,3 +418,67 @@ def test_repository_identity_is_checked(tmp_path: Path):
     loaded.change.state.repository = "/elsewhere"
     with pytest.raises(WorkflowError, match="仓库身份"):
         collect_diff(loaded)
+
+
+def test_home_memory_is_always_excluded_from_the_diff(tmp_path: Path):
+    home = fixture(tmp_path)
+    loaded = activate(home)
+    (home / "memory").mkdir()
+    (home / "memory/core.md").write_text("# Core\n\n## a\nlearned\n")
+    (home / "memory/testing.md").write_text("# Testing\n")
+    assert collect_diff(loaded).entries == []
+
+
+def test_a_memory_directory_elsewhere_is_ordinary_code(tmp_path: Path):
+    home = fixture(tmp_path)
+    loaded = activate(home)
+    (tmp_path / "memory").mkdir()
+    (tmp_path / "memory/core.md").write_text("not the workflow memory")
+    assert [entry["path"] for entry in collect_diff(loaded).entries] == ["memory/core.md"]
+
+
+def test_only_valid_topic_files_in_memory_are_excluded_from_the_diff(tmp_path: Path):
+    home = fixture(tmp_path)
+    loaded = activate(home)
+    memory = home / "memory"
+    (memory / "sub").mkdir(parents=True)
+    (memory / "core.md").write_text("# Core\n")
+    (memory / "release-notes.md").write_text("# Topic\n")
+    (memory / "run.sh").write_text("echo not a topic\n")
+    (memory / "Upper.md").write_text("# not a valid topic name\n")
+    (memory / "sub" / "x.md").write_text("# nested\n")
+    (memory / "script.py").write_text("print('hidden')\n")
+    paths = sorted(entry["path"] for entry in collect_diff(loaded).entries)
+    assert paths == [
+        "loopspec/memory/Upper.md",
+        "loopspec/memory/run.sh",
+        "loopspec/memory/script.py",
+        "loopspec/memory/sub/x.md",
+    ]
+
+
+def test_a_symlink_named_like_a_topic_is_not_excluded_from_the_diff(tmp_path: Path):
+    home = fixture(tmp_path)
+    loaded = activate(home)
+    memory = home / "memory"
+    memory.mkdir()
+    (memory / "real.md").write_text("# Real\n")
+    (memory / "link.md").symlink_to("../profiles")
+    paths = sorted(entry["path"] for entry in collect_diff(loaded).entries)
+    assert paths == ["loopspec/memory/link.md"]
+
+
+def test_a_memory_directory_replaced_by_a_file_is_a_structured_error_not_a_crash(tmp_path: Path):
+    home = fixture(tmp_path)
+    (home / "memory").mkdir()
+    (home / "memory/core.md").write_text("# Core\n")
+    execute(tmp_path, "add", "-f", "loopspec/memory/core.md")
+    execute(tmp_path, "commit", "-m", "memory in the baseline")
+    loaded = activate(home)
+    shutil.rmtree(home / "memory")
+    (home / "memory").write_text("now a file\n")
+    # Like any directory swapped for a file, this is reported as a structured error from the
+    # diff itself; the exclusion check must not blow up earlier with a bare NotADirectoryError.
+    with pytest.raises(WorkflowError) as exc:
+        collect_diff(loaded)
+    assert exc.value.code == "unsafe_path"

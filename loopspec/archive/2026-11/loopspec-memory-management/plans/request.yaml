@@ -1,0 +1,13 @@
+flow:
+- id: requirements
+  use: requirements
+  requires: []
+- id: design
+  use: design
+  requires: [requirements]
+- id: be
+  use: backend-implementation
+  requires: [design]
+- id: assurance
+  use: change-assurance
+  requires: [be]
