@@ -20,7 +20,18 @@ from .workflow_attempts import (
 )
 from .workflow_git import fixed_baseline
 from .workflow_io import atomic_write, byte_hash, exists, read_bytes, write_lock
-from .workflow_journal import event_line, plan_state_template, record, with_warnings
+from .workflow_journal import (
+    approve_event,
+    archive_change_event,
+    archive_plan_event,
+    create_event,
+    plan_state_template,
+    record,
+    replace_draft_event,
+    revise_event,
+    rollback_event,
+    with_warnings,
+)
 from .workflow_models import PlanDocument, PlanMeta, PlanRequest, PlanSpec
 from .workflow_planning import CompiledSpec, compile_request, load_request
 from .workflow_state import (
@@ -184,7 +195,7 @@ def create(home: Path, name: str, path: str, note: str | None = None) -> dict:
                 document.meta.note = note
             document.spec = compiled.spec
             write_plan(ctx.root, document)
-            line = event_line(now(), "replace-draft", f"digest {compiled.digest[:8]}", note=note)
+            line = replace_draft_event(now(), name, draft, compiled.digest, note=note)
             failed = record(ctx.root, plan_path(draft, "state.md"), line)
             return with_warnings(created(ctx, document, compiled, replaced=True), [failed])
         plan_id = ctx.next_plan()
@@ -217,9 +228,7 @@ def create(home: Path, name: str, path: str, note: str | None = None) -> dict:
             spec=compiled.spec,
         )
         write_plan(ctx.root, document)
-        line = event_line(
-            document.meta.created, "create", f"digest {compiled.digest[:8]}", note=note
-        )
+        line = create_event(document.meta.created, name, plan_id, compiled.digest, note=note)
         failed = record(ctx.root, plan_path(plan_id, "state.md"), line)
         return with_warnings(created(ctx, document, compiled, replaced=False), [failed])
 
@@ -325,7 +334,7 @@ def approve(home: Path, name: str, plan_id: str, expected: str, path: str | None
         meta.revision = 1
         meta.approved_at = now()
         write_plan(ctx.root, document)
-        line = event_line(meta.approved_at, "approve", "revision 1", f"digest {meta.digest[:8]}")
+        line = approve_event(meta.approved_at, name, plan_id, 1, meta.digest)
         failed = record(ctx.root, plan_path(plan_id, "state.md"), line)
         return with_warnings(approved(ctx, document, already=False, rerun=[]), [failed])
 
@@ -378,12 +387,14 @@ def approve_revision(ctx: ChangeContext, plan_id: str, path: str, expected: str)
     write_plan(ctx.root, document)
     if attempt is not None:
         finish(revised, attempt)
-    line = event_line(
+    line = revise_event(
         document.meta.approved_at,
-        "revise",
-        f"revision {meta.revision} → {revision}",
-        f"digest {compiled.digest[:8]}",
-        f"rerun: {', '.join(rerun) or '-'}",
+        ctx.name,
+        plan_id,
+        meta.revision,
+        revision,
+        compiled.digest,
+        rerun,
     )
     failed = record(ctx.root, plan_path(plan_id, "state.md"), line)
     return with_warnings(approved(ctx, document, already=False, rerun=rerun), [failed])
@@ -410,10 +421,12 @@ def archive(home: Path, name: str, plan_id: str, note: str | None = None) -> dic
                 record(
                     ctx.root,
                     plan_path(plan_id, "state.md"),
-                    event_line(stamp, "archive", note=note),
+                    archive_plan_event(stamp, name, plan_id, note=note),
                 ),
                 record(
-                    ctx.root, "state.md", event_line(stamp, f"archive plan {plan_id}", note=note)
+                    ctx.root,
+                    "state.md",
+                    archive_change_event(stamp, name, plan_id, note=note),
                 ),
             ]
         return with_warnings(
@@ -465,13 +478,7 @@ def rollback(home: Path, name: str, plan_id: str) -> dict:
         )
         write_record(loaded, attempt)
         finish(loaded, attempt)
-        line = event_line(
-            now(),
-            "rollback",
-            f"gate {gate.id}",
-            f"attempt {attempt.seq}",
-            f"reset: {', '.join(reset)}",
-        )
+        line = rollback_event(now(), loaded.name, loaded.plan_id, gate.id, attempt.seq, reset)
         failed = record(ctx.root, plan_path(loaded.plan_id, "state.md"), line)
         return with_warnings(
             {

@@ -168,7 +168,7 @@ spec:
 
 ## Change 级状态
 
-`changes/<change>/.workflow.yaml` 只保存属于 Change 而非某份 Plan 的信息，不保存 Plan 指针：`meta.status` 为 `draft` 或 `approved` 的 Plan 是未结束 Plan，`approved` 的那份是活动 Plan，新 Plan 编号为已有最大编号加 1。出现两份未结束 Plan 时返回 `history_integrity`。Change 状态实时推导，从不存储。
+`changes/<change>/.workflow.yaml` 只保存属于 Change 而非某份 Plan 的信息，不保存 Plan 指针：`meta.status` 为 `draft` 或 `approved` 的 Plan 是未结束 Plan，`approved` 的那份是活动 Plan，新 Plan 编号为已有最大编号加 1。出现两份未结束 Plan 时返回 `history_integrity`。Change 状态实时推导，从不存储。旁边供人阅读的 `state.md` 与这份机器状态相互独立，从不参与任何判定；`loopspec state add` 在 Change 写锁内写入它们（见概览）。
 
 <!-- loopspec:example=change-state -->
 ```yaml
@@ -235,6 +235,7 @@ repository: /path/to/project
 | `plan archive` | `plan.yaml` 置为 archived。 | 同一次写入 |
 | `plan rollback` | `record.yaml`，然后逐个归档清单中的文件，FAIL 报告最后。 | `record.yaml` |
 | `plan approve -f`（修订） | `record.yaml`，然后替换 `plan.yaml`，最后逐个归档清单中的文件。 | `plan.yaml` |
+| `state add` | 插入一条记录后，原子替换目标 `state.md`。 | 同一次写入。 |
 
 - rollback 记录写入即生效；revision 记录在 `plan.yaml` 达到其修订号后生效。未生效的 revision 记录被忽略，不进入历史与 `priorAttempts`，并由下一条记录替换。
 - 已生效记录中尚未搬走的文件视为不存在，所以被重置的节点立即可以重新执行。`node instructions`、`gate`、`plan rollback`、`plan approve`、`plan archive` 与 `change archive` 会在 Change 写锁内先补完这些搬运；`change status` 只读。

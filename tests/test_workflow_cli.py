@@ -38,6 +38,7 @@ TREE = {
     "plan": {"validate", "create", "show", "list", "approve", "archive", "rollback"},
     "node": {"instructions"},
     "gate": {"begin", "record"},
+    "state": {"add"},
     "fragment": {"list", "show", "validate"},
     "profile": {"list", "show", "validate", "save"},
     "registry": {"update", "apply"},

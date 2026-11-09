@@ -46,6 +46,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "types-pyyaml",
+    "pytest-bdd>=9,<10",
 ]
 
 [tool.ruff]
@@ -64,3 +65,6 @@ warn_redundant_casts = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "subprocess: runs the installed loopspec executable in a child process",
+]

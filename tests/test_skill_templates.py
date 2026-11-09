@@ -352,7 +352,8 @@ MAINTENANCE_MARKERS = (
 def test_new_reads_memory_after_creating_the_change_and_before_planning():
     body = _body("new")
     assert body.index("loopspec change new") < body.index("loopspec memory list")
-    assert body.index("loopspec memory list") < body.index("fill in the change-level `state.md`")
+    recording = "record the user's request in the change-level `state.md`"
+    assert body.index("loopspec memory list") < body.index(recording)
     assert "loopspec memory show core" in body and "loopspec memory show <topic>" in body
     assert "`list` does not return core text" in body
     assert "`--offset`" in body and "`No relevant memory`" in body
@@ -455,3 +456,35 @@ def test_the_shared_maintenance_procedure_is_identical_in_continue_and_archive()
 
     assert procedure("continue") == procedure("archive")
     assert len(procedure("continue")) > 1500
+
+
+def test_skills_record_state_with_the_unified_command_and_no_inline_formats():
+    bodies = {t.verb: t.body for t in SKILL_TEMPLATES}
+    for verb in ("new", "continue", "archive"):
+        assert "loopspec state add" in bodies[verb], verb
+        assert "state_section_missing" in bodies[verb], verb
+        assert "do not retry blindly" in bodies[verb], verb
+    old_formats = (
+        "human-decisions section",
+        "assumptions-and-deviations section",
+        "key-decisions section",
+        "rework section of the plan-level",
+        "Q: ...; A: ...",
+        "- YYYY-MM-DD (who confirmed)",
+        "human-decision",
+        "--question",
+        "--answer",
+    )
+    for verb, body in bodies.items():
+        for text in old_formats:
+            assert text not in body, (verb, text)
+    assert "--actor HUMAN --by" in bodies["new"] and "--section rework" in bodies["continue"]
+    assert "loopspec state add --section" in bodies["archive"]
+
+
+def test_continue_still_points_replanning_at_the_new_skill_steps():
+    body = next(t for t in SKILL_TEMPLATES if t.verb == "continue").body
+    new_body = next(t for t in SKILL_TEMPLATES if t.verb == "new").body
+    assert "(steps 3-9)" in body
+    assert re.search(r"^9\. Only after a real human confirms", new_body, re.M)
+    assert re.search(r"^3\. Before planning, read project memory", new_body, re.M)

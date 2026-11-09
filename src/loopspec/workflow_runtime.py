@@ -15,6 +15,7 @@ from .workflow_io import byte_hash, directory, exists, read_bytes, relative_path
 from .workflow_memory import pointer as memory_pointer
 from .workflow_models import FailureReport, ResolvedNode
 from .workflow_state import LoadedPlan
+from .workflow_state_notes import state_protocol
 from .workflow_yaml import parse_yaml
 
 
@@ -326,4 +327,5 @@ def instructions(loaded: LoadedPlan, identity: str) -> dict:
             "kind": "assurance",
             "recordCommand": f"loopspec gate record -c {name} -n {identity}",
         }
+    result["stateProtocol"] = state_protocol(name, plan, identity, gate=node.gate is not None)
     return result
