@@ -21,8 +21,9 @@ import yaml
 
 WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "release.yml"
 VERSION_STEP = "Resolve and validate version from tag"
-# Same shape hatch_version.py and install.sh accept.
-VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+([._-]?(a|b|rc|alpha|beta|dev|post)[0-9]+)?$")
+# The two package versions a release can carry: X.Y.Z (tag vX.Y.Z) and X.Y.Zb0
+# (tag vX.Y.Z-beta). Mirrors the workflow's tag check.
+VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(b0)?$")
 PUBLISH_STEP = "Publish release"
 CHECKSUM_STEP = "Generate checksums"
 
@@ -221,6 +222,15 @@ def test_assets_are_not_globbed(workflow: dict):
     assert "--target" not in body, "the tag already exists; it must not be created"
 
 
+def test_publish_marks_betas_as_prereleases_that_are_never_latest(workflow: dict):
+    """install.sh and `loopspec update` resolve releases/latest/, so a beta that
+    became latest would be installed by every user."""
+    body = step_named(workflow, "release", PUBLISH_STEP)["run"]
+    assert 'flags="--prerelease --latest=false"' in body
+    assert 'flags="--latest"' in body
+    assert "$flags" in body.partition("gh release create")[2]
+
+
 # --- the release steps' shell logic ---------------------------------------
 
 
@@ -228,8 +238,7 @@ def version_snippet(workflow: dict) -> str:
     return step_named(workflow, "release", VERSION_STEP)["run"]
 
 
-@pytest.mark.parametrize("tag", ["v0.1.0", "v1.2.3", "v1.0.0rc1", "v0.9.0.post1"])
-def test_valid_tags_resolve_to_a_version(workflow: dict, tmp_path: Path, tag: str):
+def resolve_tag(workflow: dict, tmp_path: Path, tag: str):
     env_file = tmp_path / "github_env"
     env_file.touch()
     result = run_snippet(
@@ -237,15 +246,36 @@ def test_valid_tags_resolve_to_a_version(workflow: dict, tmp_path: Path, tag: st
         tmp_path,
         {"GITHUB_REF_NAME": tag, "GITHUB_ENV": str(env_file)},
     )
+    return result, env_file
+
+
+@pytest.mark.parametrize(
+    ("tag", "version", "prerelease"),
+    [
+        ("v0.1.0", "0.1.0", "false"),
+        ("v1.2.3", "1.2.3", "false"),
+        ("v1.2.0", "1.2.0", "false"),
+        ("v10.20.30", "10.20.30", "false"),
+        ("v1.1.4-beta", "1.1.4b0", "true"),
+        ("v0.0.1-beta", "0.0.1b0", "true"),
+    ],
+)
+def test_valid_tags_resolve_to_a_version(
+    workflow: dict, tmp_path: Path, tag: str, version: str, prerelease: str
+):
+    result, env_file = resolve_tag(workflow, tmp_path, tag)
     assert result.returncode == 0, result.stderr
     written = dict(line.split("=", 1) for line in env_file.read_text().splitlines() if "=" in line)
     # LOOPSPEC_BUILD_VERSION is what the build backend reads, so the tag decides
     # the artifact filenames without anything in the tree declaring a version.
+    # A beta's VERSION is the normalized X.Y.Zb0 hatchling names the files after.
     assert written == {
         "TAG": tag,
-        "VERSION": tag[1:],
-        "LOOPSPEC_BUILD_VERSION": tag[1:],
+        "VERSION": version,
+        "LOOPSPEC_BUILD_VERSION": version,
+        "PRERELEASE": prerelease,
     }
+    assert VERSION_RE.match(version)
 
 
 @pytest.mark.parametrize(
@@ -253,26 +283,58 @@ def test_valid_tags_resolve_to_a_version(workflow: dict, tmp_path: Path, tag: st
     [
         "v0.2",
         "v0.2.0-my-branch",
+        "v1.1.4-beta1",
+        "v1.1.4b0",
+        "v1.1.4-rc",
+        "v1.0.0rc1",
+        "v0.9.0.post1",
+        "v1.1.4-alpha",
+        "v1.1.4-beta-beta",
+        "v-beta",
+        "v1.2.0.0",
+        "1.2.0",
+        "1.2.0-beta",
         "vendor-snapshot",
         "v1.0.0$(touch pwned)",
         "v1.0.0; touch pwned",
+        "v1.0.0-beta$(touch pwned)",
         "v../../etc/passwd",
+        "v1.2.3\nPRERELEASE=false",
+        "",
     ],
 )
 def test_invalid_tags_are_rejected_without_executing_anything(
     workflow: dict, tmp_path: Path, tag: str
 ):
-    env_file = tmp_path / "github_env"
-    env_file.touch()
-    result = run_snippet(
-        version_snippet(workflow),
-        tmp_path,
-        {"GITHUB_REF_NAME": tag, "GITHUB_ENV": str(env_file)},
-    )
+    result, env_file = resolve_tag(workflow, tmp_path, tag)
     assert result.returncode != 0
     assert "does not name a valid version" in result.stdout + result.stderr
+    assert "vX.Y.Z or vX.Y.Z-beta" in result.stdout + result.stderr
     assert env_file.read_text() == "", "a rejected tag must not reach later steps"
     assert not (tmp_path / "pwned").exists(), "the tag name was executed"
+
+
+@pytest.mark.skipif(shutil.which("make") is None, reason="needs make")
+@pytest.mark.parametrize("tag", ["v1.2.0", "v1.1.4-beta"])
+def test_the_makefile_maps_tags_like_the_workflow(workflow: dict, tmp_path: Path, tag: str):
+    """`make release-dry-run TAG=...` must build what CI would build for that tag.
+
+    `make -n` prints the recipe without running it, so this reads the version the
+    dry run would stamp without building anything.
+    """
+    result, env_file = resolve_tag(workflow, tmp_path, tag)
+    assert result.returncode == 0, result.stderr
+    written = dict(line.split("=", 1) for line in env_file.read_text().splitlines())
+
+    made = subprocess.run(
+        ["make", "-n", "-C", str(WORKFLOW.parent.parent.parent), "release-dry-run", f"TAG={tag}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert made.returncode == 0, made.stderr
+    stamped = re.findall(r'LOOPSPEC_BUILD_VERSION="([^"]*)" uv build', made.stdout)
+    assert stamped == [written["VERSION"]], made.stdout
 
 
 @pytest.mark.skipif(
@@ -295,6 +357,83 @@ def test_checksums_use_bare_filenames(workflow: dict, tmp_path: Path):
     assert names == ["loopspec-0.1.0-py3-none-any.whl", "loopspec-0.1.0.tar.gz"]
 
 
+GH_STUB = """#!/bin/sh
+printf '%s\\n' "$@" >"$GH_LOG"
+"""
+
+
+@pytest.mark.parametrize(
+    ("prerelease", "expected"),
+    [("true", ["--prerelease", "--latest=false"]), ("false", ["--latest"])],
+)
+def test_publish_passes_the_release_flags_to_gh(
+    workflow: dict, tmp_path: Path, prerelease: str, expected: list[str]
+):
+    """The whole step, with `gh` stubbed to record its argv."""
+    version = "1.1.4b0" if prerelease == "true" else "1.2.0"
+    tag = "v1.1.4-beta" if prerelease == "true" else "v1.2.0"
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / f"loopspec-{version}-py3-none-any.whl").touch()
+    (dist / f"loopspec-{version}.tar.gz").touch()
+    (tmp_path / "checksums.txt").touch()
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = bindir / "gh"
+    stub.write_text(GH_STUB, encoding="utf-8")
+    stub.chmod(0o755)
+    log = tmp_path / "gh.log"
+
+    result = subprocess.run(
+        ["bash", "-e", "-c", step_named(workflow, "release", PUBLISH_STEP)["run"]],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": f"{bindir}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+            "GH_LOG": str(log),
+            "TAG": tag,
+            "VERSION": version,
+            "PRERELEASE": prerelease,
+        },
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    argv = log.read_text().splitlines()
+    assert argv == [
+        "release",
+        "create",
+        tag,
+        f"dist/loopspec-{version}-py3-none-any.whl",
+        f"dist/loopspec-{version}.tar.gz",
+        "checksums.txt",
+        "--title",
+        tag,
+        "--generate-notes",
+        *expected,
+    ]
+
+
+@pytest.mark.parametrize("prerelease", ["", "yes", "--latest"])
+def test_publish_refuses_an_unknown_prerelease_value(
+    workflow: dict, tmp_path: Path, prerelease: str
+):
+    """No default: falling back to --latest would publish a beta as latest."""
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "loopspec-0.1.0-py3-none-any.whl").touch()
+    (dist / "loopspec-0.1.0.tar.gz").touch()
+    (tmp_path / "checksums.txt").touch()
+    result = run_snippet(
+        publish_assets_snippet(workflow),
+        tmp_path,
+        {"VERSION": "0.1.0", "PRERELEASE": prerelease},
+    )
+    assert result.returncode != 0
+    assert "PRERELEASE must be true or false" in result.stdout + result.stderr
+    assert not (tmp_path / "published.txt").exists()
+
+
 def publish_assets_snippet(workflow: dict) -> str:
     """The publish step's asset checks, with the `gh` call replaced by an echo."""
     body = step_named(workflow, "release", PUBLISH_STEP)["run"]
@@ -311,7 +450,9 @@ def test_publish_accepts_exactly_the_contracted_assets(workflow: dict, tmp_path:
     (tmp_path / "checksums.txt").touch()
     (dist / "unexpected-extra-file.txt").touch()
 
-    result = run_snippet(publish_assets_snippet(workflow), tmp_path, {"VERSION": "0.1.0"})
+    result = run_snippet(
+        publish_assets_snippet(workflow), tmp_path, {"VERSION": "0.1.0", "PRERELEASE": "false"}
+    )
     assert result.returncode == 0, result.stderr
     published = (tmp_path / "published.txt").read_text().split()
     assert published == [
@@ -332,7 +473,9 @@ def test_publish_fails_when_an_asset_is_missing(workflow: dict, tmp_path: Path, 
             (dist / name).touch()
     (tmp_path / "checksums.txt").touch()
 
-    result = run_snippet(publish_assets_snippet(workflow), tmp_path, {"VERSION": "0.1.0"})
+    result = run_snippet(
+        publish_assets_snippet(workflow), tmp_path, {"VERSION": "0.1.0", "PRERELEASE": "false"}
+    )
     assert result.returncode != 0
     assert "missing release asset" in result.stdout + result.stderr
     assert not (tmp_path / "published.txt").exists()

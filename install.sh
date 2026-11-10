@@ -7,6 +7,9 @@
 # version. Set LOOPSPEC_VERSION=1.0.3 to pin a version instead of taking the
 # latest release.
 #
+# Stable releases (X.Y.Z) only. Betas are opt-in through the installed CLI:
+#   loopspec update --beta
+#
 # Every download is verified against the release's checksums.txt before anything
 # is installed, and there is deliberately no way to skip that. Nothing here needs
 # sudo and nothing is written outside your uv/pipx tool directory.
@@ -34,6 +37,12 @@ LATEST_CHECKSUMS_URL="$RELEASES/latest/download/checksums.txt"
 
 VERSION_PATTERN='^[0-9]\{1,\}\.[0-9]\{1,\}\.[0-9]\{1,\}\([._-]\{0,1\}\(a\|b\|rc\|alpha\|beta\|dev\|post\)[0-9]\{1,\}\)\{0,1\}$'
 
+# What this script will install: a stable X.Y.Z, nothing else. VERSION_PATTERN
+# above still decides what may be parsed out of checksums.txt; this decides what
+# may be installed. A beta's tag (vX.Y.Z-beta) and package version (X.Y.Zb0)
+# differ, and installing one has to be a deliberate `loopspec update --beta`.
+STABLE_PATTERN='^[0-9]\{1,\}\.[0-9]\{1,\}\.[0-9]\{1,\}$'
+
 log() {
 	printf '%s\n' "$*"
 }
@@ -52,6 +61,14 @@ fetch_to() {
 # allowed anywhere near a URL, a filename or a command argument.
 validate_version() {
 	printf '%s' "$1" | grep -q "$VERSION_PATTERN" || die "not a valid version: '$1'"
+}
+
+# Applied after validate_version: the string is known to be a version, this
+# only decides whether it is one we install.
+require_stable() {
+	printf '%s' "$1" | grep -q "$STABLE_PATTERN" ||
+		die "install.sh installs stable releases only (X.Y.Z), not '$1'.
+  To try a beta run: loopspec update --beta"
 }
 
 # checksums.txt lines are "<sha256>  loopspec-<version>-py3-none-any.whl", so
@@ -81,7 +98,13 @@ resolve_release() {
 	tmp=$1
 
 	if [ -n "${LOOPSPEC_VERSION:-}" ]; then
+		# X.Y.Z-beta is a beta's tag spelling, which the parse gate would only
+		# call invalid; it gets the stable-only message and the pointer instead.
+		case "$LOOPSPEC_VERSION" in
+		*-beta) require_stable "$LOOPSPEC_VERSION" ;;
+		esac
 		validate_version "$LOOPSPEC_VERSION"
+		require_stable "$LOOPSPEC_VERSION"
 		url="$RELEASES/download/v$LOOPSPEC_VERSION/checksums.txt"
 		fetch_to "$url" "$tmp/checksums.txt" ||
 			die "could not download $url
@@ -100,6 +123,9 @@ resolve_release() {
 	[ -n "$version" ] ||
 		die "no wheel entry in checksums.txt from $LATEST_CHECKSUMS_URL"
 	validate_version "$version"
+	# Defensive: CI never marks a beta as latest, but if one ever is, this
+	# refuses to install it rather than pushing a beta onto every new user.
+	require_stable "$version"
 	printf '%s' "$version"
 }
 

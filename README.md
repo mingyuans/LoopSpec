@@ -19,7 +19,7 @@ It covers every command and its JSON output, writing Fragments, Profiles and Pla
 curl -fsSL https://raw.githubusercontent.com/mingyuans/LoopSpec/main/install.sh | sh
 ```
 
-The same command installs and updates — re-run it to move to the latest release. It downloads the wheel from the newest GitHub Release, verifies its SHA256 against the release's `checksums.txt`, and installs it with `uv tool install` (or `pipx install` if you don't have uv). Nothing needs `sudo`, and there is no flag to skip the checksum check.
+The same command installs and updates — re-run it to move to the latest release. It installs stable releases only: it downloads the wheel from the latest stable GitHub Release (betas are never marked Latest), verifies its SHA256 against the release's `checksums.txt`, and installs it with `uv tool install` (or `pipx install` if you don't have uv). Nothing needs `sudo`, and there is no flag to skip the checksum check.
 
 If you'd rather read the script before running it:
 
@@ -29,7 +29,7 @@ less install.sh
 sh install.sh
 ```
 
-Pin a specific version with `LOOPSPEC_VERSION`:
+Pin a specific stable version with `LOOPSPEC_VERSION` (only `X.Y.Z`; a beta such as `1.1.4-beta` is rejected, use `loopspec update --beta` or `--version` instead):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mingyuans/LoopSpec/main/install.sh \
@@ -54,9 +54,11 @@ Substitute the version you want; the filenames are listed on each release page. 
 
 ```bash
 # update: verifies the release's SHA256 and reinstalls with uv (or pipx), like install.sh
-loopspec update
+loopspec update                    # latest stable; never downgrades an installed beta
 loopspec update --check            # only report whether a newer release exists
+loopspec update --beta             # newest release, betas included (works with --check)
 loopspec update --version 2.0.0    # install an exact release
+loopspec update --version 1.1.4-beta   # an exact beta; installs package version 1.1.4b0
 
 # or, e.g. when the installed CLI is too old to have `update`: the install command
 curl -fsSL https://raw.githubusercontent.com/mingyuans/LoopSpec/main/install.sh | sh
@@ -69,33 +71,9 @@ If `loopspec` isn't found after installing, the tool directory (usually `~/.loca
 
 ## Releases
 
-Publishing is driven by tags, not by commits. Pushing to `main` runs the checks and builds; it never creates a release. To publish:
+Publishing is driven by tags, not by commits: pushing a `vX.Y.0` tag on `main` publishes a stable release, pushing a `vX.Y.Z-beta` tag publishes a beta as a pre-release (package version `X.Y.Zb0`, never marked Latest). Run `make release-dry-run TAG=<tag>` before spending a tag. The tag is the only place a version is declared.
 
-```bash
-# 1. tag a commit on main
-git tag v0.2.0
-# 2. push the tag -- this is what publishes
-git push origin v0.2.0
-```
-
-The tag is the only place a version is declared. Nothing in the repository repeats it: `pyproject.toml` marks the version `dynamic`, and `hatch_version.py` resolves it at build time from `LOOPSPEC_BUILD_VERSION`, which the workflow sets from the tag it validated. So there is no second declaration for a tag to disagree with, and no version-bump commit to forget.
-
-CI still requires the tagged commit to be reachable from `main`, refuses to overwrite an existing release for the same tag, and verifies after building that the assets are named after the tag.
-
-Building outside a release resolves the same way, in this order: `LOOPSPEC_BUILD_VERSION` if set, else the tag on the current commit (`make build` on a tagged commit produces exactly what CI would), else the `Version:` in `PKG-INFO` when building from a released sdist, else `0.0.0.dev0` for an untagged tree — deliberately not a guess at the next release number, so a local build can't be mistaken for a releasable one.
-
-`make release-dry-run TAG=v0.2.0` builds the artifacts that tag would publish and asserts their filenames, so you can check a release before spending a tag on it.
-
-Each release carries three assets:
-
-- `loopspec-<version>-py3-none-any.whl`
-- `loopspec-<version>.tar.gz`
-- `checksums.txt` — SHA256 of the two above, which `install.sh` verifies
-
-Two things to know before the first release:
-
-- **Repository setting.** `Settings → Actions → General → Workflow permissions` must allow *Read and write*, otherwise creating the release fails with a 403.
-- **Anyone who can push a `v*` tag can publish.** The workflow constrains *what* can be released (a commit on `main`, declaring the version the tag names, not already released) but not *who* may release it. If that matters for your fork, restrict tag pushes with a repository ruleset — that's a repository setting, not something this workflow enforces.
+Version rules, release steps, what CI checks and how to recover from a bad release are in the [release guideline](docs/en/release.md) ([中文](docs/zh/release.md)).
 
 ## Quick start
 

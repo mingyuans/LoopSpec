@@ -18,10 +18,10 @@
 ## loopspec update
 
 ```bash
-loopspec update [--version <X.Y.Z>] [--check] [--json]
+loopspec update [--version <X.Y.Z|X.Y.Z-beta>] [--beta] [--check] [--json]
 ```
 
-升级 loopspec CLI 本身，做法与 `install.sh` 相同。先下载 Release 的 `checksums.txt`：默认取最新 Release（`https://github.com/mingyuans/LoopSpec/releases/latest/download/checksums.txt`），带 `--version` 时取该 tag 的，并从其中的 wheel 行读出版本。该版本就是已安装版本时直接结束，不安装。否则从 tag 下载 wheel，要求 `checksums.txt` 中恰好一行精确命名该文件且 SHA256 一致，然后用 `uv tool install --force`（没有 uv 时用 `pipx install --force`）安装已校验的本地文件；没有跳过校验的选项。`--version` 总是安装指定版本，即使与已安装版本相同，也可用于回退到旧版本。`--check` 只报告是否有新版本，不下载 wheel。版本号无论来自参数还是 `checksums.txt`，都必须形如 `2.1.0`（可带 `a`、`b`、`rc`、`dev` 或 `post` 后缀）才会被使用。下载只走 https（包括重定向），30 秒超时，`checksums.txt` 上限 64 KiB、wheel 上限 50 MiB；安装器不经过 shell 执行。与 `install.sh` 一样，校验能防下载损坏或被替换，不能防 Release 本身被攻破。默认输出一行人类可读文本；带 `--json` 时输出 `{"status", "current", "latest", "installer"}`，`status` 为 `up_to_date`、`available`（`--check` 时）或 `updated`，`installer` 为 `uv`、`pipx`，未安装时为 `null`，此时安装器自身的输出写到 stderr。参数：`--version`、`--check`、`--json`。
+升级 loopspec CLI 本身，做法与 `install.sh` 相同。目标 Release 取决于参数。默认只跟踪正式版：下载最新 Release 的 `checksums.txt`（`https://github.com/mingyuans/LoopSpec/releases/latest/download/checksums.txt`），从其中的 wheel 行读出版本。带 `--beta` 时也考虑 beta：从仓库的 `https://github.com/mingyuans/LoopSpec/releases.atom` 订阅源读取 tag，忽略不是 `vX.Y.Z` 或 `vX.Y.Z-beta` 的 tag，取其中最高的版本，无论是 beta 还是正式版；若该 tag 的 Release 返回 HTTP 404（尚未发布），按版本从高到低最多尝试 3 个 tag，其他任何失败都会直接中止；订阅源只列出最近的 Release，且从不调用 `api.github.com`。带 `--version` 时恰好以该版本为目标，接受 `X.Y.Z`、`X.Y.Z-beta` 或包版本形式 `X.Y.Zb0`，beta 映射为 `vX.Y.Z-beta` tag。`--beta` 与 `--version` 不能同时使用（`update_invalid_version`）。确定 tag 后，下载该 tag 的 `checksums.txt`，并要求其中的版本与 tag 一致。不带 `--version` 时按版本顺序比较，beta（`1.1.4b0`）排在对应正式版（`1.1.4`）之前，只有目标版本比已安装版本新时才安装，因此永不降级：已安装的 beta 比最新正式版新时保持不变，直到更新的正式版发布。`--version` 总是安装指定版本，即使与已安装版本相同，也可用于回退到旧版本。安装时从该 Release 的 tag（`v1.2.0`，包版本 `1.1.4b0` 则为 `v1.1.4-beta`）下载 wheel，要求 `checksums.txt` 中恰好一行精确命名该文件且 SHA256 一致，然后用 `uv tool install --force`（没有 uv 时用 `pipx install --force`）安装已校验的本地文件；没有跳过校验的选项。`--check` 只报告是否有新版本，不下载 wheel，可与 `--beta` 组合。版本号无论来自参数、订阅源还是 `checksums.txt`，都必须先通过版本校验才会被使用。下载只走 https（包括重定向），30 秒超时，`checksums.txt` 上限 64 KiB、订阅源上限 512 KiB、wheel 上限 50 MiB；安装器不经过 shell 执行。与 `install.sh` 一样，校验能防下载损坏或被替换，不能防 Release 本身被攻破。默认输出一行人类可读文本；带 `--json` 时输出 `{"status", "current", "latest", "installer"}`，`status` 为 `up_to_date`、`available`（`--check` 时）或 `updated`，`installer` 为 `uv`、`pipx`，未安装时为 `null`，此时安装器自身的输出写到 stderr。参数：`--version`、`--beta`、`--check`、`--json`。
 
 ## loopspec init
 
@@ -344,8 +344,8 @@ loopspec memory show <topic>
 | `registry_invalid` | registry 树无法读取、`path` 不存在，或超过大小与数量限额。 |
 | `registry_plan_stale` | 没有当前计划、计划 ID 不一致，或 `registry update` 之后暂存文件或本地文件被修改。 |
 | `registry_conflict_unresolved` | 有冲突没有 `--resolve`。 |
-| `update_invalid_version` | `update` 收到或读到的版本号不是合法的 Release 版本。 |
-| `update_fetch_failed` | `update` 无法下载 Release 文件：网络错误、超时、超过大小上限、非 https 地址，或 `checksums.txt` 中没有 wheel。 |
-| `update_verify_failed` | wheel 在 `checksums.txt` 中不是恰好一行，或 SHA256 不一致；未安装任何内容。 |
+| `update_invalid_version` | `update` 收到或读到的版本号不是合法的 Release 版本，或 `--beta` 与 `--version` 同时使用。 |
+| `update_fetch_failed` | `update` 无法下载 Release 文件：网络错误、超时、超过大小上限、非 https 地址，`checksums.txt` 中没有 wheel，或（带 `--beta` 时）`releases.atom` 订阅源中没有合法的 Release tag。 |
+| `update_verify_failed` | wheel 在 `checksums.txt` 中不是恰好一行，SHA256 不一致，或某个 tag 的 `checksums.txt` 中的版本与 tag 不符；未安装任何内容。 |
 | `update_installer_missing` | `PATH` 中既没有 `uv` 也没有 `pipx`。 |
 | `update_install_failed` | 安装器以非零状态退出。 |

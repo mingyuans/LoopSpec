@@ -1,7 +1,8 @@
 # language: zh-CN
 @update
 功能: 用 loopspec update 自我升级
-  命令把 loopspec 升级到最新或指定版本，并报告升级结果；
+  命令把 loopspec 升级到最新正式版、指定版本，或用 --beta 升级到包含 beta 在内的最新版本，并报告升级结果；
+  默认和 --beta 都不会降级，已安装的 beta 不会被换回更旧的正式版；
   网络失败时给出可执行的修复建议，非法版本号在联网前就被拒绝。
 
   场景: JSON 模式升级到指定版本并报告结果
@@ -32,3 +33,42 @@
     那么 命令成功
     并且 标准输出包含 "is up to date"
     并且 升级流程以仅检查模式被调用
+
+  场景: 已安装 beta 时默认更新不会降级到旧的正式版
+    假如 已安装的 loopspec 版本为 "1.1.4b0"
+    并且 发布服务器的 Latest 正式版为 "1.1.3"
+    当 用户以 JSON 模式升级
+    那么 命令成功
+    并且 输出字段 "status" 为 "up_to_date"
+    并且 输出字段 "current" 为 "1.1.4b0"
+    并且 输出字段 "latest" 为 "1.1.3"
+    并且 没有下载任何 wheel
+    并且 没有安装任何版本
+
+  场景: --beta 升级到最新的 beta 版本
+    假如 已安装的 loopspec 版本为 "1.1.3"
+    并且 Release 订阅源依次列出 tag "v1.1.4-beta, v9..9, v1.1.4-beta1, v1.1.3"
+    并且 发布服务器上有 tag 为 "v1.1.4-beta" 的 Release
+    当 用户以 JSON 模式跟踪 beta 升级
+    那么 命令成功
+    并且 输出字段 "status" 为 "updated"
+    并且 输出字段 "latest" 为 "1.1.4b0"
+    并且 wheel 从 tag "v1.1.4-beta" 的 Release 下载
+    并且 安装器安装了 "loopspec-1.1.4b0-py3-none-any.whl"
+
+  场景: --beta 在正式版更新时选择正式版
+    假如 已安装的 loopspec 版本为 "1.1.4b0"
+    并且 Release 订阅源依次列出 tag "v1.2.0, v1.1.4-beta, v1.1.3"
+    并且 发布服务器上有 tag 为 "v1.2.0" 的 Release
+    当 用户以 JSON 模式跟踪 beta 升级
+    那么 命令成功
+    并且 输出字段 "status" 为 "updated"
+    并且 输出字段 "latest" 为 "1.2.0"
+    并且 wheel 从 tag "v1.2.0" 的 Release 下载
+    并且 安装器安装了 "loopspec-1.2.0-py3-none-any.whl"
+
+  场景: --beta 与 --version 不能同时使用
+    假如 升级流程的所有网络请求都会被记录并拦截
+    当 用户以 JSON 模式同时使用 --beta 和 --version "1.2.0" 升级
+    那么 命令失败，错误码为 "update_invalid_version"
+    并且 没有发出任何网络请求

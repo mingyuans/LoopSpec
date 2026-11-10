@@ -18,6 +18,7 @@ LoopSpec 是用于 LLM Agent 的计划驱动、带 Gate 的交付 CLI。每个 C
 | [CLI 参考](cli-reference.md) | 全部命令与参数、JSON 输出与全部错误码。 | 查命令的人。 |
 | [Agent 协议](agent-protocol.md) | Agent 的循环：规划、确认、执行、返工、修订、重新规划与命令中断后的处理。 | LLM Agent 与编写其提示词的人。 |
 | [版本说明](release-notes.md) | 2.0.0 的变化以及如何从 1.x 升级。 | 升级的用户。 |
+| [发布规范](release.md) | 正式版与 beta 的 tag 规则、发布步骤、CI 检查什么、`install.sh` 与 `loopspec update` 会安装什么，以及发布出错后如何恢复。 | 准备发版的维护者与 Agent。 |
 
 ## 快速上手
 
@@ -43,3 +44,4 @@ loopspec change status AFD1111
 - *`config.yaml` 能写什么？* —— [配置](configuration.md)
 - *Agent 下一步该做什么？* —— [Agent 协议](agent-protocol.md)
 - *这个术语是什么意思？* —— [概览术语表](overview.md#术语表)
+- *怎么发版、下一个版本号怎么取？* —— [发布规范](release.md)
