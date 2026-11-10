@@ -295,6 +295,7 @@ def test_hook_allows_unrelated_edit(tmp_path: Path):
 # --- deny only what is detected; anything the guard cannot check goes through ----------
 
 
+@pytest.mark.timing
 def test_long_command_is_decided_quickly(tmp_path: Path):
     import time
 
@@ -322,6 +323,7 @@ def test_failure_to_check_is_let_through(monkeypatch):
     assert guard.hook_output(json.dumps({"tool_name": "Bash", "tool_input": {}})) == ""
 
 
+@pytest.mark.timing
 def test_time_budget_lets_slow_analysis_through(monkeypatch):
     import time
 

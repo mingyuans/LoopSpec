@@ -1,4 +1,4 @@
-.PHONY: install install-local dev test docs-check build lint clean release-dry-run
+.PHONY: install install-local dev test test-bdd docs-check build lint clean release-dry-run
 
 install:
 	uv sync
@@ -6,8 +6,16 @@ install:
 dev:
 	uv run loopspec --help
 
+# Everything except the `timing` tests runs in parallel with pytest-xdist (each test owns its
+# tmp_path). Tests marked `timing` assert wall-clock budgets that a fully loaded machine can
+# miss, so they run afterwards on their own, serially.
 test:
-	uv run pytest -v
+	uv run pytest -v -n auto -m "not timing"
+	uv run pytest -v -m timing
+
+# Only the BDD scenarios, in parallel.
+test-bdd:
+	uv run pytest tests/test_bdd.py -n auto -q
 
 docs-check:
 	uv run pytest tests/test_docs_consistency.py -v

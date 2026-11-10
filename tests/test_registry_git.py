@@ -272,6 +272,7 @@ def test_shell_metacharacters_in_names_are_dropped(tmp_path: Path, name: str) ->
     assert "fragments/design/fragment.yaml" in tree.files
 
 
+@pytest.mark.timing
 def test_large_batch_read_completes(tmp_path: Path) -> None:
     """The cat-file request exceeds a pipe buffer while git streams large blobs back."""
     registry = make_registry(tmp_path / "registry")

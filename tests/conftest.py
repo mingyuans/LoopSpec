@@ -1,16 +1,38 @@
-"""Shared fixtures for the BDD scenarios, split by responsibility (no catch-all world object)."""
+"""Shared fixtures for the BDD scenarios, split by responsibility (no catch-all world object).
+
+Step definitions live in `tests/steps`; listing them here registers them for every feature.
+"""
 
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from loopspec.cli import app
 from tests.workflow_helpers import CHANGE, invoke, project
+
+pytest_plugins = [
+    "tests.steps.common",
+    "tests.steps.catalog_steps",
+    "tests.steps.change_steps",
+    "tests.steps.init_steps",
+    "tests.steps.memory_steps",
+    "tests.steps.node_gate_steps",
+    "tests.steps.plan_guard_steps",
+    "tests.steps.plan_revision_steps",
+    "tests.steps.plan_steps",
+    "tests.steps.registry_steps",
+    "tests.steps.state_add_steps",
+    "tests.steps.update_steps",
+    "tests.steps.version_steps",
+]
 
 
 @dataclass
@@ -19,6 +41,19 @@ class CliOutcome:
 
     code: int
     data: dict
+    output: str = ""
+
+
+# A Plan whose QA Gate resets requirements and allows a single retry.
+QA_FLOW_ONE_RETRY = [
+    {"id": "requirements", "use": "requirements"},
+    {
+        "id": "qa",
+        "use": "qa-testing",
+        "requires": ["requirements"],
+        "on_fail": {"reset": ["requirements"], "max_retries": 1},
+    },
+]
 
 
 @dataclass
@@ -66,6 +101,29 @@ def run_cli(home: Path) -> Callable[..., CliOutcome]:
 
 
 @pytest.fixture
+def run_app() -> Callable[..., CliOutcome]:
+    """Call the real CLI in-process without `--home`, for init/version/update/hook."""
+
+    def run(*args: str, input: str | None = None) -> CliOutcome:
+        result = CliRunner().invoke(app, list(args), input=input)
+        try:
+            data = json.loads(result.stdout) if result.stdout.strip() else {}
+        except json.JSONDecodeError:
+            data = {}
+        return CliOutcome(result.exit_code, data if isinstance(data, dict) else {}, result.stdout)
+
+    return run
+
+
+@pytest.fixture
+def isolated_codex_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Codex keeps prompts in a global directory; point it inside the scenario's tmp_path."""
+    codex_home = tmp_path / "codex-home"
+    monkeypatch.setenv("CODEX_HOME", str(codex_home))
+    return codex_home
+
+
+@pytest.fixture
 def last_call() -> LastCall:
     return LastCall()
 
@@ -86,6 +144,12 @@ def rollback_log() -> list[int]:
 def recorded_lines() -> list[str]:
     """Lines written by `state add` during the scenario, in order."""
     return []
+
+
+@pytest.fixture
+def home_snapshot() -> dict[str, bytes]:
+    """Every file of the workflow home, taken just before a read-only command runs."""
+    return {}
 
 
 @pytest.fixture
