@@ -74,9 +74,12 @@ steps 下的模块通过 `conftest.py` 的 `pytest_plugins` 全局注册，所�
 ## 运行
 
 ```bash
-uv run pytest tests/test_bdd.py -q             # 全部 BDD 场景
+make test-bdd                                  # 全部 BDD 场景，pytest-xdist 并行（-n auto）
+uv run pytest tests/test_bdd.py -q             # 全部 BDD 场景，串行
 uv run pytest tests/test_bdd.py -m change -q   # 只跑某个 feature（按标签）
 uv run pytest tests/test_bdd.py --co -q        # 只收集，用来检查步骤是否都有定义
-make test                                      # 全量（含单元测试，耗时较长）
+make test                                      # 全量（含单元测试，串行，耗时较长）
 make lint                                      # ruff + mypy
 ```
+
+BDD 场景必须保持可并行：每个场景只写自己的 `tmp_path`，全局状态（环境变量、模块属性）只通过 `monkeypatch` 修改，不依赖场景之间的执行顺序。

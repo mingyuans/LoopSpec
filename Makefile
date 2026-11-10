@@ -1,4 +1,4 @@
-.PHONY: install install-local dev test docs-check build lint clean release-dry-run
+.PHONY: install install-local dev test test-bdd docs-check build lint clean release-dry-run
 
 install:
 	uv sync
@@ -8,6 +8,12 @@ dev:
 
 test:
 	uv run pytest -v
+
+# Only the BDD scenarios, spread over all cores with pytest-xdist. Each scenario runs in its
+# own tmp_path, so they are safe to run in parallel; `make test` stays serial because a few
+# unit tests assert wall-clock budgets that a loaded machine can miss.
+test-bdd:
+	uv run pytest tests/test_bdd.py -n auto -q
 
 docs-check:
 	uv run pytest tests/test_docs_consistency.py -v
