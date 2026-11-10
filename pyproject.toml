@@ -68,6 +68,7 @@ warn_redundant_casts = true
 testpaths = ["tests"]
 markers = [
     "subprocess: runs the installed loopspec executable in a child process",
+    "timing: asserts a wall-clock budget; run serially, outside the parallel pass",
     "catalog: BDD scenarios of tests/features/catalog.feature",
     "change: BDD scenarios of tests/features/change.feature",
     "init: BDD scenarios of tests/features/init.feature",

@@ -6,12 +6,14 @@ install:
 dev:
 	uv run loopspec --help
 
+# Everything except the `timing` tests runs in parallel with pytest-xdist (each test owns its
+# tmp_path). Tests marked `timing` assert wall-clock budgets that a fully loaded machine can
+# miss, so they run afterwards on their own, serially.
 test:
-	uv run pytest -v
+	uv run pytest -v -n auto -m "not timing"
+	uv run pytest -v -m timing
 
-# Only the BDD scenarios, spread over all cores with pytest-xdist. Each scenario runs in its
-# own tmp_path, so they are safe to run in parallel; `make test` stays serial because a few
-# unit tests assert wall-clock budgets that a loaded machine can miss.
+# Only the BDD scenarios, in parallel.
 test-bdd:
 	uv run pytest tests/test_bdd.py -n auto -q
 
