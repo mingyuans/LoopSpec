@@ -2,7 +2,7 @@
 @init
 功能: 用 loopspec init 初始化工作流目录
   命令创建配置、记忆目录与内置的 Fragment/Profile；重复执行不会覆盖用户的定制，
-  并可按需为 AI 工具在项目根目录生成技能与 Hook。
+  并可按需为 AI 工具在项目根目录生成技能与 Hook；生成的技能写明 Agent 何时、如何维护 memory。
 
   背景:
     假如 一个尚未初始化的项目目录
@@ -40,3 +40,10 @@
   场景: 未知的工具名被拒绝
     当 用户以 JSON 模式初始化工作流目录并配置工具 "not-a-real-tool"
     那么 命令失败，错误码为 "config_invalid"
+
+  场景: 为 claude 生成的归档与继续技能带有 memory 维护规则
+    当 用户以 JSON 模式初始化工作流目录并配置工具 "claude"
+    那么 命令成功
+    并且 技能 "loopspec-archive" 只在用户要求归档时复查 memory，且先预览归档
+    并且 技能 "loopspec-continue" 只在约定事件发生时更新 memory，且不作为推进前提
+    并且 技能 "loopspec-archive" 与 "loopspec-continue" 的 memory 维护流程逐字相同

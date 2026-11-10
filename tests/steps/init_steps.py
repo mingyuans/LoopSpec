@@ -117,3 +117,48 @@ def nothing_in_home(workflow_home: Path, relative: str) -> None:
 def hook_status(last_call: LastCall, tool: str, status: str) -> None:
     hooks = outcome_of(last_call).data["hooks"]
     assert hooks[tool]["status"] == status, hooks
+
+
+# --- generated skills: the memory rules an Agent follows ------------------------------
+
+MAINTENANCE_START = "Memory maintenance procedure."
+MAINTENANCE_END = "without inventing writes or test results."
+
+
+def skill_text(project_root: Path, skill: str) -> str:
+    return (project_root / ".claude" / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+
+
+def maintenance_procedure(text: str) -> str:
+    start = text.index(MAINTENANCE_START)
+    return text[start : text.index(MAINTENANCE_END, start) + len(MAINTENANCE_END)]
+
+
+@then(parsers.re(r'技能 "(?P<skill>[^"]+)" 只在用户要求归档时复查 memory，且先预览归档'))
+def archive_skill_memory_rules(project_root: Path, skill: str) -> None:
+    text = skill_text(project_root, skill)
+    assert "only when the user has requested archiving" in text
+    assert "tidying memory is not itself authorization to archive" in text
+    assert text.index("--dry-run") < text.index("Memory review")
+    assert "report `No memory update` and continue" in text
+
+
+@then(parsers.re(r'技能 "(?P<skill>[^"]+)" 只在约定事件发生时更新 memory，且不作为推进前提'))
+def continue_skill_memory_rules(project_root: Path, skill: str) -> None:
+    text = skill_text(project_root, skill)
+    assert "Update memory only when one of these has actually happened" in text
+    for event in (
+        "the user explicitly corrected you",
+        "a root cause or fix was verified by real evidence",
+        "a review conclusion was settled",
+        "a key agreement was made",
+    ):
+        assert event in text, event
+    assert "writing memory is never a prerequisite for advancing or completing a node" in text
+
+
+@then(parsers.re(r'技能 "(?P<first>[^"]+)" 与 "(?P<second>[^"]+)" 的 memory 维护流程逐字相同'))
+def shared_maintenance_procedure(project_root: Path, first: str, second: str) -> None:
+    one = maintenance_procedure(skill_text(project_root, first))
+    other = maintenance_procedure(skill_text(project_root, second))
+    assert one == other and len(one) > 1500

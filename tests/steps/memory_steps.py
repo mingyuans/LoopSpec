@@ -5,10 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
+import pytest
 from pytest_bdd import given, parsers, then, when
 
 from tests.conftest import CliOutcome, LastCall
 from tests.steps.common import outcome_of
+from tests.workflow_helpers import snapshot
 
 RunCli = Callable[..., CliOutcome]
 
@@ -20,7 +22,19 @@ def put(home: Path, topic: str, text: str) -> Path:
     return path
 
 
+@pytest.fixture
+def memory_before() -> dict[str, bytes]:
+    """home/memory as it was before the scenario's archive, filled in by a given step."""
+    return {}
+
+
 # --- given ----------------------------------------------------------------------------
+
+
+@given("记下归档前的记忆目录")
+def remember_memory(home: Path, memory_before: dict[str, bytes]) -> None:
+    memory_before.update(snapshot(home / "memory"))
+    assert memory_before, "memory directory is empty"
 
 
 @given(parsers.parse('记忆主题 "{topic}" 的内容含适用时机 "{hint}"'))
@@ -172,6 +186,17 @@ def status_core_matches(home: Path, last_call: LastCall, topic: str) -> None:
     core = outcome_of(last_call).data["memory"]["core"]
     assert core["truncated"] is False, core
     assert core["content"] == (home / "memory" / f"{topic}.md").read_text(encoding="utf-8")
+
+
+@then("记忆目录与归档前逐字节一致")
+def memory_unchanged(home: Path, memory_before: dict[str, bytes]) -> None:
+    assert snapshot(home / "memory") == memory_before
+
+
+@then(parsers.parse('Change 状态的记忆索引包含主题 "{topic}"'))
+def status_lists_topic(last_call: LastCall, topic: str) -> None:
+    topics = outcome_of(last_call).data["memory"]["topics"]
+    assert topic in [entry["topic"] for entry in topics], topics
 
 
 @then("输出中没有 ignored 字段")

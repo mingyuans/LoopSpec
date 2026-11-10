@@ -4,7 +4,8 @@
   memory 由 Agent 直接新建、编辑 home/memory/<topic>.md 维护，CLI 只读不写；
   memory list 只把合法命名的 Markdown 文件列为主题并给出标题、适用时机提示与大小，支持分页，
   可选列出被忽略的条目及原因；memory show 返回主题全文并标明其为不可信数据，路径越界一律拒绝。
-  主题一经新建或更新，list、show 与 change status 的 MEMORY 段立即反映最新内容。
+  主题一经新建或更新，list、show 与 change status 的 MEMORY 段立即反映最新内容；
+  change archive 只搬动 Change，不读写 memory，记忆跨 Change 保留。
 
   场景: 没有记忆目录时列表成功且为空
     当 用户列出记忆主题
@@ -104,3 +105,17 @@
     并且 记忆主题列表为 ""
     并且 被忽略的条目 "Core.md" 原因为 "invalid_name"
     并且 被忽略的条目 "a b.md" 原因为 "invalid_name"
+
+  场景: 归档 Change 不改动记忆，后续 Change 仍能看到 core 与主题
+    假如 Change "AFD1111" 的文档流程已全部完成
+    并且 记忆目录中有主题 "core,testing"
+    并且 记下归档前的记忆目录
+    当 归档 Change "AFD1111"
+    那么 命令成功
+    并且 记忆目录与归档前逐字节一致
+    当 新建 Change "AFD2222"
+    那么 命令成功
+    当 查询 Change "AFD2222" 的状态
+    那么 命令成功
+    并且 Change 状态内联的 core 与主题 "core" 文件完全一致
+    并且 Change 状态的记忆索引包含主题 "testing"
