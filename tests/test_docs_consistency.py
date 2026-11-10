@@ -69,6 +69,7 @@ REQUIRED_PAGES = (
     "cli-reference.md",
     "agent-protocol.md",
     "release-notes.md",
+    "release.md",
 )
 
 #: Field-table headers per language. Field *names* are located by column

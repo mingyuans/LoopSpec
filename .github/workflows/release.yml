@@ -6,7 +6,8 @@ name: Release
 #
 # The tag pattern narrows what reaches this workflow, but it is NOT validation:
 # GitHub's ref globs cannot express "three numeric segments", and the trailing
-# wildcard admits any suffix. The real gate is the regex in the release job.
+# wildcard admits any suffix. The real gate is the check in the release job,
+# which accepts exactly two shapes: vX.Y.Z (stable) and vX.Y.Z-beta (beta).
 on:
   push:
     branches: [main]
@@ -80,20 +81,40 @@ jobs:
       # Validation happens before the value is written to GITHUB_ENV, so a
       # malformed tag can never reach a later step, a path, or an argument.
       #
+      # Only two tag shapes exist, each with one package version:
+      #   vX.Y.Z      -> X.Y.Z    stable, published as the latest release
+      #   vX.Y.Z-beta -> X.Y.Zb0  beta, published as a prerelease, never latest
+      # VERSION is the normalized package version (PEP 440 spells a bare beta
+      # "b0"), which is what hatchling names the artifacts after. It must match
+      # loopspec.self_update.package_version, hatch_version.py and the Makefile.
+      #
       # LOOPSPEC_BUILD_VERSION is what makes the tag authoritative: the build
       # backend reads it (hatch_version.py) and names the artifacts after it, so
       # there is no declared version for the tag to disagree with.
       - name: Resolve and validate version from tag
         run: |
           tag="$GITHUB_REF_NAME"
-          version="${tag#v}"
-          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([._-]?(a|b|rc|alpha|beta|dev|post)[0-9]+)?$'; then
-            echo "::error::tag '$tag' does not name a valid version" >&2
+          case "$tag" in
+            v*-beta) base="${tag#v}"; base="${base%-beta}"; prerelease=true ;;
+            v*) base="${tag#v}"; prerelease=false ;;
+            *) base=""; prerelease=false ;;
+          esac
+          # The case rules out anything but digits and dots (a newline included,
+          # which grep would otherwise judge line by line); the regex then
+          # requires exactly three numeric segments.
+          case "$base" in
+            "" | *[!0-9.]*) valid=false ;;
+            *) valid=true ;;
+          esac
+          if [ "$valid" != true ] || ! printf '%s' "$base" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag '$tag' does not name a valid version: expected vX.Y.Z or vX.Y.Z-beta" >&2
             exit 1
           fi
+          if [ "$prerelease" = true ]; then version="${base}b0"; else version="$base"; fi
           printf 'TAG=%s\n' "$tag" >>"$GITHUB_ENV"
           printf 'VERSION=%s\n' "$version" >>"$GITHUB_ENV"
           printf 'LOOPSPEC_BUILD_VERSION=%s\n' "$version" >>"$GITHUB_ENV"
+          printf 'PRERELEASE=%s\n' "$prerelease" >>"$GITHUB_ENV"
 
       # git tags belong to no branch, so "tag a commit on the default branch"
       # can only be checked as reachability. Done over the API rather than with
@@ -154,6 +175,12 @@ jobs:
       # three files and nothing else", which `dist/*` cannot express -- it would
       # publish whatever happens to be in the directory. The existence checks
       # also catch a build whose output does not match the tag's version.
+      #
+      # A beta is a prerelease and must never become "latest": install.sh and
+      # `loopspec update` both resolve releases/latest/download/, so a beta marked
+      # latest would be pushed to every user. A stable release claims latest
+      # explicitly rather than relying on GitHub's default. `flags` is one of two
+      # fixed literals, never external input, so leaving it unquoted is safe.
       - name: Publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -163,6 +190,15 @@ jobs:
           for asset in "$wheel" "$sdist" checksums.txt; do
             [ -f "$asset" ] || { echo "::error::missing release asset: $asset" >&2; exit 1; }
           done
+          # Anything but the two values the version step writes is an error, not a
+          # default: falling back to --latest would publish a beta as latest.
+          case "$PRERELEASE" in
+            true) flags="--prerelease --latest=false" ;;
+            false) flags="--latest" ;;
+            *) echo "::error::PRERELEASE must be true or false, got '$PRERELEASE'" >&2; exit 1 ;;
+          esac
+          # shellcheck disable=SC2086
           gh release create "$TAG" "$wheel" "$sdist" checksums.txt \
             --title "$TAG" \
-            --generate-notes
+            --generate-notes \
+            $flags

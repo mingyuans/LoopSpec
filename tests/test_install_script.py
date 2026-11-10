@@ -156,6 +156,27 @@ def test_invalid_versions_rejected(sourceable: Path, tmp_path: Path, version: st
     assert not (tmp_path / "pwned").exists()
 
 
+# validate_version is the parse gate (what may come out of checksums.txt);
+# require_stable is the install gate on top of it: X.Y.Z only.
+
+
+@pytest.mark.parametrize("version", ["0.1.0", "1.2.0", "1.2.3", "10.20.30"])
+def test_stable_versions_are_installable(sourceable: Path, tmp_path: Path, version: str):
+    result = call(sourceable, tmp_path, f'require_stable "{version}"')
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "version",
+    ["1.1.4-beta", "1.1.4b0", "1.0.0rc1", "0.9.0.post1", "2.0.0b2", "2.0.0-dev1", "1.2", ""],
+)
+def test_non_stable_versions_are_not_installable(sourceable: Path, tmp_path: Path, version: str):
+    result = call(sourceable, tmp_path, f"require_stable '{version}'")
+    assert result.returncode != 0
+    assert "stable releases only" in result.stderr
+    assert "loopspec update --beta" in result.stderr
+
+
 def code_lines() -> list[str]:
     """Executable lines only -- the prose in comments mentions what is avoided."""
     return [
@@ -276,6 +297,33 @@ def test_pinned_version_is_validated_before_reaching_a_url(sourceable: Path, tmp
     assert result.returncode != 0
     assert "not a valid version" in result.stderr
     assert calls == [], "a rejected version must not produce a request"
+
+
+@pytest.mark.parametrize("version", ["1.1.4-beta", "1.1.4b0", "1.0.0rc1"])
+def test_pinned_beta_is_refused_before_any_request(sourceable: Path, tmp_path: Path, version: str):
+    """install.sh installs stable releases only; betas go through the CLI."""
+    result, calls = resolve(sourceable, tmp_path, env={"LOOPSPEC_VERSION": version})
+    assert result.returncode != 0
+    assert "stable releases only" in result.stderr
+    assert "loopspec update --beta" in result.stderr
+    assert calls == [], "a refused version must not produce a request"
+
+
+def test_pinned_stable_version_is_accepted(sourceable: Path, tmp_path: Path):
+    result, calls = resolve(sourceable, tmp_path, env={"LOOPSPEC_VERSION": "1.2.0"})
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "1.2.0"
+    assert "releases/download/v1.2.0/checksums.txt" in calls[0]
+
+
+def test_a_beta_marked_latest_is_not_installed(sourceable: Path, tmp_path: Path):
+    """Defensive: CI never marks a beta as latest, but if latest ever points at
+    one, the default path must refuse it rather than install it."""
+    body = f"{WHEEL_SHA}  loopspec-1.1.4b0-py3-none-any.whl\ndeadbeef  loopspec-1.1.4b0.tar.gz\n"
+    result, calls = resolve(sourceable, tmp_path, body=body)
+    assert result.returncode != 0
+    assert "stable releases only" in result.stderr
+    assert len(calls) == 1, "only the latest checksums may be fetched"
 
 
 def test_binary_mode_marker_does_not_hide_the_version(sourceable: Path, tmp_path: Path):

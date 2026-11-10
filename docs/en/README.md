@@ -18,6 +18,7 @@ LoopSpec is a CLI for plan-driven, gated delivery with LLM agents. For each Chan
 | [CLI reference](cli-reference.md) | Every command and option, JSON output, and every error code. | Looking up a command. |
 | [Agent protocol](agent-protocol.md) | The loop an agent runs: planning, confirmation, execution, rework, revision, replanning and what an interruption leaves behind. | LLM agents and the people prompting them. |
 | [Release notes](release-notes.md) | What changed in 2.0.0 and how to upgrade from 1.x. | Upgrading users. |
+| [Release guideline](release.md) | Stable and beta tag rules, the release steps, what CI checks, what `install.sh` and `loopspec update` install, and recovering from a bad release. | Maintainers and agents cutting a release. |
 
 ## Quick orientation
 
@@ -43,3 +44,4 @@ Where to go for a specific question:
 - *What can I put in `config.yaml`?* - [Configuration](configuration.md)
 - *What should my agent do next?* - [Agent protocol](agent-protocol.md)
 - *What does this term mean?* - [Overview glossary](overview.md#glossary)
+- *How do I cut a release or pick the next version?* - [Release guideline](release.md)

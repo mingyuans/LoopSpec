@@ -66,6 +66,11 @@ class UpdateFetchFailedError(LoopspecError):
         )
 
 
+class UpdateReleaseNotFoundError(UpdateFetchFailedError):
+    """HTTP 404: the release or asset does not exist (yet). Same code as a failed fetch;
+    the subclass only lets `update --beta` tell "not published" from a real failure."""
+
+
 class UpdateVerifyFailedError(LoopspecError):
     """The downloaded wheel does not match its release's checksums.txt."""
 

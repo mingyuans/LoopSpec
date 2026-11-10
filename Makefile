@@ -40,9 +40,14 @@ install-local:
 # Run the release checks that do not need CI. Pass TAG to build the artifacts that
 # tag would publish and assert their filenames, before spending a real tag on it:
 #   make release-dry-run TAG=v0.2.0
+#   make release-dry-run TAG=v0.2.1-beta
+# TAG_VERSION is the package version the tag publishes, the same mapping the
+# release workflow applies: vX.Y.Z -> X.Y.Z, vX.Y.Z-beta -> X.Y.Zb0 (PEP 440's
+# spelling of a bare beta, which is what hatchling names the artifacts after).
 # Without TAG the build resolves to the dev version, which is what an untagged
 # tree is supposed to produce.
-TAG_VERSION = $(patsubst v%,%,$(TAG))
+TAG_BASE = $(patsubst v%,%,$(TAG))
+TAG_VERSION = $(if $(filter %-beta,$(TAG_BASE)),$(patsubst %-beta,%b0,$(TAG_BASE)),$(TAG_BASE))
 
 release-dry-run:
 	sh -n install.sh

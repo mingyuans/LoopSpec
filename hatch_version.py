@@ -13,7 +13,8 @@ Resolution order, first hit wins:
    something, and guessing a different version would publish under a name nobody
    asked for.
 2. ``git describe --tags --exact-match`` -- a local build of a tagged commit, so
-   ``make build`` on a tag produces the same filenames CI would.
+   ``make build`` on a tag produces the same filenames CI would. A beta tag
+   ``vX.Y.Z-beta`` maps to ``X.Y.Zb0``, the version CI builds it as.
 3. ``Version:`` from ``PKG-INFO`` -- present at the root of an unpacked sdist.
    Building a wheel from a released sdist has neither the environment variable
    nor a git checkout, and without this the wheel would be named after the dev
@@ -43,6 +44,13 @@ DEV_VERSION = "0.0.0.dev0"
 # regex accept. A version that fails this must never reach a filename or a URL.
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+([._-]?(a|b|rc|alpha|beta|dev|post)[0-9]+)?$")
 
+# A beta tag with its leading ``v`` stripped. Its package version is ``X.Y.Zb0``:
+# that is how PEP 440 normalizes a bare "beta", so it is what hatchling names the
+# artifacts after and what the release workflow builds the tag as. Duplicated
+# rather than imported from loopspec.self_update.package_version (the build
+# backend cannot import the package it is building); a test keeps them equal.
+BETA_TAG_RE = re.compile(r"^([0-9]+\.[0-9]+\.[0-9]+)-beta$")
+
 # Resolved from this file, not from the working directory: the build backend does
 # not promise to run us from the project root.
 ROOT = Path(__file__).resolve().parent
@@ -55,6 +63,16 @@ def _accept(value: str | None) -> str | None:
         return None
     value = value.strip()
     return value if VERSION_RE.match(value) else None
+
+
+def tag_version(tag: str) -> str:
+    """The package version a release tag builds as: ``v1.1.4-beta`` -> ``1.1.4b0``,
+    ``v1.2.0`` -> ``1.2.0``. Anything else is returned without its ``v`` and left
+    for :data:`VERSION_RE` to judge."""
+
+    version = tag[1:] if tag.startswith("v") else tag
+    beta = BETA_TAG_RE.match(version)
+    return f"{beta.group(1)}b0" if beta else version
 
 
 def _from_env() -> str | None:
@@ -79,8 +97,7 @@ def _from_git() -> str | None:
         return None  # no git available
     if completed.returncode != 0:
         return None  # not a repository, or this commit carries no tag
-    tag = completed.stdout.strip()
-    return _accept(tag[1:] if tag.startswith("v") else tag)
+    return _accept(tag_version(completed.stdout.strip()))
 
 
 def _from_pkg_info() -> str | None:

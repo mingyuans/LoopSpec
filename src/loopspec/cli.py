@@ -86,11 +86,15 @@ VersionOption = typer.Option(
 CheckOption = typer.Option(
     False, "--check", help="Only report whether a newer release exists; install nothing."
 )
+BetaOption = typer.Option(
+    False, "--beta", help="Track beta releases too: update to the newest release, beta included."
+)
 
 
 @app.command()
 def update(
     version: str | None = VersionOption,
+    beta: bool = BetaOption,
     check: bool = CheckOption,
     as_json: bool = JsonOption,
 ) -> None:
@@ -110,6 +114,7 @@ def update(
             installed_version,
             version=version,
             check=check,
+            beta=beta,
             run=run,
             on_download=None if as_json else _announce_download,
         )
@@ -121,7 +126,11 @@ def update(
     elif result.status == "up_to_date":
         typer.echo(f"loopspec {result.current} is up to date.")
     elif result.status == "available":
-        command = "loopspec update" + ("" if version is None else f" --version {version}")
+        command = "loopspec update"
+        if beta:
+            command += " --beta"
+        if version is not None:
+            command += f" --version {version}"
         typer.echo(
             f"loopspec {result.latest} is available (installed: {result.current}). "
             f"Run `{command}` to install it."
@@ -189,9 +198,7 @@ def _welcome_and_pick(presenter: Presenter, scaffold_root: Path) -> list[str]:
 def _confirm_resource_update(presenter: Presenter) -> bool:
     """Ask before touching an existing catalog; anything but yes keeps it."""
 
-    presenter.line(
-        presenter.warning("fragments/ or profiles/ already exist in the workflow home.")
-    )
+    presenter.line(presenter.warning("fragments/ or profiles/ already exist in the workflow home."))
     try:
         answer = input("Copy missing built-in fragments/profiles into them? [y/N] ")
     except EOFError:
