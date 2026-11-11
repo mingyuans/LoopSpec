@@ -1,4 +1,4 @@
-.PHONY: install install-local dev test test-bdd docs-check build lint clean release-dry-run
+.PHONY: install install-local dev test test-bdd test-llm docs-check build lint clean release-dry-run
 
 install:
 	uv sync
@@ -10,8 +10,18 @@ dev:
 # tmp_path). Tests marked `timing` assert wall-clock budgets that a fully loaded machine can
 # miss, so they run afterwards on their own, serially.
 test:
-	uv run pytest -v -n auto -m "not timing"
-	uv run pytest -v -m timing
+	uv run pytest -v -n auto -m "not timing and not llm"
+	uv run pytest -v -m "timing and not llm"
+
+# Real-model end-to-end scenarios (tests/features/llm_skills.feature): every model start
+# goes through tests/llm_launcher.py, which reads launcher/model/limits from the
+# LOOPSPEC_LLM_* variables (default model claude-sonnet-5-5, never Opus). They cost money,
+# so they never run in `make test`. A failing scenario is retried once, except a RED-LINE
+# failure (the model broke the human-confirmation rule), which fails at once.
+LLM_RUNS_DIR := $(CURDIR)/.llm-e2e-runs/$(shell date -u +%Y%m%dT%H%M%SZ)
+test-llm:
+	LOOPSPEC_LLM_E2E=1 LOOPSPEC_LLM_RUNS_DIR="$(LLM_RUNS_DIR)" \
+		uv run pytest tests/test_bdd.py -m llm -n 4 --reruns 1 --rerun-except RED-LINE --rerun-except GUARD-BYPASS --rerun-except LLM-AUTH -v
 
 # Only the BDD scenarios, in parallel.
 test-bdd:

@@ -10,6 +10,7 @@ import json
 import os
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,10 @@ from typer.testing import CliRunner
 
 from loopspec.cli import app
 from tests.workflow_helpers import CHANGE, invoke, project
+
+#: Real-model scenarios run only when this is exactly "1" and the launcher is available.
+LLM_ENABLE_ENV = "LOOPSPEC_LLM_E2E"
+LLM_RUNS_DIR_ENV = "LOOPSPEC_LLM_RUNS_DIR"
 
 pytest_plugins = [
     "tests.steps.common",
@@ -32,7 +37,65 @@ pytest_plugins = [
     "tests.steps.state_add_steps",
     "tests.steps.update_steps",
     "tests.steps.version_steps",
+    "tests.steps.llm_steps",
+    "pytester",
 ]
+
+
+def _selects_llm(config: pytest.Config) -> bool:
+    """Whether the -m expression would keep an item marked `llm` (no -m keeps everything)."""
+    markexpr = config.option.markexpr
+    if not markexpr:
+        return True
+    try:  # pytest's own -m evaluator; private, so fall back to "selected" if it moves
+        from _pytest.mark.expression import Expression
+
+        return bool(Expression.compile(markexpr).evaluate(lambda name: name == "llm"))
+    except (ImportError, AttributeError):
+        return True
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Validate an enabled LLM setup once, in the controller, before any worker starts.
+
+    Enabled (LOOPSPEC_LLM_E2E=1) and selected by -m, a broken setup is a usage error -- an
+    invalid model or launcher, or a launcher missing here -- rather than a silent skip.
+    `-m "not llm"` (make test) is never affected, even with the variable exported.
+    """
+    if hasattr(config, "workerinput") or os.environ.get(LLM_ENABLE_ENV) != "1":
+        return
+    if not _selects_llm(config):
+        return
+    from tests.llm_launcher import REPO_ROOT, LaunchConfig, LaunchConfigError, get_launcher
+
+    try:
+        launcher = get_launcher(LaunchConfig.from_env())
+    except LaunchConfigError as exc:
+        raise pytest.UsageError(f"{LLM_ENABLE_ENV}=1 but the LLM setup is invalid: {exc}") from None
+    if not launcher.is_available():
+        raise pytest.UsageError(
+            f"{LLM_ENABLE_ENV}=1 but launcher {launcher.name} is not available on this machine"
+        )
+    problem = launcher.preflight(LaunchConfig.from_env())
+    if problem:
+        raise pytest.UsageError(f"{LLM_ENABLE_ENV}=1 but the preflight call failed: {problem}")
+    # One run-record directory for the whole run; xdist workers inherit the environment.
+    if not os.environ.get(LLM_RUNS_DIR_ENV):
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        os.environ[LLM_RUNS_DIR_ENV] = str(REPO_ROOT / ".llm-e2e-runs" / stamp)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Skip `llm` scenarios unless explicitly enabled: they start a real, billed model."""
+    if os.environ.get(LLM_ENABLE_ENV) == "1":
+        return  # validated in pytest_configure
+    skip = pytest.mark.skip(
+        reason=f"set {LLM_ENABLE_ENV}=1 to run real-model scenarios (make test-llm)"
+    )
+    for item in items:
+        if item.get_closest_marker("llm"):
+            item.add_marker(skip)
 
 
 @dataclass
