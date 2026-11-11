@@ -48,6 +48,7 @@ dev = [
     "types-pyyaml",
     "pytest-bdd>=9,<10",
     "pytest-xdist>=3,<4",
+    "pytest-rerunfailures>=14,<17",
 ]
 
 [tool.ruff]
@@ -69,6 +70,8 @@ testpaths = ["tests"]
 markers = [
     "subprocess: runs the installed loopspec executable in a child process",
     "timing: asserts a wall-clock budget; run serially, outside the parallel pass",
+    "llm: starts a real, billed LLM through tests/llm_launcher.py; opt-in via make test-llm",
+    "llm_skills: BDD scenarios of tests/features/llm_skills.feature",
     "catalog: BDD scenarios of tests/features/catalog.feature",
     "change: BDD scenarios of tests/features/change.feature",
     "init: BDD scenarios of tests/features/init.feature",

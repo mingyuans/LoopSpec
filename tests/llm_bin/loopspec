@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""The `loopspec` an LLM E2E model sees: the real CLI behind a guard.
+
+Claude's permission rules only see the command line; loopspec itself can write outside
+the throwaway project (`init --project-root`, `--install-completion`, `update`, or any
+command with `--home <elsewhere>`). This wrapper is first on the model's PATH and, before
+handing over to the worktree's loopspec, refuses:
+
+- subcommands the skills do not use (only those in ALLOWED_SUBCOMMANDS pass);
+- options that point loopspec at another location or the user's shell
+  (--project-root, --install-completion, --show-completion);
+- a --home that does not resolve inside the working directory (the project).
+
+The real executable comes from LOOPSPEC_LLM_REAL_LOOPSPEC, set by tests/llm_launcher.py.
+Every call is appended to LOOPSPEC_LLM_GUARD_LOG, so the launcher can prove that each
+`loopspec` the model ran went through this guard (and not, say, a global install that a
+shell profile put first on PATH).
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+ALLOWED_SUBCOMMANDS = frozenset(
+    {"change", "plan", "node", "gate", "state", "memory", "fragment", "profile"}
+    # `hook pre-tool-use` is what Claude itself runs before every tool call (the plan guard
+    # that `loopspec init --tools claude` installs); it only reads stdin and prints a
+    # decision. The model's Bash rules do not allow calling it directly.
+    | {"hook"}
+)
+REFUSED_OPTIONS = ("--project-root", "--install-completion", "--show-completion")
+GUARD_EXIT = 126
+
+
+def log(args: list[str], verdict: str) -> None:
+    path = os.environ.get("LOOPSPEC_LLM_GUARD_LOG")
+    if path:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"args": args, "verdict": verdict}) + "\n")
+
+
+def refuse(message: str) -> None:
+    log(sys.argv[1:], "refused")
+    print(f"loopspec (LLM E2E guard): {message}", file=sys.stderr)
+    sys.exit(GUARD_EXIT)
+
+
+def inside(project: str, value: str) -> bool:
+    target = os.path.realpath(os.path.join(project, os.path.expanduser(value)))
+    return target == project or target.startswith(project + os.sep)
+
+
+def check(args: list[str], project: str) -> None:
+    if not args or args[0] not in ALLOWED_SUBCOMMANDS:
+        refuse(f"only these subcommands are available here: {sorted(ALLOWED_SUBCOMMANDS)}")
+    for index, arg in enumerate(args):
+        name = arg.split("=", 1)[0]
+        if name in REFUSED_OPTIONS:
+            refuse(f"{name} is not available here")
+        if name == "--home":
+            value = arg.split("=", 1)[1] if "=" in arg else ""
+            if not value and index + 1 < len(args):
+                value = args[index + 1]
+            if not value or not inside(project, value):
+                refuse("--home must stay inside the working directory")
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    check(args, os.path.realpath(os.getcwd()))
+    real = os.environ.get("LOOPSPEC_LLM_REAL_LOOPSPEC", "")
+    if not real or not os.path.isfile(real):
+        refuse("the real loopspec executable is not configured")
+    log(args, "passed")
+    os.execv(real, [real, *args])  # noqa: S606 - fixed executable, argv list
+
+
+if __name__ == "__main__":
+    main()

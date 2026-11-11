@@ -246,3 +246,4 @@ dist-ssr
 *.sln
 *.sw?
 /repos/
+.llm-e2e-runs/
