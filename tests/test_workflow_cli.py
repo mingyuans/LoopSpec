@@ -57,7 +57,7 @@ def commands(group=None) -> set[str]:
 
 
 def test_top_level_commands_are_resources():
-    assert commands() == {"version", "update", "init", *TREE}
+    assert commands() == {"version", "update", "init", "graph", *TREE}
     for group, verbs in TREE.items():
         assert commands(group) == verbs
 

@@ -6,9 +6,9 @@
 
 ## 约定
 
-- 命令统一为 `loopspec <资源> <动作>`，资源名为单数：`change`、`plan`、`node`、`gate`、`state`、`fragment`、`profile`。只有 `version`、`update` 与 `init` 单独使用；`hook` 组供 AI 工具的 hook 调用。
+- 命令统一为 `loopspec <资源> <动作>`，资源名为单数：`change`、`plan`、`node`、`gate`、`state`、`fragment`、`profile`。只有 `version`、`update`、`init` 与 `graph` 单独使用；`hook` 组供 AI 工具的 hook 调用。
 - `-c/--change` 指定 Change，`-p/--plan` 指定三位数字的 Plan 编号，`-n/--node` 指定叶子节点或 Gate 路径，`-f/--file` 指定相对工作区的请求文件，`--digest` 是人确认过的摘要，`--note` 是可选说明。`change` 组的命令以位置参数给出 Change 名。
-- 除 `version`、`update`、`init` 与 `hook` 外，所有命令都接受 `--home`（默认 `./loopspec`），并输出 JSON；唯一例外是 `change status`，默认输出给 LLM 阅读的纯文本报告，带 `--json` 时才输出 JSON。失败时输出 `{"error": <错误码>, "message": <说明>, "fix": <下一步>}`，退出码为 1；用法错误退出码为 2。
+- 除 `version`、`update`、`init` 与 `hook` 外，所有命令都接受 `--home`（默认 `./loopspec`），并输出 JSON；例外是 `change status`（默认输出给 LLM 阅读的纯文本报告）与 `graph`（默认输出给人看的纯文本），带 `--json` 时才输出 JSON。失败时输出 `{"error": <错误码>, "message": <说明>, "fix": <下一步>}`，退出码为 1；用法错误退出码为 2。
 - 执行类命令（`node`、`gate`、`plan rollback`）只作用于活动 Plan。没有活动 Plan 时返回 `plan_not_active`，`fix` 给出下一个规划步骤。每条命令只有一次生效写入，中断后 Change 要么是命令之前、要么是命令之后的状态；尚待归档的返工文件由下一条写入类命令先行搬运。
 
 ## loopspec version
@@ -235,6 +235,17 @@ loopspec profile save <name> -c <change>
 
 把活动 Plan 的 `spec.flow`（含 `on_fail`）保存为 `profiles/<name>.yaml`。不保存执行状态，从不覆盖已有 Profile。参数：`--change`、`--home`。
 
+## loopspec graph
+
+```bash
+loopspec graph --profile <name> [--output <file>] [--no-open] [--json]
+loopspec graph -c <change> [--plan <id>] [--output <file>] [--no-open] [--json]
+```
+
+把一个 Profile 或某个 Change 的 Plan 画成依赖图，写成一个自包含的 HTML 文件（内联 SVG、CSS 与少量 JS，不加载任何网络资源），供人 review 整体流程。`--profile` 与 `--change` 必须且只能给一个，`--plan` 只能与 `--change` 同用，否则以 `option_conflict` 失败。Profile 会先按 `plan validate` 的方式展开到叶子节点；Plan 直接取 `spec.nodes`，省略 `--plan` 时取未结束的 Plan（草稿或已确认），没有时以 `plan_not_found` 失败，`--plan` 也可以指向已归档的 Plan。图按依赖从左到右分层（`L1`、`L2`…）：每条依赖都让层号严格增加，因此同一层的节点互不依赖、可以并行，含两个及以上节点的层标为 `parallel`。实线是 `requires`，红色虚线是 `on_fail` 返工（标出 `max_retries`），虚线框是顶层 Fragment 实例；节点按产物、Gate、代码 Gate 与 Assurance 着色。活动 Plan 额外标出每个叶子的状态（`done`、`ready`、`blocked`、`failed`、`exhausted`），草稿与归档 Plan 不标。点击节点显示其 `requires`、产物路径与 `on_fail`。
+
+文件默认写到 `<home>/.cache/graph/profile-<name>.html` 或 `<home>/.cache/graph/plan-<change>-<plan>.html`（`.cache` 不计入交付 Diff），`--output` 改写到指定文件（相对路径按当前目录解析，不是 `--home`），自动创建父目录，经临时文件原子替换；`--output` 是目录或不可写时以 `output_invalid` 失败。写完后尝试用默认浏览器打开；`--no-open`、SSH 会话（设置了 `SSH_CONNECTION` 或 `SSH_TTY`）、Linux 下既无 `DISPLAY` 也无 `WAYLAND_DISPLAY`、或浏览器打开失败时不打开，只输出文件路径与 `file://` 链接，便于在远程终端拷贝到本机查看。与 `change status` 一样默认输出给人看的纯文本，带 `--json` 时输出 `kind`（`profile` 或 `plan`）、`target`、`path`、`url`、`opened`、`reason`（未打开的原因，打开时为 `null`）、`nodes`、`layers` 与 `parallelLayers`（含两个及以上节点的层号）。参数：`--profile`、`--change`、`--plan`、`--output`、`--no-open`、`--json`、`--home`。
+
 ## loopspec registry update
 
 ```bash
@@ -299,6 +310,7 @@ loopspec memory show <topic>
 | `not_code_gate` | 对不带 `evidence` 的节点执行 `gate begin` 或 `gate record`。 |
 | `option_required` | 记录代码 Gate 时缺少 `--round` 与 `--report`。 |
 | `option_conflict` | 参数不能同时使用。 |
+| `output_invalid` | `graph --output` 指向目录或无法写入。 |
 | `round_stale` | 审查轮次已使用、不存在或属于其他输入。 |
 | `review_input_changed` | 审查期间固定的代码发生变化；重新 begin。 |
 | `invalid_verdict` | 报告头部不是恰好 `verdict` 与 `summary`，或为空。 |
