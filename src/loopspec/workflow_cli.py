@@ -29,6 +29,9 @@ REGISTRY_PLAN = typer.Option(..., "--plan", help="planId from `registry update`.
 RESOLVE = typer.Option(
     [], "--resolve", help="Resolve a conflict: <path>=local|upstream. Repeatable."
 )
+OUTPUT = typer.Option(
+    None, "-o", "--output", help="HTML file to write; defaults to <home>/.cache/graph/."
+)
 SKIP = typer.Option([], "--skip", help="Leave a pending upstream change out. Repeatable.")
 
 
@@ -41,7 +44,7 @@ def run(
     render: Callable[[Any], str] | None = None,
     render_error: Callable[[dict], str] | None = None,
 ) -> None:
-    """JSON by default; `render`/`render_error` print text instead (only `change status`)."""
+    """JSON by default; `render`/`render_error` print text instead (`change status`, `graph`)."""
 
     def output(value: Any, renderer: Callable[[Any], str] | None) -> None:
         if renderer is None:
@@ -442,6 +445,106 @@ def register(app: typer.Typer) -> None:
             return {"saved": path, "includesRuntimeState": False}
 
         run(action)
+
+    # ------------------------------------------------------------------- graph
+
+    @app.command("graph")
+    def graph(
+        profile_name: str | None = typer.Option(
+            None, "--profile", help="Profile to draw (exclusive with --change)."
+        ),
+        change_name: str | None = typer.Option(
+            None, "-c", "--change", help="Change whose Plan to draw (exclusive with --profile)."
+        ),
+        plan_id: str | None = typer.Option(
+            None, "-p", "--plan", help="Plan number; defaults to the open Plan (needs --change)."
+        ),
+        output: Path | None = OUTPUT,
+        no_open: bool = typer.Option(
+            False, "--no-open", help="Only write the file and print its link."
+        ),
+        as_json: bool = typer.Option(False, "--json", help="Print the JSON payload instead."),
+        home: Path = HOME,
+    ) -> None:
+        """Draw a Profile or Plan as an HTML dependency graph and open it in a browser."""
+        from .workflow_graph import (
+            REMOTE_REASONS,
+            browser_decision,
+            default_output,
+            open_in_browser,
+            plan_graph,
+            profile_graph,
+            write_graph,
+        )
+        from .workflow_graph_html import render_html
+
+        def action() -> dict:
+            if plan_id is not None and change_name is None:
+                raise WorkflowError(
+                    "option_conflict", "--plan 必须与 --change 一起使用", "加上 -c <change>。"
+                )
+            if (profile_name is None) == (change_name is None):
+                raise WorkflowError(
+                    "option_conflict",
+                    "--profile 与 --change 必须且只能指定一个",
+                    "loopspec graph --profile <name> 或 loopspec graph -c <change> [--plan <id>]",
+                )
+            if profile_name is not None:
+                drawn = profile_graph(home, profile_name)
+                target = {"profile": profile_name}
+            else:
+                assert change_name is not None
+                drawn = plan_graph(home, change_name, plan_id)
+                target = {"change": change_name, "plan": drawn.meta["Plan"]}
+            relative = default_output(
+                drawn.kind, target.get("change"), target.get("plan"), target.get("profile")
+            )
+            path = write_graph(home, render_html(drawn), relative, output)
+            url = path.as_uri()
+            should_open, reason = browser_decision(no_open)
+            opened = False
+            if should_open:
+                opened, reason = open_in_browser(url)
+            return {
+                "kind": drawn.kind,
+                "target": target,
+                "path": str(path),
+                "url": url,
+                "opened": opened,
+                "reason": reason,
+                "nodes": len(drawn.nodes),
+                "layers": len(drawn.layers),
+                "parallelLayers": drawn.parallel_layers,
+            }
+
+        def render(result: dict) -> str:
+            lines = [f"Graph written: {result['path']}", f"URL: {result['url']}"]
+            parallel = result["parallelLayers"]
+            lines.append(
+                f"{result['nodes']} nodes, {result['layers']} layers; parallel layers: "
+                + (", ".join(f"L{n}" for n in parallel) if parallel else "none")
+            )
+            if result["opened"]:
+                lines.append("Opened in your browser.")
+            else:
+                lines.append(f"Not opened ({result['reason']}).")
+                if result["reason"] in REMOTE_REASONS:
+                    lines.append(
+                        "Copy it to a machine with a browser, "
+                        f"e.g. scp <host>:{result['path']} ."
+                    )
+                else:
+                    lines.append("Open the URL above in a browser.")
+            return "\n".join(lines) + "\n"
+
+        def render_error(error: dict) -> str:
+            text = f"Error [{error['error']}]: {error['message']}\n"
+            return text + (f"Fix: {error['fix']}\n" if error.get("fix") else "")
+
+        if as_json:
+            run(action)
+        else:
+            run(action, render, render_error)
 
     # ---------------------------------------------------------------- registry
 

@@ -74,6 +74,7 @@ markers = [
     "llm_skills: BDD scenarios of tests/features/llm_skills.feature",
     "catalog: BDD scenarios of tests/features/catalog.feature",
     "change: BDD scenarios of tests/features/change.feature",
+    "graph: BDD scenarios of tests/features/graph.feature",
     "init: BDD scenarios of tests/features/init.feature",
     "memory: BDD scenarios of tests/features/memory.feature",
     "node_gate: BDD scenarios of tests/features/node_gate.feature",

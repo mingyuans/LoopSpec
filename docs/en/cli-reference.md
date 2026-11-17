@@ -6,9 +6,9 @@
 
 ## Conventions
 
-- Commands are `loopspec <resource> <verb>`, with singular resources: `change`, `plan`, `node`, `gate`, `state`, `fragment`, `profile`. Only `version`, `update` and `init` stand alone; the `hook` group is called by AI-tool hooks.
+- Commands are `loopspec <resource> <verb>`, with singular resources: `change`, `plan`, `node`, `gate`, `state`, `fragment`, `profile`. Only `version`, `update`, `init` and `graph` stand alone; the `hook` group is called by AI-tool hooks.
 - `-c/--change` names a Change, `-p/--plan` a three-digit Plan number, `-n/--node` a leaf node or Gate path, `-f/--file` a request file relative to the workflow home, `--digest` the digest a human confirmed, `--note` an optional note. `change` commands take the Change name as an argument.
-- Every command except `version`, `update`, `init` and `hook` accepts `--home` (default `./loopspec`) and prints JSON. The one exception is `change status`, which prints a plain-text report for an LLM by default and JSON only with `--json`. On failure it prints `{"error": <code>, "message": <text>, "fix": <next action>}` and exits with status 1; usage errors exit with status 2.
+- Every command except `version`, `update`, `init` and `hook` accepts `--home` (default `./loopspec`) and prints JSON. The exceptions are `change status`, which prints a plain-text report for an LLM by default, and `graph`, which prints plain text for people; both print JSON only with `--json`. On failure it prints `{"error": <code>, "message": <text>, "fix": <next action>}` and exits with status 1; usage errors exit with status 2.
 - Execution commands (`node`, `gate`, `plan rollback`) act only on the active Plan. Without one they fail with `plan_not_active` and a `fix` naming the next planning step. Every command takes effect in a single write, so an interrupted command leaves the Change as before or as after; rework files still to be archived are moved first by the next writing command.
 
 ## loopspec version
@@ -235,6 +235,17 @@ loopspec profile save <name> -c <change>
 
 Saves the active Plan's `spec.flow`, `on_fail` included, as `profiles/<name>.yaml`. No execution state is saved and an existing Profile is never overwritten. Options: `--change`, `--home`.
 
+## loopspec graph
+
+```bash
+loopspec graph --profile <name> [--output <file>] [--no-open] [--json]
+loopspec graph -c <change> [--plan <id>] [--output <file>] [--no-open] [--json]
+```
+
+Draws a Profile, or a Change's Plan, as a dependency graph in one self-contained HTML file (inline SVG, CSS and a little JS; no network resources) for reviewing the whole flow. Exactly one of `--profile` and `--change` is required, and `--plan` only goes with `--change`; anything else fails with `option_conflict`. A Profile is first expanded to its leaf nodes the way `plan validate` does; a Plan is drawn from its `spec.nodes`. Without `--plan` the open Plan (draft or approved) is drawn, and with none it fails with `plan_not_found`; `--plan` may also name an archived Plan. The graph is layered from left to right by dependency (`L1`, `L2`, ...): every dependency strictly raises the layer, so the nodes of one layer never depend on each other and may run in parallel, and a layer with two or more nodes is marked `parallel`. Solid lines are `requires`, red dashed arcs are `on_fail` rework (labelled with `max_retries`), and dashed boxes are top-level Fragment instances; nodes are coloured as artifact, Gate, code Gate or Assurance. The active Plan also shows every leaf's status (`done`, `ready`, `blocked`, `failed`, `exhausted`); drafts and archived Plans do not. Selecting a node shows its `requires`, output paths and `on_fail`.
+
+The file goes to `<home>/.cache/graph/profile-<name>.html` or `<home>/.cache/graph/plan-<change>-<plan>.html` by default (`.cache` is never part of the delivery diff); `--output` writes the given file instead (a relative path is resolved against the current directory, not `--home`), creating its parent directories and replacing the file atomically, failing with `output_invalid` when it is a directory or cannot be written. The file is then opened in the default browser, except with `--no-open`, in an SSH session (`SSH_CONNECTION` or `SSH_TTY` set), on Linux with neither `DISPLAY` nor `WAYLAND_DISPLAY`, or when the browser cannot be started: then only the file path and its `file://` link are printed, so a remote user can copy it to a local machine. Like `change status` it prints plain text for people by default; with `--json` it returns `kind` (`profile` or `plan`), `target`, `path`, `url`, `opened`, `reason` (why it was not opened, `null` when it was), `nodes`, `layers` and `parallelLayers` (the numbers of layers with two or more nodes). Options: `--profile`, `--change`, `--plan`, `--output`, `--no-open`, `--json`, `--home`.
+
 ## loopspec registry update
 
 ```bash
@@ -299,6 +310,7 @@ Prints one topic in full as JSON (`topic`, `path`, `content`, `untrustedData`); 
 | `not_code_gate` | `gate begin` or `gate record` on a node without `evidence`. |
 | `option_required` | A code Gate record without `--round` and `--report`. |
 | `option_conflict` | Options that cannot be combined. |
+| `output_invalid` | `graph --output` is a directory or cannot be written. |
 | `round_stale` | The review round is used, missing or belongs to other input. |
 | `review_input_changed` | The pinned code changed during review; begin again. |
 | `invalid_verdict` | A report header is not exactly `verdict` and `summary`, or is empty. |

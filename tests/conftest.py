@@ -27,6 +27,7 @@ pytest_plugins = [
     "tests.steps.common",
     "tests.steps.catalog_steps",
     "tests.steps.change_steps",
+    "tests.steps.graph_steps",
     "tests.steps.init_steps",
     "tests.steps.memory_steps",
     "tests.steps.node_gate_steps",
