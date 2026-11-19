@@ -19,9 +19,11 @@
 ## 返工记录
 
 <!-- Gate FAIL 并 rollback 后：失败后的认识与修复方向。N 为该 Gate 的返工轮次，S 为对应 rollback 的全局序号，由框架推导。用 `loopspec state add --section rework` 追加。 -->
+- 2026-11-19 [be/security/check] attempt 1（rollback #1）：安全审查 FAIL：删除 .attempts 应绑定 move 持有的 Change 目录 fd 而非按路径重开；捕获 rmtree 的 RecursionError。dry-run 创建写锁为既有行为，不处理。
 
 ## 事件
 
 <!-- 引擎自动追加生命周期事件，请勿手工编辑，也勿在此段之后新增段落。 -->
 - 2026-11-19T14:27:33+00:00 · 已为 Change archive-drop-attempts 创建 Plan 001 草稿 · 状态：待批准 · 计划定义校验值（digest）：306db557 · 备注：change archive 归档时删除 .attempts
 - 2026-11-19T14:28:30+00:00 · 已批准 Change archive-drop-attempts 的 Plan 001 · 计划版本：1 · 状态：可执行 · 计划定义校验值（digest）：306db557
+- 2026-11-19T14:38:31+00:00 · 已对 Change archive-drop-attempts 的 Plan 001 执行返工重置（不回退业务代码） · 来源 Gate：be/security/check · 返工记录全局序号：1 · 重置范围：assurance/check, be/code/implement, be/review/check, be/security/check, be/tests/check, qa/test

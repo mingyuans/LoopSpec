@@ -153,22 +153,65 @@ def test_drop_attempts_removes_a_symlink_not_its_target(tmp_path: Path) -> None:
     outside.mkdir()
     (outside / "keep.txt").write_text("keep\n")
     os.symlink(outside, root / ATTEMPTS)
-    dropped, failed = workflow_archive.drop_attempts(root, [ATTEMPTS])
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        dropped, failed = workflow_archive.drop_attempts(fd, [ATTEMPTS])
+    finally:
+        os.close(fd)
     assert dropped == [ATTEMPTS] and failed == []
     assert not os.path.lexists(root / ATTEMPTS)
     assert (outside / "keep.txt").read_text() == "keep\n"
 
 
+@pytest.mark.parametrize("error", [PermissionError("denied"), RecursionError("deep")])
 def test_cleanup_failure_is_reported_not_raised(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: BaseException
 ) -> None:
     home = reworked(tmp_path)
 
     def broken(*args: object, **kwargs: object) -> None:
-        raise PermissionError("denied")
+        raise error
 
     monkeypatch.setattr(workflow_archive.shutil, "rmtree", broken)
     code, result = invoke(home, "change", "archive", CHANGE)
     assert code == 0 and result["moved"], result
     assert result["droppedAttempts"] == [] and result["attemptsNotDropped"] == [ATTEMPTS]
+    assert (archived(home) / ATTEMPTS).is_dir()
+
+
+def test_drop_follows_the_moved_directory_not_the_path(tmp_path: Path) -> None:
+    """A tree swapped in at the archive path after the move keeps its .attempts."""
+    moved = tmp_path / "moved"
+    (moved / ATTEMPTS).mkdir(parents=True)
+    fd = os.open(moved, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        moved.rename(tmp_path / "elsewhere")
+        decoy = tmp_path / "moved"
+        (decoy / ATTEMPTS).mkdir(parents=True)
+        dropped, failed = workflow_archive.drop_attempts(fd, [ATTEMPTS])
+    finally:
+        os.close(fd)
+    assert dropped == [ATTEMPTS] and failed == []
+    assert not (tmp_path / "elsewhere" / ATTEMPTS).exists()
+    assert (decoy / ATTEMPTS).is_dir()
+
+
+def test_nothing_is_dropped_when_another_directory_was_moved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = reworked(tmp_path)
+    source = home / "changes" / CHANGE
+    swapped = tmp_path / "original"
+    real_rename = os.rename
+
+    def swap_then_rename(src: str, dst: str, **kwargs: object) -> None:
+        # Between the identity check and the rename, the Change dir is replaced.
+        real_rename(source, swapped)
+        (source / ATTEMPTS).mkdir(parents=True)
+        real_rename(src, dst, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(workflow_archive.os, "rename", swap_then_rename)
+    code, result = invoke(home, "change", "archive", CHANGE)
+    assert code == 1 and result["error"] in {"concurrent_path_change", "unsafe_path"}
+    assert (swapped / ATTEMPTS / "001" / "record.yaml").is_file()
     assert (archived(home) / ATTEMPTS).is_dir()

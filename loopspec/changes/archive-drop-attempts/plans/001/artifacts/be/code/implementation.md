@@ -3,6 +3,7 @@
 - `change archive` 在目录移动成功后，删除归档目录中每个 Plan（含已 `plan archive` 的 Plan）的 `plans/<NNN>/.attempts/`；`--force` 与 `--all` 同样处理。
 - 结果新增 `droppedAttempts`（已删除，或 `--dry-run` 时将删除的路径，相对 Change 目录）与删除失败时的 `attemptsNotDropped`；删除失败不回滚归档。
 - 删除基于目录 fd、不跟随符号链接：目录用 `shutil.rmtree(dir_fd=...)`，符号链接或文件只删除条目本身。
+- 返工（安全审查 FAIL 后，rollback 001）：删除改在 `move()` 内进行，通过随 rename 移动的 Change 目录 fd 逐级 O_NOFOLLOW 打开 `plans/<NNN>` 后删除，不再按路径重开；rename 后先确认归档位置的目录与该 fd 是同一 inode，不是则不删除（`directory()` 退出时报 `concurrent_path_change`）；捕获 `RecursionError`。
 - 中英文 `cli-reference` 与 `plan-reference` 说明归档会删除 `.attempts`；BDD 与单元测试补齐。
 
 ## 改动文件
@@ -15,9 +16,9 @@
 
 - `uv run ruff check src tests`：All checks passed
 - `uv run mypy src hatch_version.py`：Success: no issues found in 40 source files
-- `uv run pytest -q tests/test_workflow_archive.py`：11 passed
+- `uv run pytest -q tests/test_workflow_archive.py`：14 passed（新增：路径被替换时只删已移动目录、RecursionError 只报告、源目录在 rename 前被替换时不删除任何 .attempts）
 - `uv run pytest -q -n 2 -m "not timing and not llm"`：1688 passed, 1 skipped
-- `make test-llm`：12 passed，15 次启动，$1.623，无重跑，`.llm-e2e-runs/20261119T143305Z/`（archive skill 依赖的 CLI 输出新增字段）
+- `make test-llm`（返工前，CLI 输出与返工后一致）：12 passed，15 次启动，$1.623，无重跑，`.llm-e2e-runs/20261119T143305Z/`（archive skill 依赖的 CLI 输出新增字段）
 
 ## 与设计的偏差
 
