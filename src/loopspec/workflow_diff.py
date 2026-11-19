@@ -164,10 +164,24 @@ def _exclusions(loaded: LoadedPlan, repository: Path):
     except (ValueError, OSError):
         managed = {}
 
-    def managed_skill(path: str) -> bool:
+    def managed_skill(path: str, versions: list[tuple[str, str] | None], base: object) -> bool:
+        """This CLI's own skill content everywhere it could be delivered from.
+
+        The working tree must hold exactly the template in a regular file, and any staged or
+        committed version that differs from the baseline must be that same blob too;
+        otherwise the path goes through the normal Diff and its consistency checks.
+        """
         expected = managed.get(path)
         if expected is None:
             return False
+        for version in versions:
+            if version is None or version == base:
+                continue
+            mode, oid = version
+            algorithm = hashlib.sha256 if len(oid) == 64 else hashlib.sha1
+            blob = algorithm(b"blob %d\0" % len(expected) + expected).hexdigest()
+            if mode != "100644" or oid != blob:
+                return False
         target = repository / path
         try:
             if not stat.S_ISREG(os.lstat(target).st_mode):
@@ -188,14 +202,12 @@ def _exclusions(loaded: LoadedPlan, repository: Path):
             return True
         if home is not None and not directory and memory_topic(path):
             return True
-        if not directory and managed_skill(path):
-            return True
         if any(fnmatch.fnmatchcase(part, name) for part in path.split("/") for name in names):
             return True
         target = path + "/" if directory else path
         return any(fnmatch.fnmatchcase(target, pattern) for pattern in paths)
 
-    return excluded
+    return excluded, managed_skill
 
 
 def collect_diff(loaded: LoadedPlan) -> DiffSnapshot:
@@ -206,7 +218,7 @@ def collect_diff(loaded: LoadedPlan) -> DiffSnapshot:
     if actual_repository != state.repository:
         raise WorkflowError("repository_changed", "Git 仓库身份发生变化")
     repository = Path(actual_repository)
-    excluded = _exclusions(loaded, repository)
+    excluded, managed_skill = _exclusions(loaded, repository)
     base_raw = git(repository, ["ls-tree", "-rz", "--full-tree", baseline])
     base = _objects(base_raw, index=False)
     blobs: dict[str, tuple[str, int]] = {}
@@ -320,6 +332,8 @@ def collect_diff(loaded: LoadedPlan) -> DiffSnapshot:
         diverged = []
         for path in paths:
             if excluded(path):
+                continue
+            if managed_skill(path, [index.get(path), committed.get(path)], base.get(path)):
                 continue
             known = base.get(path)
             current = worktree(path, known or index.get(path))

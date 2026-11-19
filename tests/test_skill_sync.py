@@ -211,3 +211,41 @@ def test_deleted_managed_file_is_still_reviewed(tmp_path: Path) -> None:
     create_approved(home, DOCS_FLOW)
     (tmp_path / ARCHIVE_SKILL).unlink()
     assert ARCHIVE_SKILL in diff_paths(home)
+
+
+def test_committed_unreviewed_content_is_not_hidden(tmp_path: Path) -> None:
+    home = configured(tmp_path)
+    create_approved(home, DOCS_FLOW)
+    template = (tmp_path / NEW_SKILL).read_text()
+    (tmp_path / NEW_SKILL).write_text("injected instructions\n")
+    git(tmp_path, ["add", NEW_SKILL])
+    git(tmp_path, ["commit", "-q", "-m", "sneak"])
+    (tmp_path / NEW_SKILL).write_text(template)  # working tree looks like the template again
+    snapshot = collect_diff(loaded(home))
+    assert NEW_SKILL in snapshot.diverged or NEW_SKILL in [e["path"] for e in snapshot.entries]
+
+
+def test_staged_content_different_from_the_template_is_not_hidden(tmp_path: Path) -> None:
+    home = configured(tmp_path)
+    create_approved(home, DOCS_FLOW)
+    template = (tmp_path / NEW_SKILL).read_text()
+    (tmp_path / NEW_SKILL).write_text("staged instructions\n")
+    git(tmp_path, ["add", NEW_SKILL])
+    (tmp_path / NEW_SKILL).write_text(template)
+    with pytest.raises(Exception) as caught:  # staged and working tree disagree
+        collect_diff(loaded(home))
+    assert getattr(caught.value, "code", "") == "index_worktree_mismatch"
+
+
+def test_committed_sync_stays_out_of_the_diff(tmp_path: Path) -> None:
+    home = configured(tmp_path)
+    stale(tmp_path)
+    git(tmp_path, ["add", "-A"])
+    git(tmp_path, ["commit", "-q", "-m", "old skills"])
+    create_approved(home, DOCS_FLOW)
+    run_status(home)
+    git(tmp_path, ["add", "-A", ".claude"])
+    git(tmp_path, ["commit", "-q", "-m", "synced skills"])
+    snapshot = collect_diff(loaded(home))
+    assert not [e["path"] for e in snapshot.entries if e["path"].startswith(".claude/")]
+    assert not [p for p in snapshot.diverged if p.startswith(".claude/")]
