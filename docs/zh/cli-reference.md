@@ -95,7 +95,7 @@ loopspec change archive <change> [--force] [--dry-run]
 loopspec change archive --all [--older-than <days>] [--dry-run]
 ```
 
-把 Change 目录移到 `archive/<YYYY-MM>/<change>`。移动前重新推导状态，包括代码证据与保障；只归档 `complete` 的 Change。`--force` 用于人明确放弃时归档未完成的 Change，结果中 `forced: true` 并说明是未完成归档。移动成功后删除各 Plan（含已归档 Plan）的返工记录 `plans/<NNN>/.attempts/`，不放入归档目录；结果的 `droppedAttempts` 列出删除的路径（相对 Change 目录），删除失败的列在 `attemptsNotDropped`，不影响归档本身。拒绝归档或移动失败时不删除任何内容；`.attempts` 是符号链接时在重新推导状态时即以 `unsafe_path` 拒绝。`--dry-run` 只报告不移动，`droppedAttempts` 为将要删除的路径。`--all` 归档全部 complete 的 Change，其余的附原因跳过；`--older-than` 只处理创建至少指定天数的 Change。`--all` 不能与 `--force` 或需求名同时使用。参数：`--all`、`--older-than`、`--force`、`--dry-run`、`--home`。
+把 Change 目录移到 `archive/<YYYY-MM>/<change>`。移动前重新推导状态，包括代码证据与保障；只归档 `complete` 的 Change。`--force` 用于人明确放弃时归档未完成的 Change，结果中 `forced: true` 并说明是未完成归档。移动成功后删除各 Plan（含已归档 Plan）只服务于执行中 Plan 的文件，不放入归档目录：返工记录 `.attempts/`、Gate 证据 `.gates/`、轮次记录 `.gate-rounds/`，以及 `plan.yaml` 中各 Gate 声明的 PASS/FAIL 报告（仅限 `artifacts/` 下，同目录的其他文件保留，删空的目录一并移除）。需求、设计、实现等非 Gate 产物保留。结果的 `dropped` 列出删除的路径（相对 Change 目录），删除失败的列在 `notDropped`，不影响归档本身。拒绝归档或移动失败时不删除任何内容；`.attempts` 是符号链接时在重新推导状态时即以 `unsafe_path` 拒绝。`--dry-run` 只报告不移动，`dropped` 为将要删除的路径。`--all` 归档全部 complete 的 Change，其余的附原因跳过；`--older-than` 只处理创建至少指定天数的 Change。`--all` 不能与 `--force` 或需求名同时使用。参数：`--all`、`--older-than`、`--force`、`--dry-run`、`--home`。
 
 ## loopspec plan validate
 
