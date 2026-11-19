@@ -83,7 +83,7 @@ files:
 
 ### 全局存储
 
-registry 定义按「来源 + commit」存放在 `$LOOPSPEC_REGISTRY_STORE`（默认 `~/.loopspec/registry`）下：`<store>/<source-id>/<commit>/`，`source-id` 由 `url` 与 `path` 推出。快照写完临时目录后原子发布，此后不再改变，同一台机器上的多个项目与 worktree 共用。目录必须属于当前用户、路径中没有符号链接且组与其他用户不可写，否则返回 `unsafe_path`；新建目录权限为 `0700`。
+registry 定义按「来源 + commit」存放在 `$LOOPSPEC_REGISTRY_STORE`（默认 `~/.loopspec/registry`）下：`<store>/<source-id>/<commit>/`，`source-id` 形如 `<仓库名>[-<path>]-<hash8>`：可读前缀取 `url` 最后一段（去掉 `.git`）加上 `path`，转为小写并只保留 `a-z0-9-`（最长 48 个字符）；`hash8` 是 `url` 与 `path` 的 SHA-256 前 8 位，因此同一仓库的 SSH 与 HTTPS 写法是两个来源。例如 `url: git@github.com:AfterShip/docs-coke-context.git`、`path: channels-loopspec` 存放在 `~/.loopspec/registry/docs-coke-context-channels-loopspec-2d42f67b/<commit>/`。快照写完临时目录后原子发布，此后不再改变，同一台机器上的多个项目与 worktree 共用。目录必须属于当前用户、路径中没有符号链接且组与其他用户不可写，否则返回 `unsafe_path`；新建目录权限为 `0700`。
 
 - **自动拉取。**读取定义（`fragment list`、`plan create`、`node instructions`、保障规则等）时，如果存储中还没有 lock 锁定的 commit，CLI 会从 registry 拉取该 commit，按 lock 的 hash 完整校验后发布，再继续执行；lock 带 `tag` 时，先确认该 tag 在 registry 中仍指向 lock 的 commit，否则返回 `registry_lock_mismatch`，伪造的 lock 无法借已发布的 tag 掩盖其他 commit。注意：这意味着在不信任的项目里执行读取定义的命令，也可能按该项目配置的 `registry.url` 发起 git 连接并使用本机的 SSH 或凭据助手认证；对不熟悉的项目，先检查 `config.yaml` 与 `registry.lock.yaml`。新 clone 或新 worktree 因此不需要额外步骤；只有首次拉取需要网络与 git 凭据，失败返回 `registry_fetch_failed`，不会留下半成品快照。
 - **完整性。**每次读取都按 lock 校验文件内容；快照被改动或缺文件时返回 `registry_store_corrupt`，按提示删除该快照目录后重试即可重新拉取。CLI 不会自动替换已存在的快照。

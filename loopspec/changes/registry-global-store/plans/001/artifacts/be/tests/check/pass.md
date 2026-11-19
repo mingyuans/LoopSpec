@@ -1,22 +1,22 @@
 ---
 verdict: PASS
-summary: "第 4 次返工后本轮固定输入下 lint、类型检查、1670 个单元/BDD 测试与 3 个 timing 测试全部通过；LLM E2E 12 个场景在同一代码上通过"
+summary: "source-id 改为可读前缀加短 hash、tag 绑定记录带上来源后，本轮固定输入下 lint、类型检查、全量单元/BDD 与 timing 测试通过"
 ---
 
 # 后端测试：通过
 
 ## 审查输入
 
-- 轮次 `001.1:be/tests/check:5`，基线 `04812daa63283f7991d1c4684958e3538b816928`，23 个固定路径。
+- 轮次 `001.1:be/tests/check:7`，基线 `04812daa63283f7991d1c4684958e3538b816928`。
 
 ## 执行的测试
 
 - `uv run ruff check src tests hatch_version.py`：All checks passed!
 - `uv run mypy src hatch_version.py`：Success: no issues found in 40 source files
-- `uv run pytest -q -n 2 -m "not timing and not llm"`：1670 passed, 1 skipped（基线 1615 passed, 1 skipped）
-- `uv run pytest -q -m "timing and not llm"`：3 passed
-- 本轮新增覆盖：同 commit 改绑 tag 与首次打 tag 生成计划；无文件变化的来源切换输出 `sourceChanged`/`previousRegistry`；目标 lock 超限时不发布计划；超大 lock 为 `config_invalid`；非 registry 项目带旧字段或坏 YAML 的 config 仍可读定义；一次 `node instructions` 只解析一次 lock；改绑 tag 后离线可用；v1 lock 超过 2048 条目可读。
-- LLM E2E（同一代码）：`make test-llm` 12 passed，15 次启动，$1.666，无重跑，`.llm-e2e-runs/20261119T054402Z/`。
+- `uv run pytest -q -n 2 -m "not timing and not llm"`：1676 passed, 1 skipped in 121.05s (0:02:01)
+- `uv run pytest -q -m "timing and not llm"`：3 passed, 1689 deselected in 3.81s
+- 本轮新增覆盖：`source_id` 格式与区分性；tag 绑定记录包含 url/path/tag/commit，来源不符的记录不被信任（离线时报 `registry_fetch_failed`）。
+- LLM E2E：source-id 改动后运行 `make test-llm` 12 passed（$1.709，`.llm-e2e-runs/20261119T073440Z/`）；其后的 tag 绑定记录格式改动不影响 skill 可见的 CLI 输出，未重跑。
 
 ## 剩余风险
 

@@ -24,9 +24,10 @@ summary: "用本分支 CLI 在独立临时目录端到端执行 25 项检查，�
 
 ## 执行的测试
 
-- `artifacts/qa/test/acceptance.sh <worktree>/.venv/bin/loopspec`：在 `/tmp/lpqa/run.dWyP` 中真实执行 CLI，25 项 PASS、0 项 FAIL。前两次运行中的失败均为脚本自身问题，已修正后重跑：clone 中缺少空的 `changes` 目录；篡改前存储已被前一步清空；对已批准的 Plan 做 validate 需要 `base_revision`；列表顺序断言写错。
-- `uv run pytest -q -n 2 -m "not timing and not llm"`：1670 passed, 1 skipped；`-m "timing and not llm"`：3 passed。
-- `make test-llm`：12 passed，$1.666，`.llm-e2e-runs/20261119T054402Z/`。
+- source-id 改为可读前缀后重跑：`artifacts/qa/test/acceptance.sh` 在 `/tmp/lpqa/run.5JOH` 中 25 项 PASS、0 项 FAIL；全局存储目录名为 `reg-b47b7148`（registry 仓库目录名 `reg` + 8 位 hash），符合新格式。
+- `artifacts/qa/test/acceptance.sh <worktree>/.venv/bin/loopspec`（首次）：在 `/tmp/lpqa/run.dWyP` 中真实执行 CLI，25 项 PASS、0 项 FAIL。前两次运行中的失败均为脚本自身问题，已修正后重跑：clone 中缺少空的 `changes` 目录；篡改前存储已被前一步清空；对已批准的 Plan 做 validate 需要 `base_revision`；列表顺序断言写错。
+- `uv run pytest -q -n 2 -m "not timing and not llm"`：最终 1676 passed, 1 skipped；`-m "timing and not llm"`：3 passed。
+- `make test-llm`：12 passed，$1.709，`.llm-e2e-runs/20261119T073440Z/`（source-id 改动后）。
 
 ## 剩余风险
 

@@ -36,6 +36,8 @@
   - `_build_plan()` 发布计划前用 `lock_bytes()` 检查目标 lock 可读；`read_lock()` 把超过读取上限的 lock 映射为 `config_invalid`。
   - 在线验证过的 tag→commit 绑定持久化到 `<store>/<source-id>/tags/<tag>`，之后离线可信；v1 lock 文件表上限沿用旧版 8192。
 
+- 追加（完成后，HUMAN 决定）：`registry_store.source_id()` 改为「可读前缀 + 短 hash」：`<仓库名>[-<path>]-<sha256(url+path) 前 8 位>`，前缀小写、只保留 `[a-z0-9-]`、最长 48 字符、为空回退 `registry`；文档（zh/en configuration）同步，新增 `source_id` 格式与区分性测试。本仓库 `loopspec/` 不再使用 registry（去掉 config 中的 registry、删除 registry.lock.yaml）。
+
 ## 改动文件
 
 - 新增：`src/loopspec/registry_store.py`、`tests/test_registry_store.py`

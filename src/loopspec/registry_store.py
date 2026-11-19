@@ -255,8 +255,22 @@ def store_root() -> Path:
     return Path(os.path.abspath(root))
 
 
+_SLUG_LIMIT = 48
+
+
 def source_id(spec: RegistrySpec) -> str:
-    return hashlib.sha256(f"{spec.url}\n{spec.path or ''}".encode()).hexdigest()[:32]
+    """`<repository>[-<path>]-<hash8>`: readable in a directory listing, unique by the hash.
+
+    The readable part is the last segment of the URL (without `.git`) plus `path`,
+    lower-cased and reduced to `[a-z0-9-]`; the hash covers the exact `url` and `path`,
+    so two spellings of one repository (ssh and https) stay separate sources.
+    """
+    digest = hashlib.sha256(f"{spec.url}\n{spec.path or ''}".encode()).hexdigest()[:8]
+    name = re.split(r"[/:]", spec.url.rstrip("/"))[-1]
+    name = name[:-4] if name.endswith(".git") else name
+    readable = "-".join(part for part in (name, spec.path or "") if part)
+    slug = re.sub(r"[^a-z0-9]+", "-", readable.lower()).strip("-")[:_SLUG_LIMIT].strip("-")
+    return f"{slug or 'registry'}-{digest}"
 
 
 def _unsafe_store() -> WorkflowError:
@@ -441,15 +455,18 @@ def _check_tag_online(spec: RegistrySpec, tag: str, commit: str) -> None:
         return
     source = store_root() / source_id(spec)
     record = f"tags/{check_tag(tag)}"
+    # The record names its source too: source ids carry a short hash, so a colliding
+    # source must never borrow another source's verified binding.
+    binding = canonical({"url": spec.url, "path": spec.path, "tag": tag, "commit": commit})
     try:
-        if read_bytes(source, record).decode("ascii").strip() == commit:
+        if read_bytes(source, record).strip() == binding:
             _TAG_BINDINGS.add(key)
             return
-    except (WorkflowError, UnicodeError):
+    except WorkflowError:
         pass
     read_remote(spec, lambda repo: repo.verify_tag(commit, tag))
     # Kept in the private store so later processes (and offline use) trust this binding.
-    atomic_write(source, record, commit.encode("ascii") + b"\n")
+    atomic_write(source, record, binding + b"\n")
     _TAG_BINDINGS.add(key)
 
 

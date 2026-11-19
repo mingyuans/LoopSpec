@@ -1,0 +1,1 @@
+{"summary":"全量 Diff 保障存在缺口，请按诊断补齐审查或修订 Plan；2 个文件在 HEAD 中的提交内容既不是基线也不是审查过的工作区内容：src/loopspec/registry_store.py、tests/test_registry_store.py。请提交最终内容，或撤销这些中间提交后重新判定；1 条告警：以下路径被 Git 忽略但未在 workflow.excluded_paths 中声明，未纳入审查：.llm-e2e-runs/；1 条告警：以下改动路径没有匹配任何保障规则，未纳入审查：loopspec/registry.lock.yaml","verdict":"FAIL"}

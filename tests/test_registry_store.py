@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -517,3 +518,65 @@ def test_projects_without_registry_ignore_unparseable_config(tmp_path: Path) -> 
     home = home_fixture(tmp_path, "workflow: [unclosed\n")
     code, body = invoke(home, "fragment", "show", "design")
     assert code == 0, body
+
+
+@pytest.mark.parametrize(
+    ("url", "path", "prefix"),
+    [
+        (
+            "git@github.com:AfterShip/docs-coke-context.git",
+            "channels-loopspec",
+            "docs-coke-context-channels-loopspec-",
+        ),
+        ("https://github.com/acme/flows.git", None, "flows-"),
+        ("ssh://git@host/team/Flows.Repo.git", "a/b_c", "flows-repo-a-b-c-"),
+        ("file:///srv/registries/", None, "registries-"),
+    ],
+)
+def test_source_id_is_readable_prefix_plus_short_hash(
+    url: str, path: str | None, prefix: str
+) -> None:
+    from loopspec.models import RegistrySpec
+
+    value = source_id(RegistrySpec(url=url, path=path))
+    assert value.startswith(prefix)
+    assert re.fullmatch(r"[a-z0-9-]+-[0-9a-f]{8}", value)
+
+
+def test_source_id_keeps_spellings_and_paths_apart() -> None:
+    from loopspec.models import RegistrySpec
+
+    ssh = source_id(RegistrySpec(url="git@github.com:acme/flows.git"))
+    https = source_id(RegistrySpec(url="https://github.com/acme/flows.git"))
+    sub = source_id(RegistrySpec(url="git@github.com:acme/flows.git", path="team"))
+    assert len({ssh, https, sub}) == 3
+    long = source_id(RegistrySpec(url="git@github.com:acme/" + "x" * 200 + ".git"))
+    assert len(long) <= 48 + 9
+
+
+def test_tag_binding_of_another_source_is_not_trusted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    from loopspec.workflow_git import git
+
+    registry, home = registry_project(tmp_path, version="v1.0.0")
+    sync(home)
+    git(registry, ["tag", "v1.0.1"])
+    config = (home / "config.yaml").read_text().replace("version: v1.0.0", "version: v1.0.1")
+    (home / "config.yaml").write_text(config)
+    sync(home)  # v1.0.1 is verified online and recorded for this source
+    spec = registry_spec(home)
+    assert spec is not None
+    record = store_root() / source_id(spec) / "tags" / "v1.0.1"
+    stored = json.loads(record.read_text())
+    assert stored == {"url": spec.url, "path": None, "tag": "v1.0.1", "commit": stored["commit"]}
+    # A record written for a colliding source (same id, other url) must not count.
+    record.write_text(json.dumps({**stored, "url": "file:///elsewhere"}))
+    shutil.rmtree(registry)
+    for name, value in (("_VERIFIED", set()), ("_VERIFIED_TAGS", {}), ("_SNAPSHOTS", {})):
+        monkeypatch.setattr(registry_store, name, value)
+    monkeypatch.setattr(registry_store, "_TAG_BINDINGS", set())
+    code, body = invoke(home, "fragment", "list")
+    assert code == 1 and body["error"] == "registry_fetch_failed"

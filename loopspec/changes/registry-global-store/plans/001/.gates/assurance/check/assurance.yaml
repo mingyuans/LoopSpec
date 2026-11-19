@@ -1,4 +1,4 @@
-diffDigest: 786f0cf62745306ca1e48ea6deaaad0e9509da4dcb8cbaff658af199ef3bcb96
+diffDigest: 4dc3043ccc41780737832a0c78d53b234d2174f95cb14c4c5c6df964418e675f
 baseline: 04812daa63283f7991d1c4684958e3538b816928
 warnings:
   ignoredPaths:
@@ -12,7 +12,9 @@ unknown_paths:
 missing_evidence: []
 stale_evidence: []
 missing_fragments: []
-diverged_commits: []
+diverged_commits:
+- src/loopspec/registry_store.py
+- tests/test_registry_store.py
 requiredCapabilities:
   src/loopspec/cli.py:
   - backend-tests
@@ -106,4 +108,4 @@ requiredCapabilities:
   - backend-tests
   - pr-review
   - security-review
-passed: true
+passed: false
