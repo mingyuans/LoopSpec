@@ -32,3 +32,4 @@
 ## Plan 记录
 
 <!-- 引擎自动追加 Plan 沿革，请勿手工编辑，也勿在此段之后新增段落。 -->
+- 2026-11-19T15:55:20+00:00 · Change archive-memory-review 归档前 memory 审阅 · 结论：updated · 变化的 topic：agent-step-enforcement, archive-behavior · 备注：新增 agent-step-enforcement（CLI 两段式约束 agent 步骤的设计原则，经单测与 LLM E2E 验证）；archive-behavior 补充两段式归档与凭据失效规则
