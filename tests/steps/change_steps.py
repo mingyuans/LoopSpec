@@ -11,7 +11,15 @@ from pytest_bdd import given, parsers, then, when
 
 from tests.conftest import CliOutcome, LastCall
 from tests.steps.common import outcome_of
-from tests.workflow_helpers import DOCS_FLOW, create_approved, new_change, pass_node, write_request
+from tests.workflow_helpers import (
+    DOCS_FLOW,
+    create_approved,
+    fail_gate,
+    invoke,
+    new_change,
+    pass_node,
+    write_request,
+)
 
 RunCli = Callable[..., CliOutcome]
 
@@ -162,3 +170,48 @@ def artifacts_in_archive(last_call: LastCall, archive_month: dict[str, str]) -> 
     data = outcome_of(last_call).data
     locations = [item["location"] for item in data["locations"]]
     assert locations == [archive_month["path"]], data
+
+
+# --- archive drops rework records -------------------------------------------------------
+
+QA_FLOW = [
+    {"id": "requirements", "use": "requirements"},
+    {
+        "id": "qa",
+        "use": "qa-testing",
+        "requires": ["requirements"],
+        "on_fail": {"reset": ["requirements"], "max_retries": 2},
+    },
+]
+
+
+@given(parsers.re(r'Change "(?P<name>[^"]+)" 返工过一次后已完成'))
+def reworked_and_complete(home: Path, name: str) -> None:
+    create_approved(home, QA_FLOW, name)
+    pass_node(home, "requirements/proposal", name)
+    fail_gate(home, "qa/test", name)
+    assert invoke(home, "plan", "rollback", "-c", name, "-p", "001")[0] == 0
+    pass_node(home, "requirements/proposal", name)
+    pass_node(home, "qa/test", name)
+
+
+@when(parsers.re(r'预览归档 Change "(?P<name>[^"]+)"'))
+def preview_archive(run_cli: RunCli, last_call: LastCall, name: str) -> None:
+    last_call.outcome = run_cli("change", "archive", name, "--dry-run")
+
+
+@then(parsers.re(r'返回将删除的返工记录 "(?P<path>[^"]+)"'))
+def dropped_attempts(last_call: LastCall, path: str) -> None:
+    assert outcome_of(last_call).data["droppedAttempts"] == [path]
+
+
+@then(parsers.re(r'Change "(?P<name>[^"]+)" 的返工记录仍在'))
+def attempts_still_there(home: Path, name: str) -> None:
+    assert (active_dir(home, name) / "plans/001/.attempts").is_dir()
+
+
+@then(parsers.re(r'归档目录中的 Change "(?P<name>[^"]+)" 没有返工记录'))
+def archive_without_attempts(home: Path, name: str) -> None:
+    target = home / f"archive/{date.today():%Y-%m}" / name
+    assert (target / "state.md").is_file()
+    assert not list(target.rglob(".attempts"))

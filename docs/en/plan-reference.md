@@ -189,7 +189,7 @@ repository: /path/to/project
 
 ## Rework records
 
-`plan rollback` and a revision that re-runs nodes both archive workflow files of the affected nodes into `.attempts/<NNN>/files/` and describe it in `.attempts/<NNN>/record.yaml`. Numbers increase across both kinds. Only `rollback` records count against a Gate's `max_retries`; both kinds are shown to the re-run nodes as `priorAttempts`, marked as untrusted data.
+`plan rollback` and a revision that re-runs nodes both archive workflow files of the affected nodes into `.attempts/<NNN>/files/` and describe it in `.attempts/<NNN>/record.yaml`. Numbers increase across both kinds. Only `rollback` records count against a Gate's `max_retries`; both kinds are shown to the re-run nodes as `priorAttempts`, marked as untrusted data. `.attempts/` only serves a running Plan: `change archive` deletes it when archiving the Change, so lessons belong in the rework section of `state.md`.
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
