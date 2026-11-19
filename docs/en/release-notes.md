@@ -6,10 +6,15 @@
 
 ## Unreleased
 
+### Workflow commands keep the project's skills in sync
+
+- Every command that accepts `--home` first brings the loopspec skill and command files of the project's configured AI tools in line with this CLI (stale ones rewritten, missing ones added) and reports on stderr; after upgrading the CLI there is no need to rerun `loopspec init` to refresh them.
+- Skill and command files holding exactly this CLI's content are always left out of the delivery diff.
+
 ### Archiving takes two steps and requires the memory review
 
 - `loopspec change archive <change>` (or `--all`) now only rechecks and returns an `archiveId` with the memory review instructions; finish with `loopspec change archive --confirm <archiveId> --memory updated|none --note <text>`. The CLI checks that memory matches the choice and records the outcome in the Change's `state.md`.
-- `--dry-run` is removed (step one is the preview). Scripts using the old form must switch to the two steps; refresh the skills with `loopspec init --update-resources`.
+- `--dry-run` is removed (step one is the preview). Scripts using the old form must switch to the two steps; the project's archive skills are synced automatically by the next workflow command.
 - Archiving also deletes `.attempts/`, `.gates/`, `.gate-rounds/` and the Gates' PASS/FAIL reports; the result fields are `dropped`/`notDropped`.
 
 ### Registry mode: definitions move to a global store

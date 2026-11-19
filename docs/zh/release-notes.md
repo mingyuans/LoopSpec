@@ -6,10 +6,15 @@
 
 ## 未发布
 
+### 工作流命令自动同步项目 skill
+
+- 接受 `--home` 的命令执行前，自动把项目中已配置 AI 工具的 loopspec skill/command 文件同步到当前 CLI 内置版本（过期的覆盖、缺失的补上），结果打印到 stderr；升级 CLI 后不再需要重新执行 `loopspec init` 刷新 skill。
+- 与 CLI 内置内容一致的 skill/command 文件固定不计入交付 Diff。
+
 ### 归档改为两段式并强制 memory 审阅
 
 - `loopspec change archive <change>`（或 `--all`）只做复核并返回 `archiveId` 与 memory 审阅指引，不再直接归档；用 `loopspec change archive --confirm <archiveId> --memory updated|none --note <说明>` 完成归档。CLI 核对 memory 是否与选择一致，并把审阅结论写入 Change 的 `state.md`。
-- 删除 `--dry-run`（第一段即预览）。依赖旧用法的脚本需要改为两段；用 `loopspec init --update-resources` 刷新 skill。
+- 删除 `--dry-run`（第一段即预览）。依赖旧用法的脚本需要改为两段；项目中的归档 skill 会在下一条工作流命令执行时自动同步。
 - 归档时同时删除 `.attempts/`、`.gates/`、`.gate-rounds/` 与 Gate 的 PASS/FAIL 报告；结果字段为 `dropped`/`notDropped`。
 
 ### registry 模式：定义改存全局存储

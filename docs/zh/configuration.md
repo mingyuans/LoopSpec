@@ -102,7 +102,7 @@ registry 定义按「来源 + commit」存放在 `$LOOPSPEC_REGISTRY_STORE`（�
 
 ### 何时读取
 
-创建 Plan 时检查约束，确认或修订时按当时的文件再次检查。执行期间 Diff 排除项与保障规则也实时读取。`<home>/.cache/`（registry 同步缓存）、memory topic 文件 `<home>/memory/{topic}.md`（跨 Change 的 memory）与当前 Change 的 `.workflow.yaml`、`state.md`、`plans/` 始终不计入 Diff，无需配置。因此修改 `config.yaml` 会立即影响正在执行的 Plan（包括放宽规则），应当作需要评审的项目代码对待。
+创建 Plan 时检查约束，确认或修订时按当时的文件再次检查。执行期间 Diff 排除项与保障规则也实时读取。`<home>/.cache/`（registry 同步缓存）、memory topic 文件 `<home>/memory/{topic}.md`（跨 Change 的 memory）、loopspec 生成的 skill/command 文件（仅当工作区中是普通文件且内容与当前 CLI 内置内容完全一致，且暂存区与 HEAD 中与基线不同的版本也是同一内容；删除、改动、符号链接或未经审查的暂存/提交内容仍计入 Diff）与当前 Change 的 `.workflow.yaml`、`state.md`、`plans/` 始终不计入 Diff，无需配置。因此修改 `config.yaml` 会立即影响正在执行的 Plan（包括放宽规则），应当作需要评审的项目代码对待。
 
 ## 保障规则
 

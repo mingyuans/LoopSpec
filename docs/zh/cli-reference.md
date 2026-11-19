@@ -9,6 +9,7 @@
 - 命令统一为 `loopspec <资源> <动作>`，资源名为单数：`change`、`plan`、`node`、`gate`、`state`、`fragment`、`profile`。只有 `version`、`update`、`init` 与 `graph` 单独使用；`hook` 组供 AI 工具的 hook 调用。
 - `-c/--change` 指定 Change，`-p/--plan` 指定三位数字的 Plan 编号，`-n/--node` 指定叶子节点或 Gate 路径，`-f/--file` 指定相对工作区的请求文件，`--digest` 是人确认过的摘要，`--note` 是可选说明。`change` 组的命令以位置参数给出 Change 名。
 - 除 `version`、`update`、`init` 与 `hook` 外，所有命令都接受 `--home`（默认 `./loopspec`），并输出 JSON；例外是 `change status`（默认输出给 LLM 阅读的纯文本报告）与 `graph`（默认输出给人看的纯文本），带 `--json` 时才输出 JSON。失败时输出 `{"error": <错误码>, "message": <说明>, "fix": <下一步>}`，退出码为 1；用法错误退出码为 2。
+- **skill 自动同步。**接受 `--home` 的命令在执行前，会把项目中已配置 AI 工具的 loopspec skill 与 command 文件同步到当前 CLI 内置的内容（项目根取 workflow home 的上一级，与 `init` 默认一致）：内容不同的覆盖，缺失的补上；没有 loopspec skill 的工具不会新建；只写项目根内的文件，Codex 的全局 prompts 不会被改动；路径上有符号链接时不跟随、只告警。同步结果只打印到 stderr（`loopspec: synced N skill file(s) …`），JSON 输出与退出码不受影响，同步失败也不影响命令本身。这些文件由 CLI 管理，手工修改会被覆盖。用 `init --project-root` 指定过其他项目根的项目不会被同步。
 - 执行类命令（`node`、`gate`、`plan rollback`）只作用于活动 Plan。没有活动 Plan 时返回 `plan_not_active`，`fix` 给出下一个规划步骤。每条命令只有一次生效写入，中断后 Change 要么是命令之前、要么是命令之后的状态；尚待归档的返工文件由下一条写入类命令先行搬运。
 
 ## loopspec version

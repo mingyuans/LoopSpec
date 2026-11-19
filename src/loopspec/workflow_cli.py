@@ -18,7 +18,18 @@ from .workflow_io import exists, write_yaml
 from .workflow_models import Profile
 from .workflow_planning import validate_profile
 
-HOME = typer.Option(Path("./loopspec"), "--home", help="Workflow home directory.")
+
+def _sync_skills(value: Path) -> Path:
+    """`--home` callback (also for the default): bring the project's skills up to date first."""
+    from .skill_sync import sync_before_command
+
+    sync_before_command(value)
+    return value
+
+
+HOME = typer.Option(
+    Path("./loopspec"), "--home", help="Workflow home directory.", callback=_sync_skills
+)
 CHANGE = typer.Option(..., "-c", "--change", help="Change name.")
 PLAN = typer.Option(..., "-p", "--plan", help="Plan number, e.g. 001.")
 NODE = typer.Option(..., "-n", "--node", help="Leaf node or Gate path in the active Plan.")
