@@ -190,6 +190,22 @@ def run_until(home: Path, stop: str, name: str = CHANGE) -> None:
     raise AssertionError("未到达目标节点")
 
 
+REVIEW_NOTE = "审阅过 state.md 与产物，没有可复用的新结论"
+
+
+def archive_change(
+    home: Path, *args: str, memory: str = "none", note: str = REVIEW_NOTE
+) -> tuple[int, dict]:
+    """Both archive steps: prepare (`args`, default this CHANGE), then confirm the ticket."""
+    code, first = invoke(home, "change", "archive", *(args or (CHANGE,)))
+    if code != 0 or not first.get("archiveId"):
+        return code, first
+    return invoke(
+        home, "change", "archive", "--confirm", first["archiveId"], "--memory", memory,
+        "--note", note,
+    )
+
+
 def snapshot(root: Path) -> dict[str, bytes]:
     return {
         str(path.relative_to(root)): path.read_bytes()

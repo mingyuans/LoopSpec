@@ -229,9 +229,9 @@ def test_archive_rechecks_stale_gate_and_assurance(tmp_path: Path):
     review(loaded, "fe")
     qa(loaded)
     check(loaded)
-    assert invoke(home, "change", "archive", "AFD1111", "--dry-run")[0] == 0
+    assert invoke(home, "change", "archive", "AFD1111")[0] == 0
     (tmp_path / "frontend/code.py").write_text("unreviewed later edit")
-    code, result = invoke(home, "change", "archive", "AFD1111", "--dry-run")
+    code, result = invoke(home, "change", "archive", "AFD1111")
     assert code == 1
     assert result["error"] == "archive_unsafe"
     assert loaded.root.is_dir()
@@ -457,7 +457,7 @@ def test_committing_after_gates_keeps_change_complete_and_archivable(tmp_path: P
     git(tmp_path, ["add", "-A"])
     git(tmp_path, ["commit", "-q", "-m", "deliver reviewed change"])
     assert status(loaded)["isComplete"]
-    assert invoke(home, "change", "archive", "AFD1111", "--dry-run")[0] == 0
+    assert invoke(home, "change", "archive", "AFD1111")[0] == 0
 
 
 def test_committing_during_review_round_still_records(tmp_path: Path):
@@ -491,7 +491,7 @@ def test_unreviewed_commit_after_assurance_blocks_completion_and_archive(tmp_pat
     report = status(loaded)
     assert not report["isComplete"]
     assert report["nodes"][-1]["reason"] == "evidence_stale"
-    code, result = invoke(home, "change", "archive", "AFD1111", "--dry-run")
+    code, result = invoke(home, "change", "archive", "AFD1111")
     assert code == 1 and result["error"] == "archive_unsafe"
     rerun = check(loaded)
     assert rerun["verdict"] == "FAIL"

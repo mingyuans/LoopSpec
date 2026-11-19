@@ -91,11 +91,18 @@ Lists every artifact the Change owns, grouped by location (the active Change and
 ## loopspec change archive
 
 ```bash
-loopspec change archive <change> [--force] [--dry-run]
-loopspec change archive --all [--older-than <days>] [--dry-run]
+loopspec change archive <change> [--force]
+loopspec change archive --all [--older-than <days>]
+loopspec change archive --confirm <archiveId> --memory updated|none --note <text>
 ```
 
-Moves the Change directory to `archive/<YYYY-MM>/<change>`. It first re-derives the status, including code evidence and assurance; only a `complete` Change is archived. `--force` archives an unfinished Change when the human explicitly abandons it; the result says `forced: true` and that it was archived unfinished. After a successful move it deletes, for every Plan (archived Plans included), the files that only serve a running Plan instead of keeping them in the archive: the rework records `.attempts/`, the Gate evidence `.gates/`, the round records `.gate-rounds/`, and the PASS/FAIL reports each Gate declares in `plan.yaml` (only under `artifacts/`; other files in the same directory stay and emptied directories are removed). Requirements, design, implementation and other non-Gate outputs are kept. `dropped` lists the deleted paths (relative to the Change directory) and `notDropped` any that could not be deleted, which does not undo the archive. A refused or failed move deletes nothing, and a symlinked `.attempts` is refused with `unsafe_path` while the status is re-derived. `--dry-run` reports without moving; `dropped` then lists what would be deleted. `--all` archives every complete Change, skipping the rest with a reason; `--older-than` limits it to Changes created at least that many days ago. `--all` cannot be combined with `--force` or a name. Options: `--all`, `--older-than`, `--force`, `--dry-run`, `--home`.
+Archiving takes two steps, and the memory review is part of the protocol.
+
+**Step one** (`<change>` or `--all`) re-derives the status, including code evidence and assurance; only a `complete` Change is accepted, and `--force` archives an unfinished Change when the human explicitly abandons it (the result says `forced: true` and that it is archived unfinished). This step archives and deletes nothing (it only finishes rework moves an earlier command left behind). It writes a ticket under `<home>/.cache/archive/` (which ignores itself), bound to each Change directory's content digest and to the memory topics at that moment, and returns: `archiveId`; `changes` (each with `changeName`, `status`, `complete`, `forced`, `source`, `destination`, the `dropped` paths to be deleted, and `inputs`: `stateFiles`, `artifacts`, `artifactsTruncated`, `willBeDeleted`); `memoryReview` (`instructions`, the review guidance plus the memory maintenance procedure, and `memoryIndex`, the current topic index); `nextSteps`. `--all` issues one ticket for every complete Change and lists the others in `skipped` with a reason; with nothing to archive, `archiveId` is `null`. `--older-than` only takes Changes created at least that many days ago.
+
+**Step two** (`--confirm`) requires both `--memory updated|none` and `--note` (one line, not empty, at most 1000 characters, no HTML comment markers), and cannot be combined with a Change name, `--all`, `--force` or `--older-than`. Under the write locks of every Change involved it re-derives the status and compares the content digests (`archive_ticket_stale` if anything changed since step one; run step one again), then checks memory: `updated` needs at least one memory topic changed since step one, `none` needs none changed. When everything passes it first records the review outcome (choice, changed topics, note) as an event in each Change's `state.md`, then moves the Change directory to `archive/<YYYY-MM>/<change>`, and finally deletes the ticket. It returns `archiveId`, `memoryReview` (`memory`, `note`, `changedTopics`) and `archived` (each with `changeName`, `forced`, `moved`, `destination`, `dropped`, and `notDropped` when a deletion failed). If a batch stops part way, the ticket keeps the progress and the same command resumes, skipping Changes already archived.
+
+After a successful move it deletes, for every Plan (archived Plans included), the files that only serve a running Plan instead of keeping them in the archive: the rework records `.attempts/`, the Gate evidence `.gates/`, the round records `.gate-rounds/`, and the PASS/FAIL reports each Gate declares in `plan.yaml` (only under `artifacts/`; other files in the same directory stay and emptied directories are removed). Requirements, design, implementation and other non-Gate outputs are kept. A failed deletion does not undo the archive; a refused or failed move deletes nothing, and a symlinked `.attempts` is refused with `unsafe_path` while the status is re-derived. Options: `--all`, `--older-than`, `--force`, `--confirm`, `--memory`, `--note`, `--home`.
 
 ## loopspec plan validate
 
@@ -336,6 +343,12 @@ Prints one topic in full as JSON (`topic`, `path`, `content`, `untrustedData`); 
 | `memory_bad_range` | `--offset` is negative or `--limit` is below 1. |
 | `profile_exists` | `profile save` would overwrite an existing Profile. |
 | `archive_unsafe` | The Change is not complete; finish it or use `--force` on explicit request. |
+| `archive_ticket_not_found` | The `--confirm` ticket does not exist or is malformed; run step one again. |
+| `archive_ticket_invalid` | The archive ticket is corrupted or was edited; run step one again. |
+| `archive_ticket_stale` | The Change content or status changed after step one; run step one and review again. |
+| `memory_review_required` | `--confirm` is missing `--memory` or `--note`. |
+| `memory_review_missing` | `--memory updated` was chosen but no memory topic changed. |
+| `memory_review_mismatch` | `--memory none` was chosen but memory topics changed. |
 | `archive_conflict` | The archive destination already exists. |
 | `baseline_required` | Code Gates or assurance need a Git repository and a fixed baseline. |
 | `invalid_baseline` | The baseline is not a full commit hash. |
