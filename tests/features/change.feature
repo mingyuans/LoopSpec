@@ -3,7 +3,8 @@
 功能: 用 loopspec change 管理 Change 的整个生命周期
   change new 只在安全的名字下创建 Change，重复执行时复用已有 Change；
   change status / next 根据 Plan 推导出 Change 所处阶段和下一步；
-  change archive 只归档已完成的 Change，未完成的 Change 必须由人明确要求强制归档。
+  change archive 只归档已完成的 Change，未完成的 Change 必须由人明确要求强制归档；
+  归档时删除各 Plan 的返工记录 .attempts，不放入归档目录。
 
   场景: 新建 Change 后重复执行会复用同一个 Change
     当 新建 Change "AFD1111"
@@ -68,6 +69,17 @@
     当 查询 Change "AFD1111" 的产物
     那么 命令成功
     并且 产物位置是当月归档目录
+
+  场景: 归档有返工记录的 Change 时删除 .attempts
+    假如 Change "AFD1111" 返工过一次后已完成
+    当 预览归档 Change "AFD1111"
+    那么 命令成功
+    并且 返回将删除的返工记录 "plans/001/.attempts"
+    并且 Change "AFD1111" 的返工记录仍在
+    当 归档 Change "AFD1111"
+    那么 命令成功
+    并且 返回将删除的返工记录 "plans/001/.attempts"
+    并且 归档目录中的 Change "AFD1111" 没有返工记录
 
   场景: 同时指定 Change 名和 --all 归档会冲突
     假如 已新建 Change "AFD1111"

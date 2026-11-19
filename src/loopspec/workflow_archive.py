@@ -1,9 +1,14 @@
-"""Archive whole Changes: re-derive status and evidence first, then move only the Change dir."""
+"""Archive whole Changes: re-derive status and evidence first, then move only the Change dir.
+
+Rework records (`plans/<NNN>/.attempts/`) only matter while a Plan runs, so they are
+dropped from the archived copy once the move has succeeded.
+"""
 
 from __future__ import annotations
 
 import os
 import re
+import shutil
 import stat
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -11,7 +16,10 @@ from pathlib import Path
 from .errors import WorkflowError
 from .workflow_io import directory, write_lock
 from .workflow_models import CHANGE_RE
-from .workflow_state import change_root, changes_dir
+from .workflow_state import change_root, changes_dir, plan_ids
+
+ATTEMPTS = ".attempts"
+_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
 
 def archive(home: Path, name: str, *, force: bool, dry_run: bool, today: date) -> dict:
@@ -51,14 +59,66 @@ def archive(home: Path, name: str, *, force: bool, dry_run: bool, today: date) -
         }
         if not complete:
             result["message"] = "未完成归档：该需求未完成，按人的明确要求放弃并归档。"
+        attempts = attempt_dirs(root)
         if dry_run:
+            result["droppedAttempts"] = attempts
             return result
-        move(home, root, destination, name)
+        # Dropped only after the move succeeded (a crash before it must not lose a running
+        # Plan's rework history), through the moved directory itself, never by path.
+        dropped, failed = move(home, root, destination, name, attempts)
         result["moved"] = True
+        result["droppedAttempts"] = dropped
+        if failed:
+            result["attemptsNotDropped"] = failed
         return result
 
 
-def move(home: Path, root: Path, destination: Path, name: str) -> None:
+def attempt_dirs(root: Path) -> list[str]:
+    """`plans/<NNN>/.attempts` entries of every Plan, archived ones included."""
+    found = []
+    for plan_id in plan_ids(root):
+        path = f"plans/{plan_id}/{ATTEMPTS}"
+        if os.path.lexists(root / path):
+            found.append(path)
+    return found
+
+
+def drop_attempts(rootfd: int, paths: list[str]) -> tuple[list[str], list[str]]:
+    """Delete `plans/<NNN>/.attempts` entries under the Change directory open as `rootfd`.
+
+    Every component is opened relative to that descriptor without following symlinks, so
+    only the directory that was just moved is touched; a symlink is removed itself, never
+    its target. Failures are reported, not raised: the Change is already archived and a
+    leftover `.attempts` does not affect it.
+    """
+    dropped, failed = [], []
+    for path in paths:
+        plan_id = path.split("/")[1]
+        try:
+            plans = os.open("plans", _DIRECTORY, dir_fd=rootfd)
+            try:
+                planfd = os.open(plan_id, _DIRECTORY, dir_fd=plans)
+                try:
+                    info = os.stat(ATTEMPTS, dir_fd=planfd, follow_symlinks=False)
+                    if stat.S_ISDIR(info.st_mode):
+                        shutil.rmtree(ATTEMPTS, dir_fd=planfd)
+                    else:
+                        os.unlink(ATTEMPTS, dir_fd=planfd)
+                finally:
+                    os.close(planfd)
+            finally:
+                os.close(plans)
+        except (OSError, RecursionError):
+            failed.append(path)
+        else:
+            dropped.append(path)
+    return dropped, failed
+
+
+def move(
+    home: Path, root: Path, destination: Path, name: str, attempts: list[str] | None = None
+) -> tuple[list[str], list[str]]:
+    """Rename the Change directory into the archive, then drop `attempts` inside it."""
     source_parent = root.parent.relative_to(home).as_posix()
     target_parent = destination.parent.relative_to(home).as_posix()
     with directory(root, relocated_root=destination) as rootfd:
@@ -80,6 +140,13 @@ def move(home: Path, root: Path, destination: Path, name: str) -> None:
                 os.rename(name, name, src_dir_fd=sourcefd, dst_dir_fd=targetfd)
                 os.fsync(sourcefd)
                 os.fsync(targetfd)
+                moved = os.stat(name, dir_fd=targetfd, follow_symlinks=False)
+        if (moved.st_dev, moved.st_ino) != (original.st_dev, original.st_ino):
+            # Something else was renamed into the archive: touch nothing; the identity
+            # check of `directory()` reports the concurrent change on exit.
+            return [], list(attempts or [])
+        # `rootfd` is the directory that now sits in the archive.
+        return drop_attempts(rootfd, attempts or [])
 
 
 def archive_all(home: Path, *, older_than: int | None, dry_run: bool, today: date) -> dict:

@@ -1,0 +1,19 @@
+flow:
+- id: requirements
+  use: requirements
+  requires: []
+- id: be
+  use: backend-implementation
+  requires: [requirements]
+- id: qa
+  use: qa-testing
+  requires: [be]
+  on_fail:
+    reset: [be]
+    max_retries: 3
+- id: assurance
+  use: change-assurance
+  requires: [qa]
+  on_fail:
+    reset: [qa]
+    max_retries: 2

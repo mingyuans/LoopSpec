@@ -1,0 +1,5 @@
+format_version: 4
+change_name: archive-drop-attempts
+created: '2026-11-19T14:27:20+00:00'
+baseline: fa0dbbe9d2bfb49293908ec1e89156c77a7d24ac
+repository: /home/xq.yan/worktrees/LoopSpec/archive-drop-attempts
