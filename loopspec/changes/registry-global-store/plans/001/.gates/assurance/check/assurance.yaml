@@ -1,10 +1,14 @@
-diffDigest: 3458641e00e3f26bbab0ad9437547c753ac343a1a95a95131e964702ed0302dd
+diffDigest: 786f0cf62745306ca1e48ea6deaaad0e9509da4dcb8cbaff658af199ef3bcb96
 baseline: 04812daa63283f7991d1c4684958e3538b816928
 warnings:
   ignoredPaths:
   - .llm-e2e-runs/
   ignoredTotal: 1
-unknown_paths: []
+  unknownPaths:
+  - loopspec/registry.lock.yaml
+  unknownTotal: 1
+unknown_paths:
+- loopspec/registry.lock.yaml
 missing_evidence: []
 stale_evidence: []
 missing_fragments: []

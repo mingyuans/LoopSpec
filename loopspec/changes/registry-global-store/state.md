@@ -21,6 +21,7 @@
 - 2026-11-19 [HUMAN: xq.yan] Plan 需要独立测试环节：在 be 之后加入 qa-testing，失败退回 be。
 - 2026-11-19 [HUMAN: xq.yan] 全局存储缺少 lock 指定 commit 时自动拉取：读取定义时按 lock 的 commit 自动从 registry 拉取并校验 hash，无需显式安装命令。
 - 2026-11-19 [MODEL: ENG-claude-remote] Plan 001 design/design：经 Codex 只读评审后采纳 14 条修订（可信文件表、不自动修复损坏快照、项目级写锁、存储根权限、v1 迁移计划、apply 预检含活动 Plan 引用、计划 schema、基线审阅、严格拉取、命令级 bundle 缓存、大小上限、测试补充），不采纳为活动 Plan 持久化资源来源。update 允许写自带 .gitignore 的 .cache/registry/，proposal 验收同步调整。
+- 2026-11-19 [HUMAN: xq.yan] Plan 001 完成后的仓库迁移：本仓库 loopspec/ 的 4 个定义含项目路径定制（代码 Gate evidence.paths、change-assurance 规则），新模型不支持本地覆盖，决定本仓库不再使用 registry：去掉 config.yaml 的 registry 并删除 registry.lock.yaml，定义按普通本地项目保留。项目级路径配置能力留待后续。
 
 ## 待解决问题
 
