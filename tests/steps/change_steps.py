@@ -105,17 +105,73 @@ def pass_docs_nodes(home: Path, run_cli: RunCli, last_call: LastCall, name: str)
     last_call.outcome = run_cli("change", "next", name)
 
 
+@pytest.fixture
+def archive_ticket() -> dict[str, str]:
+    """The archiveId issued by the scenario's first archive step."""
+    return {}
+
+
+def _remember_ticket(last_call: LastCall, archive_ticket: dict[str, str]) -> None:
+    data = outcome_of(last_call).data
+    if data.get("archiveId"):
+        archive_ticket["id"] = data["archiveId"]
+
+
 @when(parsers.re(r'归档 Change "(?P<name>[^"]+)"'))
 def archive_change(
-    run_cli: RunCli, last_call: LastCall, archive_month: dict[str, str], name: str
+    run_cli: RunCli,
+    last_call: LastCall,
+    archive_month: dict[str, str],
+    archive_ticket: dict[str, str],
+    name: str,
 ) -> None:
     archive_month["path"] = f"archive/{date.today().strftime('%Y-%m')}"
     last_call.outcome = run_cli("change", "archive", name)
+    _remember_ticket(last_call, archive_ticket)
 
 
 @when(parsers.re(r'强制归档 Change "(?P<name>[^"]+)"'))
-def force_archive_change(run_cli: RunCli, last_call: LastCall, name: str) -> None:
+def force_archive_change(
+    run_cli: RunCli, last_call: LastCall, archive_ticket: dict[str, str], name: str
+) -> None:
     last_call.outcome = run_cli("change", "archive", name, "--force")
+    _remember_ticket(last_call, archive_ticket)
+
+
+@when(parsers.re(r'以 memory 结论 "(?P<outcome>updated|none)" 确认归档'))
+def confirm_archive(
+    run_cli: RunCli, last_call: LastCall, archive_ticket: dict[str, str], outcome: str
+) -> None:
+    last_call.outcome = run_cli(
+        "change", "archive", "--confirm", archive_ticket["id"], "--memory", outcome,
+        "--note", "BDD 场景的审阅说明",
+    )
+
+
+@when(parsers.re(r'新增 memory 主题 "(?P<topic>[a-z0-9-]+)"'))
+def add_memory_topic(home: Path, topic: str) -> None:
+    (home / "memory").mkdir(exist_ok=True)
+    (home / "memory" / f"{topic}.md").write_text("# Lesson\n\n- reusable\n")
+
+
+@then("第一段返回归档凭据与 memory 审阅指引")
+def ticket_and_review(last_call: LastCall) -> None:
+    data = outcome_of(last_call).data
+    assert len(data["archiveId"]) == 64
+    assert "Memory maintenance procedure" in data["memoryReview"]["instructions"]
+    assert "--confirm" in data["nextSteps"][0]
+
+
+@then(parsers.re(r'Change "(?P<name>[^"]+)" 已作为强制归档移走'))
+def forced_and_moved(last_call: LastCall, name: str) -> None:
+    [item] = outcome_of(last_call).data["archived"]
+    assert item["changeName"] == name and item["forced"] and item["moved"]
+
+
+@then(parsers.re(r'归档的 Change "(?P<name>[^"]+)" 记录了 memory 审阅结论 "(?P<outcome>[a-z]+)"'))
+def review_recorded(home: Path, archive_month: dict[str, str], name: str, outcome: str) -> None:
+    state = (home / archive_month["path"] / name / "state.md").read_text()
+    assert "归档前 memory 审阅" in state and f"结论：{outcome}" in state
 
 
 @when(parsers.re(r'以 Change 名 "(?P<name>[^"]+)" 加 --all 归档'))
@@ -160,7 +216,8 @@ def moved_to_archive(
     home: Path, last_call: LastCall, archive_month: dict[str, str], name: str
 ) -> None:
     target = home / archive_month["path"] / name
-    assert Path(outcome_of(last_call).data["destination"]) == target.resolve()
+    [item] = outcome_of(last_call).data["archived"]
+    assert Path(item["destination"]) == target.resolve()
     assert (target / ".workflow.yaml").is_file()
     assert not active_dir(home, name).exists()
 
@@ -195,14 +252,16 @@ def reworked_and_complete(home: Path, name: str) -> None:
     pass_node(home, "qa/test", name)
 
 
-@when(parsers.re(r'预览归档 Change "(?P<name>[^"]+)"'))
-def preview_archive(run_cli: RunCli, last_call: LastCall, name: str) -> None:
-    last_call.outcome = run_cli("change", "archive", name, "--dry-run")
+@then(parsers.re(r'第一段的删除列表为 "(?P<paths>[^"]+)"'))
+def prepared_drops(last_call: LastCall, paths: str) -> None:
+    [change] = outcome_of(last_call).data["changes"]
+    assert change["dropped"] == paths.split(", ")
 
 
-@then(parsers.re(r'返回的删除列表为 "(?P<paths>[^"]+)"'))
-def dropped_paths(last_call: LastCall, paths: str) -> None:
-    assert outcome_of(last_call).data["dropped"] == paths.split(", ")
+@then(parsers.re(r'归档结果的删除列表为 "(?P<paths>[^"]+)"'))
+def archived_drops(last_call: LastCall, paths: str) -> None:
+    [item] = outcome_of(last_call).data["archived"]
+    assert item["dropped"] == paths.split(", ")
 
 
 @then(parsers.re(r'Change "(?P<name>[^"]+)" 的返工记录仍在'))

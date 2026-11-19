@@ -540,3 +540,27 @@ def only_changed(llm_project: LlmProject, path: str) -> None:
     ).stdout  # fmt: skip
     changed = sorted(line[3:] for line in out.splitlines())
     assert changed == [path], (changed, llm_project.where())
+
+
+# --- archive memory review --------------------------------------------------------------
+
+
+@then(parsers.re(r'Agent 先执行归档第一段，再以 memory 结论 "(?P<outcome>updated|none)" 确认归档'))
+def archived_in_two_steps(llm_project: LlmProject, outcome: str) -> None:
+    commands = [cmd for run in llm_project.runs for cmd in run.bash_commands]
+    first = [i for i, c in enumerate(commands) if "change archive" in c and "--confirm" not in c]
+    confirms = [i for i, c in enumerate(commands) if "change archive" in c and "--confirm" in c]
+    assert first and confirms, (commands, llm_project.where())
+    assert first[0] < confirms[-1], (commands, llm_project.where())
+    assert f"--memory {outcome}" in commands[confirms[-1]], (commands, llm_project.where())
+
+
+@then(
+    parsers.re(
+        r'归档的 Change "(?P<change>[^"]+)" 的 state.md '
+        r'记录了 memory 审阅结论 "(?P<outcome>[a-z]+)"'
+    )
+)
+def archived_state_records_review(llm_project: LlmProject, change: str, outcome: str) -> None:
+    state = (llm_project.change_dir(change) / "state.md").read_text()
+    assert "归档前 memory 审阅" in state and f"结论：{outcome}" in state, llm_project.where()

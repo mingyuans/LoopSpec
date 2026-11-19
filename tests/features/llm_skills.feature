@@ -82,6 +82,8 @@
     那么 Agent 正常结束
     并且 LLM 项目中 Change "CALC1" 已归档
     并且 LLM 项目的记忆中有主题提到 "docstring" 并注明来源 "CALC1"
+    并且 Agent 先执行归档第一段，再以 memory 结论 "updated" 确认归档
+    并且 归档的 Change "CALC1" 的 state.md 记录了 memory 审阅结论 "updated"
 
   场景: 归档时没有可复用的新知识就不改动记忆
     假如 LLM 项目中 Change "CALC1" 已按文档流程完成全部节点并提交
@@ -90,6 +92,8 @@
     那么 Agent 正常结束
     并且 LLM 项目中 Change "CALC1" 已归档
     并且 LLM 项目的记忆目录与归档前一致
+    并且 Agent 先执行归档第一段，再以 memory 结论 "none" 确认归档
+    并且 归档的 Change "CALC1" 的 state.md 记录了 memory 审阅结论 "none"
 
 
   场景: loopspec-update-registry 展示注册表更新后停下等待确认

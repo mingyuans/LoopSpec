@@ -101,6 +101,20 @@ def archive_change_event(stamp: str, change: str, plan: str, note: str | None = 
     )
 
 
+def memory_review_event(
+    stamp: str, change: str, outcome: str, topics: list[str], note: str
+) -> str:
+    """The archive's memory review outcome; topics are validated names, the note is folded."""
+    changed = ", ".join(topics) if topics else "无"
+    return event_line(
+        stamp,
+        f"Change {change} 归档前 memory 审阅",
+        f"结论：{outcome}",
+        f"变化的 topic：{changed}",
+        note=note,
+    )
+
+
 def record(root: Path, path: str, line: str) -> str | None:
     """Best effort after the commit point: returns None, or the path that could not be written."""
     try:
