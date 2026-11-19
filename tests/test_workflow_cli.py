@@ -12,6 +12,7 @@ from loopspec.cli import app
 from tests.workflow_helpers import (
     CHANGE,
     DOCS_FLOW,
+    archive_change,
     create_approved,
     create_draft,
     fail_gate,
@@ -189,7 +190,7 @@ def test_artifacts_are_grouped_by_plan_including_archived(tmp_path: Path):
     approve(home, create_draft(home, DOCS_FLOW)["plan"])
     for identity in ("requirements/proposal", "design/design", "design/tasks"):
         pass_node(home, identity)
-    assert invoke(home, "change", "archive", CHANGE)[0] == 0
+    assert archive_change(home)[0] == 0
     result = invoke(home, "change", "artifacts", CHANGE)[1]
     [location] = result["locations"]
     assert location["location"] == f"archive/{date.today():%Y-%m}"
@@ -203,11 +204,12 @@ def test_archive_refuses_unfinished_change_unless_forced(tmp_path: Path):
     create_approved(home, DOCS_FLOW)
     code, result = invoke(home, "change", "archive", CHANGE)
     assert code == 1 and result["error"] == "archive_unsafe"
-    code, result = invoke(home, "change", "archive", CHANGE, "--force", "--dry-run")
-    assert code == 0 and result["forced"] and "未完成" in result["message"]
-    assert (home / "changes" / CHANGE).is_dir()
     code, result = invoke(home, "change", "archive", CHANGE, "--force")
-    assert code == 0 and result["moved"]
+    [change] = result["changes"]
+    assert code == 0 and change["forced"] and "未完成" in change["message"]
+    assert (home / "changes" / CHANGE).is_dir()
+    code, result = archive_change(home, CHANGE, "--force")
+    assert code == 0 and result["archived"][0]["moved"] and result["archived"][0]["forced"]
     assert not (home / "changes" / CHANGE).exists()
 
 
@@ -217,9 +219,10 @@ def test_archive_complete_change(tmp_path: Path):
     for identity in ("requirements/proposal", "design/design", "design/tasks"):
         pass_node(home, identity)
     assert status(home)["status"] == "complete"
-    code, result = invoke(home, "change", "archive", CHANGE, "--dry-run")
-    assert code == 0 and result["complete"] and not result["forced"]
-    assert invoke(home, "change", "archive", CHANGE)[1]["moved"]
+    code, result = invoke(home, "change", "archive", CHANGE)
+    assert code == 0 and result["changes"][0]["complete"] and not result["changes"][0]["forced"]
+    assert (home / "changes" / CHANGE).is_dir()  # the first step archives nothing
+    assert archive_change(home)[1]["archived"][0]["moved"]
     assert (home / f"archive/{date.today():%Y-%m}" / CHANGE / ".workflow.yaml").is_file()
 
 
@@ -229,14 +232,14 @@ def test_archive_all_only_takes_complete_changes(tmp_path: Path):
     for identity in ("requirements/proposal", "design/design", "design/tasks"):
         pass_node(home, identity)
     new_change(home, "OTHER1")
-    code, result = invoke(home, "change", "archive", "--all", "--dry-run")
+    code, result = invoke(home, "change", "archive", "--all")
     assert code == 0
-    assert [item["changeName"] for item in result["archived"]] == [CHANGE]
+    assert [item["changeName"] for item in result["changes"]] == [CHANGE]
     assert result["skipped"] == [{"changeName": "OTHER1", "reason": "archive_unsafe"}]
     code, result = invoke(home, "change", "archive", "--all", "--older-than", "1")
-    assert code == 0 and result["archived"] == []
+    assert code == 0 and result["changes"] == [] and result["archiveId"] is None
     assert {item["reason"] for item in result["skipped"]} == {"too_recent"}
-    code, result = invoke(home, "change", "archive", "--all")
+    code, result = archive_change(home, "--all")
     assert [item["changeName"] for item in result["archived"]] == [CHANGE]
 
 
@@ -247,6 +250,10 @@ def test_archive_all_only_takes_complete_changes(tmp_path: Path):
         ["change", "archive", CHANGE, "--all"],
         ["change", "archive", "--all", "--force"],
         ["change", "archive", CHANGE, "--older-than", "3"],
+        ["change", "archive", CHANGE, "--confirm", "0" * 64, "--memory", "none", "--note", "x"],
+        ["change", "archive", "--all", "--confirm", "0" * 64, "--memory", "none", "--note", "x"],
+        ["change", "archive", CHANGE, "--memory", "none"],
+        ["change", "archive", CHANGE, "--note", "x"],
     ],
 )
 def test_archive_option_conflicts(tmp_path: Path, args):

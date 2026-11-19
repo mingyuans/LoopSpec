@@ -6,6 +6,12 @@
 
 ## Unreleased
 
+### Archiving takes two steps and requires the memory review
+
+- `loopspec change archive <change>` (or `--all`) now only rechecks and returns an `archiveId` with the memory review instructions; finish with `loopspec change archive --confirm <archiveId> --memory updated|none --note <text>`. The CLI checks that memory matches the choice and records the outcome in the Change's `state.md`.
+- `--dry-run` is removed (step one is the preview). Scripts using the old form must switch to the two steps; refresh the skills with `loopspec init --update-resources`.
+- Archiving also deletes `.attempts/`, `.gates/`, `.gate-rounds/` and the Gates' PASS/FAIL reports; the result fields are `dropped`/`notDropped`.
+
 ### Registry mode: definitions move to a global store
 
 - A project that configures `registry` no longer has fragments/profiles written into it. Definitions are kept per source and commit under `$LOOPSPEC_REGISTRY_STORE` (default `~/.loopspec/registry`); the project commits only `config.yaml` and `registry.lock.yaml`.

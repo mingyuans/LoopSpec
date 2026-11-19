@@ -134,13 +134,14 @@ def maintenance_procedure(text: str) -> str:
     return text[start : text.index(MAINTENANCE_END, start) + len(MAINTENANCE_END)]
 
 
-@then(parsers.re(r'技能 "(?P<skill>[^"]+)" 只在用户要求归档时复查 memory，且先预览归档'))
+@then(parsers.re(r'技能 "(?P<skill>[^"]+)" 只在要求归档时复查 memory，且在第一段之后确认之前'))
 def archive_skill_memory_rules(project_root: Path, skill: str) -> None:
     text = skill_text(project_root, skill)
     assert "only when the user has requested archiving" in text
     assert "tidying memory is not itself authorization to archive" in text
-    assert text.index("--dry-run") < text.index("Memory review")
-    assert "report `No memory update` and continue" in text
+    assert text.index("loopspec change archive <change-name>`") < text.index("Memory review")
+    assert "--dry-run" not in text
+    assert "report `No memory update` and confirm with `--memory none`" in text
 
 
 @then(parsers.re(r'技能 "(?P<skill>[^"]+)" 只在约定事件发生时更新 memory，且不作为推进前提'))

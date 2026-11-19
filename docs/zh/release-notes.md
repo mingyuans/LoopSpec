@@ -6,6 +6,12 @@
 
 ## 未发布
 
+### 归档改为两段式并强制 memory 审阅
+
+- `loopspec change archive <change>`（或 `--all`）只做复核并返回 `archiveId` 与 memory 审阅指引，不再直接归档；用 `loopspec change archive --confirm <archiveId> --memory updated|none --note <说明>` 完成归档。CLI 核对 memory 是否与选择一致，并把审阅结论写入 Change 的 `state.md`。
+- 删除 `--dry-run`（第一段即预览）。依赖旧用法的脚本需要改为两段；用 `loopspec init --update-resources` 刷新 skill。
+- 归档时同时删除 `.attempts/`、`.gates/`、`.gate-rounds/` 与 Gate 的 PASS/FAIL 报告；结果字段为 `dropped`/`notDropped`。
+
 ### registry 模式：定义改存全局存储
 
 - 配置了 `registry` 的项目不再把 fragments/profiles 写进项目。定义按「来源 + commit」存放在 `$LOOPSPEC_REGISTRY_STORE`（默认 `~/.loopspec/registry`），项目只提交 `config.yaml` 与 `registry.lock.yaml`。

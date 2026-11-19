@@ -12,6 +12,7 @@ from tests.workflow_helpers import (
     BUGFIX_FLOW,
     CHANGE,
     approve,
+    archive_change,
     create_approved,
     create_draft,
     fail_gate,
@@ -68,10 +69,10 @@ def test_initial_plan_rework_assurance_and_archive(tmp_path: Path):
         assert evidence["round"] == 2
     (tmp_path / "backend/code.py").write_text("unreviewed later edit\n")
     assert not status(home)["isComplete"]
-    assert invoke(home, "change", "archive", CHANGE, "--dry-run")[0] == 1
+    assert invoke(home, "change", "archive", CHANGE)[0] == 1
     (tmp_path / "backend/code.py").write_text("simulated bug fix\n")
-    code, result = invoke(home, "change", "archive", CHANGE)
-    assert code == 0 and result["complete"], result
+    code, result = archive_change(home)
+    assert code == 0 and result["archived"][0]["moved"], result
     assert (home / f"archive/{date.today():%Y-%m}" / CHANGE).is_dir()
 
 

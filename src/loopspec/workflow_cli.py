@@ -171,26 +171,59 @@ def register(app: typer.Typer) -> None:
     @change.command("archive")
     def change_archive(
         name: str | None = typer.Argument(None),
-        all_changes: bool = typer.Option(False, "--all", help="Archive every complete Change."),
+        all_changes: bool = typer.Option(False, "--all", help="Prepare every complete Change."),
         older_than: int | None = typer.Option(None, "--older-than", min=0, help="Days."),
         force: bool = typer.Option(False, "--force", help="Archive an unfinished Change."),
-        dry_run: bool = typer.Option(False, "--dry-run"),
+        confirm_id: str | None = typer.Option(
+            None, "--confirm", help="archiveId from the first step; completes the archive."
+        ),
+        memory: str | None = typer.Option(
+            None, "--memory", help="Memory review outcome: updated or none (with --confirm)."
+        ),
+        note: str | None = typer.Option(
+            None, "--note", help="What was updated in memory, or why nothing was reusable."
+        ),
         home: Path = HOME,
     ) -> None:
-        """Move a complete Change (or, with --force, an abandoned one) to archive/."""
-        from .workflow_archive import archive, archive_all
+        """Archive in two steps: prepare (review memory), then --confirm the archiveId."""
+        from .workflow_archive import confirm, prepare
 
         def action() -> dict:
+            if confirm_id is not None:
+                if name is not None or all_changes or force or older_than is not None:
+                    raise WorkflowError(
+                        "option_conflict",
+                        "--confirm 不能与需求名、--all、--force 或 --older-than 同时使用",
+                        "第二段只需：loopspec change archive --confirm <archiveId> "
+                        "--memory updated|none --note <说明>",
+                    )
+                if memory is None or note is None:
+                    raise WorkflowError(
+                        "memory_review_required",
+                        "--confirm 必须同时给出 --memory updated|none 与 --note",
+                        "先按第一段返回的 memoryReview 完成 memory 审阅，再如实填写结论与说明。",
+                    )
+                if memory not in ("updated", "none"):
+                    raise WorkflowError("workflow_invalid", "--memory 只能是 updated 或 none")
+                return confirm(home, confirm_id, memory=memory, note=note, today=date.today())  # type: ignore[arg-type]
+            if memory is not None or note is not None:
+                raise WorkflowError(
+                    "option_conflict", "--memory 与 --note 只用于 --confirm 第二段"
+                )
             if all_changes == (name is not None):
                 raise WorkflowError("option_conflict", "指定一个需求名，或使用 --all")
             if all_changes and force:
                 raise WorkflowError("option_conflict", "--all 不能与 --force 同时使用")
             if older_than is not None and not all_changes:
                 raise WorkflowError("option_conflict", "--older-than 只用于 --all")
-            if all_changes:
-                return archive_all(home, older_than=older_than, dry_run=dry_run, today=date.today())
-            assert name is not None
-            return archive(home, name, force=force, dry_run=dry_run, today=date.today())
+            return prepare(
+                home,
+                name,
+                force=force,
+                all_changes=all_changes,
+                older_than=older_than,
+                today=date.today(),
+            )
 
         run(action)
 

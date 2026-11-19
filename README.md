@@ -100,8 +100,9 @@ loopspec node instructions -c AFD1111 -n requirements/proposal
 # A failed Gate: nextSteps names the rollback.
 loopspec plan rollback -c AFD1111 -p 001
 
-# Once complete:
+# Once complete: review memory with what the first step returns, then confirm.
 loopspec change archive AFD1111
+loopspec change archive --confirm <archiveId> --memory updated --note "recorded the retry lesson"
 ```
 
 Workflow commands always print JSON for the agent driving the loop; `version` and `init` print human-readable output. See the [agent protocol](docs/en/agent-protocol.md) for revisions, replanning and what happens when a command is interrupted.

@@ -44,6 +44,6 @@
   场景: 为 claude 生成的归档与继续技能带有 memory 维护规则
     当 用户以 JSON 模式初始化工作流目录并配置工具 "claude"
     那么 命令成功
-    并且 技能 "loopspec-archive" 只在用户要求归档时复查 memory，且先预览归档
+    并且 技能 "loopspec-archive" 只在要求归档时复查 memory，且在第一段之后确认之前
     并且 技能 "loopspec-continue" 只在约定事件发生时更新 memory，且不作为推进前提
     并且 技能 "loopspec-archive" 与 "loopspec-continue" 的 memory 维护流程逐字相同

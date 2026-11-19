@@ -243,9 +243,12 @@ def test_continue_revises_after_preview_and_archives_only_with_consent():
 def test_archive_skills_force_only_on_explicit_request():
     archive = next(t for t in SKILL_TEMPLATES if t.verb == "archive").body
     bulk = next(t for t in SKILL_TEMPLATES if t.verb == "bulk-archive").body
-    assert "loopspec change archive <change-name> --dry-run" in archive
-    assert "Use `--force` only when the user explicitly asks" in archive
-    assert "loopspec change archive --all --dry-run" in bulk
+    assert "loopspec change archive <change-name>`" in archive
+    assert "Use `--force` (on the first step) only when the user explicitly asks" in archive
+    assert "loopspec change archive --all`" in bulk
+    for body in (archive, bulk):
+        assert "--dry-run" not in body
+        assert "loopspec change archive --confirm <archiveId> --memory updated|none --note" in body
     assert "Never approve drafts, confirm revisions, or use `--force`" in bulk
 
 
@@ -417,11 +420,11 @@ def test_archive_reviews_memory_only_when_archiving_was_requested():
     body = _body("archive")
     assert "only when the user has requested archiving" in body
     assert "tidying memory is not itself authorization to archive" in body
-    assert body.index("`loopspec change archive <change-name> --dry-run`") < body.index(
-        "Memory review"
-    )
-    assert "recheck the evidence" in body and "continue the normal archive flow" in body
-    assert "report `No memory update` and continue" in body
+    assert body.index("`loopspec change archive <change-name>`") < body.index("Memory review")
+    assert body.index("Memory review") < body.index("Memory maintenance procedure")
+    assert "recheck the evidence" in body and "then confirm with `--memory updated`" in body
+    assert "report `No memory update` and confirm with `--memory none`" in body
+    assert "Never edit memory just to pass the check" in body
 
 
 def test_archive_never_claims_to_ask_and_archive_at_once():

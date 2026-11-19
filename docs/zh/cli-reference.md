@@ -91,11 +91,18 @@ loopspec change artifacts <change>
 ## loopspec change archive
 
 ```bash
-loopspec change archive <change> [--force] [--dry-run]
-loopspec change archive --all [--older-than <days>] [--dry-run]
+loopspec change archive <change> [--force]
+loopspec change archive --all [--older-than <days>]
+loopspec change archive --confirm <archiveId> --memory updated|none --note <text>
 ```
 
-把 Change 目录移到 `archive/<YYYY-MM>/<change>`。移动前重新推导状态，包括代码证据与保障；只归档 `complete` 的 Change。`--force` 用于人明确放弃时归档未完成的 Change，结果中 `forced: true` 并说明是未完成归档。移动成功后删除各 Plan（含已归档 Plan）只服务于执行中 Plan 的文件，不放入归档目录：返工记录 `.attempts/`、Gate 证据 `.gates/`、轮次记录 `.gate-rounds/`，以及 `plan.yaml` 中各 Gate 声明的 PASS/FAIL 报告（仅限 `artifacts/` 下，同目录的其他文件保留，删空的目录一并移除）。需求、设计、实现等非 Gate 产物保留。结果的 `dropped` 列出删除的路径（相对 Change 目录），删除失败的列在 `notDropped`，不影响归档本身。拒绝归档或移动失败时不删除任何内容；`.attempts` 是符号链接时在重新推导状态时即以 `unsafe_path` 拒绝。`--dry-run` 只报告不移动，`dropped` 为将要删除的路径。`--all` 归档全部 complete 的 Change，其余的附原因跳过；`--older-than` 只处理创建至少指定天数的 Change。`--all` 不能与 `--force` 或需求名同时使用。参数：`--all`、`--older-than`、`--force`、`--dry-run`、`--home`。
+两段式归档，memory 审阅是协议的一部分。
+
+**第一段**（`<change>` 或 `--all`）重新推导状态，包括代码证据与保障；只接受 `complete` 的 Change，`--force` 用于人明确放弃时归档未完成的 Change（结果中 `forced: true` 并说明是未完成归档）。这一段不归档、不删除（只会完成之前命令留下的返工搬运），在 `<home>/.cache/archive/`（自带 `.gitignore`）写一张凭据，绑定每个 Change 目录的内容摘要与当时的 memory topic，并返回：`archiveId`；`changes`（每项含 `changeName`、`status`、`complete`、`forced`、`source`、`destination`、将删除的 `dropped`，以及 `inputs`：`stateFiles`、`artifacts`、`artifactsTruncated`、`willBeDeleted`）；`memoryReview`（`instructions` 为审阅指引与 memory 维护流程原文，`memoryIndex` 为当前 topic 索引）；`nextSteps`。`--all` 为全部 complete 的 Change 发一张批次凭据，其余的附原因列在 `skipped`；没有可归档的 Change 时 `archiveId` 为 `null`。`--older-than` 只处理创建至少指定天数的 Change。
+
+**第二段**（`--confirm`）必须同时给出 `--memory updated|none` 与 `--note`（单行、非空、最多 1000 个字符、不能含 HTML 注释分隔符），且不能与需求名、`--all`、`--force`、`--older-than` 同用。它在全部相关 Change 的写锁内重新推导状态，核对内容摘要（第一段之后有改动则 `archive_ticket_stale`，需重新执行第一段），再核对 memory：`updated` 要求至少一个 memory topic 相对第一段有变化，`none` 要求没有变化。全部通过后，先把审阅结论（选择、变化的 topic、说明）作为事件写入每个 Change 的 `state.md`，再把 Change 目录移到 `archive/<YYYY-MM>/<change>`，最后删除凭据。返回 `archiveId`、`memoryReview`（`memory`、`note`、`changedTopics`）与 `archived`（每项含 `changeName`、`forced`、`moved`、`destination`、`dropped`，删除失败时含 `notDropped`）。批量确认中途失败时凭据保留进度，用同一命令重试会跳过已归档的 Change。
+
+移动成功后删除各 Plan（含已归档 Plan）只服务于执行中 Plan 的文件，不放入归档目录：返工记录 `.attempts/`、Gate 证据 `.gates/`、轮次记录 `.gate-rounds/`，以及 `plan.yaml` 中各 Gate 声明的 PASS/FAIL 报告（仅限 `artifacts/` 下，同目录的其他文件保留，删空的目录一并移除）。需求、设计、实现等非 Gate 产物保留。删除失败不影响归档本身；拒绝归档或移动失败时不删除任何内容；`.attempts` 是符号链接时在重新推导状态时即以 `unsafe_path` 拒绝。参数：`--all`、`--older-than`、`--force`、`--confirm`、`--memory`、`--note`、`--home`。
 
 ## loopspec plan validate
 
@@ -336,6 +343,12 @@ loopspec memory show <topic>
 | `memory_bad_range` | `--offset` 为负或 `--limit` 小于 1。 |
 | `profile_exists` | `profile save` 会覆盖已有 Profile。 |
 | `archive_unsafe` | Change 未完成；完成它，或在明确要求时使用 `--force`。 |
+| `archive_ticket_not_found` | `--confirm` 的归档凭据不存在或格式不正确；重新执行第一段。 |
+| `archive_ticket_invalid` | 归档凭据已损坏或被改动；重新执行第一段。 |
+| `archive_ticket_stale` | 第一段之后 Change 内容或状态发生变化；重新执行第一段并重新审阅。 |
+| `memory_review_required` | `--confirm` 缺少 `--memory` 或 `--note`。 |
+| `memory_review_missing` | 选择了 `--memory updated`，但没有任何 memory topic 变化。 |
+| `memory_review_mismatch` | 选择了 `--memory none`，但 memory topic 有变化。 |
 | `archive_conflict` | 归档目标已存在。 |
 | `baseline_required` | 代码 Gate 或保障需要 Git 仓库与固定基线。 |
 | `invalid_baseline` | 基线不是完整 Commit 哈希。 |
