@@ -33,3 +33,4 @@
 ## Plan 记录
 
 <!-- 引擎自动追加 Plan 沿革，请勿手工编辑，也勿在此段之后新增段落。 -->
+- 2026-11-19T17:15:59+00:00 · Change skill-auto-sync 归档前 memory 审阅 · 结论：updated · 变化的 topic：diff-exclusions, skill-files · 备注：新增 diff-exclusions（固定排除须核对暂存区与 HEAD，来自安全审查返工）与 skill-files（skill 由 CLI 管理并自动同步，改源文件 builtin/skills）
