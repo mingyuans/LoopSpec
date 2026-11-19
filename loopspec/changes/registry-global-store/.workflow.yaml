@@ -1,0 +1,5 @@
+format_version: 4
+change_name: registry-global-store
+created: '2026-11-19T03:47:14+00:00'
+baseline: 04812daa63283f7991d1c4684958e3538b816928
+repository: /home/xq.yan/worktrees/LoopSpec/registry-global-store

@@ -14,9 +14,45 @@ from .workflow_models import Fragment, Profile
 
 
 class WorkflowCatalog:
-    def __init__(self, home: Path) -> None:
+    """Definitions of one workflow home.
+
+    In registry mode the bundle is a `DefinitionBundle`: registry definitions come
+    from the verified global snapshot and only the project's own definitions from home.
+    """
+
+    def __init__(self, home: Path, bundle: ResourceBundle | None = None) -> None:
+        from .registry_store import definition_bundle
+
         self.home = home
-        self.bundle = ResourceBundle(home)
+        self.bundle = bundle if bundle is not None else definition_bundle(home)
+
+    def registry_names(self, kind: str) -> list[str]:
+        from .registry_store import DefinitionBundle
+
+        if not isinstance(self.bundle, DefinitionBundle):
+            return []
+        return sorted(
+            key.split("/")[1] for key in self.bundle.registry_keys if key.startswith(kind + "/")
+        )
+
+    def source(self, kind: str, name: str) -> str:
+        return "registry" if name in self.registry_names(kind) else "local"
+
+    def registry_version(self) -> dict[str, str | None] | None:
+        from .registry_store import DefinitionBundle
+
+        if not isinstance(self.bundle, DefinitionBundle):
+            return None
+        return {"syncedTag": self.bundle.pin.tag, "syncedCommit": self.bundle.pin.commit}
+
+    def names(self, kind: str) -> list[str]:
+        if kind not in {"fragments", "profiles"}:
+            raise WorkflowError("workflow_invalid", "未知工作流目录类型")
+        registry = self.registry_names(kind)
+        local: list[str] = []
+        if not self._registry_mode() or os.path.lexists(self.home / kind):
+            local = self._local_names(kind)
+        return sorted(set(registry) | set(local))
 
     def _path(self, kind: str, name: str) -> str:
         if not re.fullmatch(KEBAB_RE, name):
@@ -37,22 +73,30 @@ class WorkflowCatalog:
             raise WorkflowError("workflow_invalid", "Profile 名称与文件名不一致")
         return value
 
-    def entries(self, kind: str) -> list[Fragment] | list[Profile]:
-        if kind not in {"fragments", "profiles"}:
-            raise WorkflowError("workflow_invalid", "未知工作流目录类型")
+    def _registry_mode(self) -> bool:
+        from .registry_store import DefinitionBundle
+
+        return isinstance(self.bundle, DefinitionBundle)
+
+    def _local_names(self, kind: str) -> list[str]:
         with directory(self.home, kind) as parent:
             names = os.listdir(parent)
             if len(names) > 4096:
                 raise WorkflowError("resource_limit", "定义目录超过条目限制")
             if kind == "fragments":
-                selected = sorted(name for name in names if self._fragment_dir(parent, name))
-                return [self.fragment(name) for name in selected]
+                return sorted(name for name in names if self._fragment_dir(parent, name))
             selected = sorted(name[:-5] for name in names if name.endswith(".yaml"))
             for name in selected:
                 info = os.stat(name + ".yaml", dir_fd=parent, follow_symlinks=False)
                 if not stat.S_ISREG(info.st_mode):
                     raise WorkflowError("unsafe_path", "定义不能是链接或特殊文件")
-        return [self.profile(name) for name in selected]
+        return selected
+
+    def entries(self, kind: str) -> list[Fragment] | list[Profile]:
+        names = self.names(kind)
+        if kind == "fragments":
+            return [self.fragment(name) for name in names]
+        return [self.profile(name) for name in names]
 
     @staticmethod
     def _fragment_dir(parent: int, name: str) -> bool:

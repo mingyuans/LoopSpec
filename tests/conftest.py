@@ -19,6 +19,22 @@ from typer.testing import CliRunner
 from loopspec.cli import app
 from tests.workflow_helpers import CHANGE, invoke, project
 
+
+@pytest.fixture(autouse=True)
+def isolated_registry_store(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> Path:
+    """Every test gets its own registry global store; the real ~/.loopspec is never touched."""
+    from loopspec import registry_store
+
+    store = tmp_path_factory.mktemp("registry-store") / "store"
+    monkeypatch.setenv(registry_store.STORE_ENV, str(store))
+    monkeypatch.setattr(registry_store, "_VERIFIED", set())
+    monkeypatch.setattr(registry_store, "_SNAPSHOTS", {})
+    monkeypatch.setattr(registry_store, "_VERIFIED_TAGS", {})
+    monkeypatch.setattr(registry_store, "_TAG_BINDINGS", set())
+    return store
+
 #: Real-model scenarios run only when this is exactly "1" and the launcher is available.
 LLM_ENABLE_ENV = "LOOPSPEC_LLM_E2E"
 LLM_RUNS_DIR_ENV = "LOOPSPEC_LLM_RUNS_DIR"

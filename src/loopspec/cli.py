@@ -238,16 +238,29 @@ def init(
         config_path.write_text(DEFAULT_CONFIG, encoding="utf-8")
         created_files.append("config.yaml")
 
-    from .workflow_resources import install_resources, resources_present
-
     # An existing catalog may be hand-tuned or registry-synced; re-running init
     # to refresh skills must not quietly re-add built-ins the user removed.
-    install = update_resources or not resources_present(path)
-    if not install and presenter is not None and is_interactive():
+    from .registry_store import registry_spec
+    from .workflow_resources import install_resources, resources_present
+
+    try:
+        registry_mode = registry_spec(path) is not None
+    except LoopspecError as exc:
+        _fail(exc, as_json)
+    install = not registry_mode and (update_resources or not resources_present(path))
+    if not registry_mode and not install and presenter is not None and is_interactive():
         install = _confirm_resource_update(presenter)
 
     copied_workflows: list[str] = []
-    if install:
+    if registry_mode:
+        if presenter is not None:
+            presenter.line(
+                presenter.dim(
+                    "Registry mode: fragments/profiles come from registry.lock.yaml; "
+                    "no built-ins copied."
+                )
+            )
+    elif install:
         try:
             copied_workflows = install_resources(path)
         except LoopspecError as exc:
@@ -293,7 +306,7 @@ def init(
         "projectRoot": str(scaffold_root),
         "createdFiles": created_files,
         "copiedWorkflowResources": copied_workflows,
-        "resourcesUpdate": "installed" if install else "skipped",
+        "resourcesUpdate": "registry" if registry_mode else "installed" if install else "skipped",
         "toolsConfigured": tool_ids,
         "scaffoldedFiles": scaffold_result.written_files,
         "skippedCommandGeneration": scaffold_result.skipped_command_generation,

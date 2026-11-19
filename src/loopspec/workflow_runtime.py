@@ -10,8 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from .errors import WorkflowError
+from .registry_store import definition_bundle
 from .workflow_compiler import ancestors, build_order
-from .workflow_io import byte_hash, directory, exists, read_bytes, relative_path
+from .workflow_io import ResourceBundle, byte_hash, directory, exists, read_bytes, relative_path
 from .workflow_memory import pointer as memory_pointer
 from .workflow_models import FailureReport, ResolvedNode
 from .workflow_state import LoadedPlan
@@ -237,10 +238,15 @@ def status(loaded: LoadedPlan) -> dict:
     return result
 
 
-def resource_text(loaded: LoadedPlan, path: str) -> str:
-    """Instructions and templates are read live from the Fragment directory."""
+def resource_text(loaded: LoadedPlan, path: str, bundle: ResourceBundle | None = None) -> str:
+    """Instructions and templates are read live from the Fragment directory.
+
+    Pass one `bundle` for every resource of a response so they come from one lock.
+    """
+    if bundle is None:
+        bundle = definition_bundle(loaded.home)
     try:
-        return read_bytes(loaded.home, relative_path(path)).decode("utf-8")
+        return bundle.read(relative_path(path)).decode("utf-8")
     except UnicodeError as exc:
         raise WorkflowError("workflow_invalid", "资源文件不是 UTF-8 文本") from exc
 
@@ -290,6 +296,7 @@ def instructions(loaded: LoadedPlan, identity: str) -> dict:
         )
     graph = {item.id: set(item.requires) for item in loaded.spec.nodes}
     deps = ancestors(graph, identity)
+    bundle = definition_bundle(loaded.home)
     name, plan = loaded.name, loaded.plan_id
     result = {
         **entry,
@@ -297,7 +304,7 @@ def instructions(loaded: LoadedPlan, identity: str) -> dict:
         "plan": plan,
         "revision": loaded.document.meta.revision,
         "digest": loaded.digest,
-        "instruction": resource_text(loaded, node.instruction)
+        "instruction": resource_text(loaded, node.instruction, bundle)
         if node.instruction
         else "完成当前节点并记录实际结果。",
         "dependencies": [item for item in report["nodes"] if item["id"] in deps],
@@ -306,11 +313,11 @@ def instructions(loaded: LoadedPlan, identity: str) -> dict:
         "memory": memory_pointer(loaded.home),
     }
     if node.template:
-        result["template"] = resource_text(loaded, node.template)
+        result["template"] = resource_text(loaded, node.template, bundle)
     if node.gate and node.gate.templates:
         result["templates"] = {
-            "pass": resource_text(loaded, node.gate.templates.pass_),
-            "fail": resource_text(loaded, node.gate.templates.fail),
+            "pass": resource_text(loaded, node.gate.templates.pass_, bundle),
+            "fail": resource_text(loaded, node.gate.templates.fail, bundle),
         }
     if node.gate and node.gate.evidence:
         result["gateProtocol"] = {

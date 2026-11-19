@@ -250,9 +250,12 @@ def select_latest(head: str | None, tags: dict[str, str]) -> Target:
 class RegistryRepo:
     """A private bare repository under `<cache>/repo.git` mirroring one registry."""
 
-    def __init__(self, cache: Path, spec: RegistrySpec) -> None:
+    def __init__(self, cache: Path, spec: RegistrySpec, *, object_format: str = "sha1") -> None:
+        if object_format not in ("sha1", "sha256"):
+            raise WorkflowError("registry_invalid", "不支持的 git 对象格式")
         self.cache = cache
         self.spec = spec
+        self.object_format = object_format
         self.scheme = registry_scheme(spec.url)
         # Absolute: git runs with this directory as its cwd, so a relative
         # `--git-dir` would resolve against itself.
@@ -282,7 +285,10 @@ class RegistryRepo:
                 shutil.rmtree("repo.git", dir_fd=fd)
             os.mkdir("repo.git", mode=0o700, dir_fd=fd)
         with directory(cache, "repo.git"):
-            run_git(["init", "-q", "--bare", "--", str(self.git_dir)], scheme=self.scheme)
+            arguments = ["init", "-q", "--bare"]
+            if self.object_format == "sha256":
+                arguments.append("--object-format=sha256")
+            run_git([*arguments, "--", str(self.git_dir)], scheme=self.scheme)
         self._ready = True
 
     def resolve_target(self) -> Target:
@@ -381,6 +387,43 @@ class RegistryRepo:
         except WorkflowError:
             return False
         return self.has_commit(commit)
+
+    def verify_tag(self, commit: str, tag: str) -> None:
+        """The lock is the only reviewable record of what runs: a tag it names must still
+        point at its commit, or a forged lock could hide an unreleased commit behind it."""
+        self.ensure()
+        tag = check_tag(tag)
+        data = self._git(
+            ["ls-remote", "--", self.spec.url, "refs/tags/" + tag, "refs/tags/" + tag + "^{}"],
+            timeout=60,
+        )
+        _, tags = parse_ls_remote(data)
+        if tag not in tags:
+            raise WorkflowError(
+                "registry_fetch_failed",
+                "registry 中已不存在 registry.lock.yaml 记录的 tag",
+                "确认该 tag 仍在 registry 中，或重新运行 loopspec registry update。",
+            )
+        if tags[tag] != commit:
+            raise WorkflowError(
+                "registry_lock_mismatch",
+                "registry.lock.yaml 记录的 tag 与 commit 不一致",
+                "检查 registry.lock.yaml 是否被改动，或重新运行 loopspec registry update。",
+            )
+
+    def fetch_commit(self, commit: str, tag: str | None = None) -> None:
+        """Strictly fetch one pinned commit (by its tag first, then by id); never best effort."""
+        if not COMMIT_RE.fullmatch(commit):
+            raise WorkflowError("registry_invalid", "commit 不合法")
+        self.ensure()
+        if tag is not None:
+            self.verify_tag(commit, tag)
+        if not self.fetch_base(commit, tag):
+            raise WorkflowError(
+                "registry_fetch_failed",
+                "无法从 registry 拉取 registry.lock.yaml 锁定的版本",
+                "确认 registry 仍保留该 commit（或指向它的 tag），并检查网络与本机 git 凭据。",
+            )
 
     def read_tree(self, commit: str) -> RemoteTree:
         if not COMMIT_RE.fullmatch(commit):

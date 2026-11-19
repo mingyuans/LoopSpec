@@ -32,7 +32,7 @@ from loopspec import cli as cli_mod
 from loopspec import errors as errors_mod
 from loopspec.builtin_resources import builtin_root
 from loopspec.models import GateOutputs, GateTemplates, RegistrySpec, WorkflowConfig
-from loopspec.registry_sync import DefinitionVersion, RegistryLock
+from loopspec.registry_store import RegistryLock
 from loopspec.workflow_attempts import AttemptRecord, Move
 from loopspec.workflow_models import (
     AssuranceRule,
@@ -87,7 +87,6 @@ MODEL_PAGES = {
         ProjectWorkflow,
         RegistrySpec,
         RegistryLock,
-        DefinitionVersion,
         AssuranceRules,
         AssuranceRule,
     ),

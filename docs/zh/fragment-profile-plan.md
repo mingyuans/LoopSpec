@@ -19,7 +19,7 @@ Fragment 与 Profile 属于项目（放在工作区，可被多个 Change 共用
 | 解决的问题 | 一类工作"怎么做、怎么验收"，只写一次到处复用 | 一类任务通常由哪些 Fragment、按什么顺序组成 | 这一项工作具体执行哪些节点、按什么顺序、失败退回哪里 |
 | 文件位置 | `fragments/<name>/fragment.yaml` 及同目录资源 | `profiles/<name>.yaml` | `changes/<change>/plans/<NNN>/plan.yaml` |
 | 主要内容 | `nodes`：产物节点、Gate 节点、对其他 Fragment 的 `use` 引用 | `flow`：Fragment 实例、`requires`、`on_fail`，以及给规划者的 `guidance` | `meta`（状态、修订号、摘要）与 `spec`（请求的 `flow` + 编译展开后的叶子 `nodes`） |
-| 由谁编写 | 工作流作者；或经 `registry update` 从团队仓库同步 | 工作流作者；或经 registry 同步 | Agent 写请求，`plan create` 编译生成；人确认后由 CLI 维护 |
+| 由谁编写 | 工作流作者；或由团队 registry 提供（项目只锁定版本） | 工作流作者；或由团队 registry 提供 | Agent 写请求，`plan create` 编译生成；人确认后由 CLI 维护 |
 | 是否直接执行 | 否，只有被实例化进 Plan 后才执行 | 否，只是模板，可采用、调整或不用 | 是，CLI 只按已确认 Plan 的 `spec.nodes` 推进 |
 | 是否需要人确认 | 否（作为项目代码评审） | 否（作为项目代码评审） | 是：草稿必须经人确认后 `plan approve`；修订与替换同样需要 |
 | 生命周期 | 长期存在，随项目演进 | 长期存在，随项目演进 | draft → approved → archived；同一 Change 同时最多一份未结束 Plan |

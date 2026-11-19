@@ -35,7 +35,7 @@ workflow:
 
 ### registry fields
 
-An optional git repository (usually on GitHub) that maintains shared fragments and profiles. Fragments and profiles are still loaded only from `<home>/fragments/` and `<home>/profiles/`; the registry is their upstream, synced by `loopspec registry update` and `loopspec registry apply` (see the [CLI reference](cli-reference.md)). Only one registry per project, synced in full.
+An optional git repository (usually on GitHub) that maintains shared fragments and profiles. Configuring it puts the project in **registry mode**: the registry's fragments and profiles are no longer written into the project but kept in a per-user global store, and the project commits only `config.yaml` and `registry.lock.yaml`. The pinned version is changed with `loopspec registry update` and `loopspec registry apply` (see the [CLI reference](cli-reference.md)). Only one registry per project.
 
 <!-- loopspec:example=config -->
 ```yaml
@@ -57,20 +57,17 @@ registry:
 
 ### registry.lock.yaml
 
-`loopspec registry apply` writes `<home>/registry.lock.yaml`; commit it with `config.yaml`. It is the base of the three-way comparison and records which upstream version each definition came from. `loopspec init` never creates it and built-in resources carry no version. It is validated as untrusted input; a malformed lock fails with `config_invalid`.
+`loopspec registry apply` writes `<home>/registry.lock.yaml`; commit it together with `config.yaml`. It pins the registry commit the project uses and records the SHA-256 of every definition file in that commit. `loopspec init` never creates it. It is validated strictly as untrusted input; a malformed lock is `config_invalid`.
 
 <!-- loopspec:example=registry-lock -->
 ```yaml
-version: 1
+version: 2
 registry:
   url: git@github.com:acme/loopspec-workflows.git
   version: latest
   path: workflows
 commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1
 tag: v1.4.0
-definitions:
-  fragments/qa-testing: {tag: v1.3.0, commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1}
-  profiles/bugfix: {tag: v1.4.0, commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1}
 files:
   fragments/qa-testing/fragment.yaml: 9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7
   profiles/bugfix.yaml: 51ab7d4f60a8e2c3b1d9f7a6e5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7c6
@@ -78,24 +75,30 @@ files:
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `version` | integer | no | `1` | Format version. |
-| `registry` | registry mapping | yes | - | The registry the lock was synced from. |
-| `commit` | commit id | yes | - | Upstream commit of the last apply. |
-| `tag` | tag or null | no | - | Release tag of that commit. |
-| `definitions` | mapping | no | `{}` | `fragments/<name>` or `profiles/<name>` to the version that definition actually holds. A definition with a skipped file keeps its old version. |
-| `held` | list of definitions | no | `[]` | Definitions with a skipped file. While any is held, `registry update` compares again even if the registry has not moved, so a skipped change is never forgotten. |
-| `files` | mapping | no | `{}` | Each synced file to the SHA-256 of its upstream content, the base for telling local from upstream changes. |
+| `version` | integer | no | `2` | Format version. The old format `1` (from when definitions were written into the project) is still read; the next `registry apply` rewrites it as `2`. |
+| `registry` | registry mapping | yes | - | The registry this lock belongs to. When `url` or `path` differs from `config.yaml`, or `config.yaml` pins a tag and the lock's `tag` differs, reading definitions fails with `registry_lock_mismatch`; after changing `version`, run `registry update` and `registry apply` first. |
+| `commit` | commit id | yes | - | The registry commit the project uses. |
+| `tag` | tag or null | no | - | The release tag of that commit. |
+| `files` | mapping | no | `{}` | Every definition file of that commit to the SHA-256 of its content. The set of definitions is derived from it, and the global snapshot is verified against it file by file. |
 
-A conflict resolved with `local` still counts as decided against that upstream version: the definition advances, and the file shows up as `local-modified` from then on. When `url` or `path` changes, the old lock is not used as a base: every difference is reported as a conflict and no deletion is planned.
+### Global store
 
-Each `definitions` entry:
+Registry definitions are kept per source and commit under `$LOOPSPEC_REGISTRY_STORE` (default `~/.loopspec/registry`): `<store>/<source-id>/<commit>/`, where `source-id` is derived from `url` and `path`. A snapshot is written to a temporary directory and published atomically, never changes afterwards, and is shared by every project and worktree on the machine. The directories must belong to the current user, must have no symlink anywhere in their path, and must not be group- or world-writable, otherwise `unsafe_path`; new directories are created `0700`.
 
-| Field | Type | Required | Default | Description |
-| --- | --- | --- | --- | --- |
-| `tag` | tag or null | no | - | Release tag the definition was synced at. |
-| `commit` | commit id | yes | - | Upstream commit the definition was synced at. |
+- **Automatic fetch.** When a command reads definitions (`fragment list`, `plan create`, `node instructions`, assurance rules, ...) and the store has no snapshot of the locked commit yet, the CLI fetches that commit from the registry, verifies it completely against the lock, publishes it, and continues. When the lock names a `tag`, the CLI first checks that the tag still points at the locked commit in the registry, otherwise `registry_lock_mismatch`, so a forged lock cannot hide another commit behind a released tag. Note that this means a definition-reading command in an untrusted project may open a git connection to that project's `registry.url` and authenticate with your SSH agent or credential helper; check `config.yaml` and `registry.lock.yaml` of an unfamiliar project first. A fresh clone or worktree therefore needs no extra step; only the first fetch needs the network and git credentials. A failure is `registry_fetch_failed` and leaves no partial snapshot.
+- **Integrity.** Every read is checked against the lock; a modified or incomplete snapshot is `registry_store_corrupt`. Delete the snapshot directory named in the message and retry to fetch it again. The CLI never replaces an existing snapshot by itself.
+- **Local definitions.** The project may still keep its own definitions under `<home>/fragments/` and `<home>/profiles/`, as long as their names differ from the registry's. Both can be used in one Plan; `fragment list`/`profile list` tell them apart with `source`. A local file or directory with a registry definition's name makes every definition read fail with `registry_local_conflict`; delete those project copies.
+- **Missing lock.** In registry mode, a missing `registry.lock.yaml` is `registry_not_synced`, and an old-format lock with skipped definitions (`held`) is `registry_lock_outdated`. Both are fixed with `registry update` and `registry apply`.
 
-The cache `<home>/.cache/registry/` (private bare repository, plans and staged files) ignores itself through its own `.gitignore` and can be deleted at any time.
+The cache directory `<home>/.cache/registry/` (sync plan and write lock) ignores itself through its own `.gitignore` and can be deleted at any time.
+
+### Migrating from definitions inside the project
+
+Copies of `fragments/` and `profiles/` that an earlier `registry apply` wrote into the project now carry registry names and fail with `registry_local_conflict`:
+
+1. Delete the project definitions that share a name with the registry (keep only your own local definitions).
+2. Run `loopspec registry update` and, after confirming, `loopspec registry apply --plan <planId>`; the lock is rewritten in the new format.
+3. Commit the deletions and the new `registry.lock.yaml`.
 
 ### When it is read
 

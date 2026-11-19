@@ -30,7 +30,11 @@ GUARD_BIN = REPO_ROOT / "tests" / "llm_bin"
 ENV_REAL_LOOPSPEC = "LOOPSPEC_LLM_REAL_LOOPSPEC"
 ENV_GUARD_LOG = "LOOPSPEC_LLM_GUARD_LOG"
 #: The loopspec subcommands the skills use; the guard and the Bash rules allow only these.
-LOOPSPEC_SUBCOMMANDS = ("change", "plan", "node", "gate", "state", "memory", "fragment", "profile")
+LOOPSPEC_SUBCOMMANDS = (
+    "change", "plan", "node", "gate", "state", "memory", "fragment", "profile", "registry",
+)  # fmt: skip
+#: Where registry snapshots go; the guard only runs `registry` when it points inside the project.
+ENV_REGISTRY_STORE = "LOOPSPEC_REGISTRY_STORE"
 
 ENV_LAUNCHER = "LOOPSPEC_LLM_LAUNCHER"
 ENV_MODEL = "LOOPSPEC_LLM_MODEL"
@@ -59,6 +63,8 @@ ENV_PASS_NAMES = frozenset(
         # Network plumbing, not credentials: needed behind a proxy or a corporate CA.
         "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy",
         "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR",
+        # The registry global store and the one fixture registry the guard lets loopspec use.
+        "LOOPSPEC_REGISTRY_STORE", "LOOPSPEC_LLM_REGISTRY_URL",
     }
 )  # fmt: skip
 ENV_PASS_PREFIXES = ("LC_", "CLAUDE_", "ANTHROPIC_")

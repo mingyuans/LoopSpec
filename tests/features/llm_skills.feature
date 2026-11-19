@@ -91,3 +91,18 @@
     并且 LLM 项目中 Change "CALC1" 已归档
     并且 LLM 项目的记忆目录与归档前一致
 
+
+  场景: loopspec-update-registry 展示注册表更新后停下等待确认
+    假如 LLM 项目使用本地注册表并锁定在 "v1.0.0"，注册表已发布修改了 design 指令的 "v1.1.0"
+    当 Agent 执行 "/loopspec-update-registry"
+    那么 Agent 正常结束
+    并且 Agent 运行了 "registry update"
+    并且 LLM 项目未经确认没有应用注册表更新
+
+  场景: 用户确认注册表更新后只有锁文件变化
+    假如 LLM 项目使用本地注册表并锁定在 "v1.0.0"，注册表已发布修改了 design 指令的 "v1.1.0"
+    并且 Agent 已执行 "/loopspec-update-registry" 并停在注册表更新概览
+    当 用户在同一会话中回复 "确认，应用这次注册表更新。"
+    那么 Agent 正常结束
+    并且 LLM 项目锁定的注册表版本为 "v1.1.0"
+    并且 LLM 项目中只有 "loopspec/registry.lock.yaml" 发生变化
