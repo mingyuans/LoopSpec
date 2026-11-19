@@ -1,0 +1,29 @@
+diffDigest: 621f84413310011b275b8b4b410c49415d1f13bf27b4d6d01eac7dde2d271cd4
+baseline: fa0dbbe9d2bfb49293908ec1e89156c77a7d24ac
+warnings:
+  ignoredPaths:
+  - .llm-e2e-runs/
+  ignoredTotal: 1
+unknown_paths: []
+missing_evidence: []
+stale_evidence: []
+missing_fragments: []
+diverged_commits: []
+requiredCapabilities:
+  src/loopspec/workflow_archive.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/features/change.feature:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/steps/change_steps.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_workflow_archive.py:
+  - backend-tests
+  - pr-review
+  - security-review
+passed: true
