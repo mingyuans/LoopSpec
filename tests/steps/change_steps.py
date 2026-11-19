@@ -200,9 +200,9 @@ def preview_archive(run_cli: RunCli, last_call: LastCall, name: str) -> None:
     last_call.outcome = run_cli("change", "archive", name, "--dry-run")
 
 
-@then(parsers.re(r'返回将删除的返工记录 "(?P<path>[^"]+)"'))
-def dropped_attempts(last_call: LastCall, path: str) -> None:
-    assert outcome_of(last_call).data["droppedAttempts"] == [path]
+@then(parsers.re(r'返回的删除列表为 "(?P<paths>[^"]+)"'))
+def dropped_paths(last_call: LastCall, paths: str) -> None:
+    assert outcome_of(last_call).data["dropped"] == paths.split(", ")
 
 
 @then(parsers.re(r'Change "(?P<name>[^"]+)" 的返工记录仍在'))
@@ -210,8 +210,11 @@ def attempts_still_there(home: Path, name: str) -> None:
     assert (active_dir(home, name) / "plans/001/.attempts").is_dir()
 
 
-@then(parsers.re(r'归档目录中的 Change "(?P<name>[^"]+)" 没有返工记录'))
-def archive_without_attempts(home: Path, name: str) -> None:
+@then(parsers.re(r'归档目录中的 Change "(?P<name>[^"]+)" 没有返工记录与 Gate 报告'))
+def archive_without_runtime_records(home: Path, name: str) -> None:
     target = home / f"archive/{date.today():%Y-%m}" / name
     assert (target / "state.md").is_file()
-    assert not list(target.rglob(".attempts"))
+    assert (target / "plans/001/artifacts/requirements/proposal.md").is_file()
+    for name in (".attempts", ".gates", ".gate-rounds"):
+        assert not list(target.rglob(name))
+    assert not (target / "plans/001/artifacts/qa").exists()

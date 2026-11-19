@@ -4,7 +4,7 @@
   change new 只在安全的名字下创建 Change，重复执行时复用已有 Change；
   change status / next 根据 Plan 推导出 Change 所处阶段和下一步；
   change archive 只归档已完成的 Change，未完成的 Change 必须由人明确要求强制归档；
-  归档时删除各 Plan 的返工记录 .attempts，不放入归档目录。
+  归档时删除各 Plan 的返工记录 .attempts 与 Gate 产物（.gates、.gate-rounds、Gate 的 PASS/FAIL 报告），不放入归档目录。
 
   场景: 新建 Change 后重复执行会复用同一个 Change
     当 新建 Change "AFD1111"
@@ -70,16 +70,16 @@
     那么 命令成功
     并且 产物位置是当月归档目录
 
-  场景: 归档有返工记录的 Change 时删除 .attempts
+  场景: 归档时删除返工记录与 Gate 产物，保留非 Gate 产物
     假如 Change "AFD1111" 返工过一次后已完成
     当 预览归档 Change "AFD1111"
     那么 命令成功
-    并且 返回将删除的返工记录 "plans/001/.attempts"
+    并且 返回的删除列表为 "plans/001/.attempts, plans/001/artifacts/qa/test/pass.md"
     并且 Change "AFD1111" 的返工记录仍在
     当 归档 Change "AFD1111"
     那么 命令成功
-    并且 返回将删除的返工记录 "plans/001/.attempts"
-    并且 归档目录中的 Change "AFD1111" 没有返工记录
+    并且 返回的删除列表为 "plans/001/.attempts, plans/001/artifacts/qa/test/pass.md"
+    并且 归档目录中的 Change "AFD1111" 没有返工记录与 Gate 报告
 
   场景: 同时指定 Change 名和 --all 归档会冲突
     假如 已新建 Change "AFD1111"

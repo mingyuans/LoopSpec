@@ -1,0 +1,5 @@
+format_version: 4
+change_name: archive-drop-gate-outputs
+created: '2026-11-19T14:51:55+00:00'
+baseline: b90eb1025867f6f134dbb8d2836f987fc630aea0
+repository: /home/xq.yan/worktrees/LoopSpec/archive-drop-gate-outputs

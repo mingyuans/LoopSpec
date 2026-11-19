@@ -189,7 +189,7 @@ repository: /path/to/project
 
 ## 重做记录
 
-`plan rollback` 与需要重新执行节点的修订，都会把受影响节点的工作流文件归档到 `.attempts/<NNN>/files/`，并写 `.attempts/<NNN>/record.yaml` 说明。两种记录统一编号。只有 `rollback` 记录计入 Gate 的 `max_retries`；两种记录都会作为 `priorAttempts` 提供给重新执行的节点，并标注为不可信数据。`.attempts/` 只服务于执行中的 Plan，`change archive` 归档 Change 时会将其删除，经验应记录在 `state.md` 的 rework 段落。
+`plan rollback` 与需要重新执行节点的修订，都会把受影响节点的工作流文件归档到 `.attempts/<NNN>/files/`，并写 `.attempts/<NNN>/record.yaml` 说明。两种记录统一编号。只有 `rollback` 记录计入 Gate 的 `max_retries`；两种记录都会作为 `priorAttempts` 提供给重新执行的节点，并标注为不可信数据。`.attempts/`、`.gates/`、`.gate-rounds/` 与 Gate 的 PASS/FAIL 报告只服务于执行中的 Plan，`change archive` 归档 Change 时会将其删除；需要长期保留的结论与经验应记录在 `state.md`（决策、偏差、rework 段落）。
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
