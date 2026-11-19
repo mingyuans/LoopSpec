@@ -102,7 +102,7 @@ Copies of `fragments/` and `profiles/` that an earlier `registry apply` wrote in
 
 ### When it is read
 
-Constraints are checked when a Plan is created and again when it is approved or revised, against the file as it is at that moment. During execution the diff exclusions and assurance rules are also read live. `<home>/.cache/` (the registry sync cache), memory topic files `<home>/memory/{topic}.md` (cross-Change memory) and the current Change's `.workflow.yaml`, `state.md` and `plans/` are always left out of the diff without any configuration. Changing `config.yaml` therefore affects running Plans immediately, including relaxing a rule; treat it as reviewed project code.
+Constraints are checked when a Plan is created and again when it is approved or revised, against the file as it is at that moment. During execution the diff exclusions and assurance rules are also read live. `<home>/.cache/` (the registry sync cache), memory topic files `<home>/memory/{topic}.md` (cross-Change memory) , the loopspec-generated skill and command files (only while the working tree holds a regular file with exactly this CLI's built-in content; deletions, edits and symlinks still count) and the current Change's `.workflow.yaml`, `state.md` and `plans/` are always left out of the diff without any configuration. Changing `config.yaml` therefore affects running Plans immediately, including relaxing a rule; treat it as reviewed project code.
 
 ## Assurance rules
 

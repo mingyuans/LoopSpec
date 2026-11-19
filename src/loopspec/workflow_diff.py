@@ -150,6 +150,34 @@ def _exclusions(loaded: LoadedPlan, repository: Path):
             return False  # e.g. memory/ replaced by a file: leave it to the diff to report
         return stat.S_ISREG(mode)  # a symlink named like a topic is still a reviewable change
 
+    # Skill/command files loopspec writes for AI tools (and syncs before every command) are
+    # tool configuration, not delivery: excluded only while the working tree holds exactly
+    # this CLI's content in a regular file, so nothing else can hide behind these paths.
+    managed: dict[str, bytes] = {}
+    try:
+        from .skill_sync import all_managed_files, project_root
+
+        project = project_root(loaded.home)
+        prefix = project.relative_to(repository.resolve()).as_posix()
+        for relative, content in all_managed_files(project).items():
+            managed[relative if prefix == "." else f"{prefix}/{relative}"] = content.encode()
+    except (ValueError, OSError):
+        managed = {}
+
+    def managed_skill(path: str) -> bool:
+        expected = managed.get(path)
+        if expected is None:
+            return False
+        target = repository / path
+        try:
+            if not stat.S_ISREG(os.lstat(target).st_mode):
+                return False
+            fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(fd, "rb") as stream:
+                return stream.read(len(expected) + 1) == expected
+        except OSError:
+            return False  # deleted or unreadable: a reviewable change
+
     def excluded(path: str, *, directory: bool = False) -> bool:
         # This Change's own control paths and the workflow cache are always out of the Diff.
         if path in {change + "/.workflow.yaml", change + "/state.md"}:
@@ -159,6 +187,8 @@ def _exclusions(loaded: LoadedPlan, repository: Path):
         if home is not None and (path == cache or path.startswith(cache + "/")):
             return True
         if home is not None and not directory and memory_topic(path):
+            return True
+        if not directory and managed_skill(path):
             return True
         if any(fnmatch.fnmatchcase(part, name) for part in path.split("/") for name in names):
             return True

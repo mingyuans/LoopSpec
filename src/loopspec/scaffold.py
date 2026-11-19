@@ -42,13 +42,32 @@ def tool_is_configured(project_path: Path, tool_id: str) -> bool:
     return any((skills_root / template.name / "SKILL.md").is_file() for template in SKILL_TEMPLATES)
 
 
+def expected_files(project_path: Path, tool_id: str) -> dict[Path, str]:
+    """Every loopspec skill/command file of one tool and the content this CLI writes there.
+
+    The single source for both `init` and the automatic skill sync, so the two can never
+    disagree. Command paths may lie outside the project (Codex's global prompts).
+    """
+
+    tool = AI_TOOLS[tool_id]
+    files: dict[Path, str] = {}
+    skills_root = project_path / tool.skills_dir / "skills"
+    for template in SKILL_TEMPLATES:
+        files[skills_root / template.name / "SKILL.md"] = generate_skill_content(template)
+    adapter = COMMAND_ADAPTERS.get(tool_id)
+    if adapter is not None:
+        for template in SKILL_TEMPLATES:
+            content = generate_command_content(template, apply_hyphen_transform=adapter.hyphenated)
+            files[adapter.get_file_path(project_path, template.verb)] = adapter.format_file(content)
+    return files
+
+
 def scaffold_tools(project_path: Path, tool_ids: list[str]) -> ScaffoldResult:
     """Write skill files (all tools) and command files (tools with an adapter)."""
 
     result = ScaffoldResult()
 
     for tool_id in tool_ids:
-        tool = AI_TOOLS[tool_id]
         written: list[str] = []
 
         # Writing is an unconditional overwrite, so "was this already here?" can
@@ -58,25 +77,12 @@ def scaffold_tools(project_path: Path, tool_ids: list[str]) -> ScaffoldResult:
         else:
             result.created.append(tool_id)
 
-        skills_root = project_path / tool.skills_dir / "skills"
-        for template in SKILL_TEMPLATES:
-            skill_path = skills_root / template.name / "SKILL.md"
-            skill_path.parent.mkdir(parents=True, exist_ok=True)
-            skill_path.write_text(generate_skill_content(template), encoding="utf-8")
-            written.append(str(skill_path))
-
-        adapter = COMMAND_ADAPTERS.get(tool_id)
-        if adapter is None:
+        if COMMAND_ADAPTERS.get(tool_id) is None:
             result.skipped_command_generation.append(tool_id)
-        else:
-            for template in SKILL_TEMPLATES:
-                content = generate_command_content(
-                    template, apply_hyphen_transform=adapter.hyphenated
-                )
-                command_path = adapter.get_file_path(project_path, template.verb)
-                command_path.parent.mkdir(parents=True, exist_ok=True)
-                command_path.write_text(adapter.format_file(content), encoding="utf-8")
-                written.append(str(command_path))
+        for path, content in expected_files(project_path, tool_id).items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            written.append(str(path))
 
         result.written_files[tool_id] = written
 

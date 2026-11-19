@@ -51,6 +51,7 @@ pytest_plugins = [
     "tests.steps.plan_revision_steps",
     "tests.steps.plan_steps",
     "tests.steps.registry_steps",
+    "tests.steps.skill_sync_steps",
     "tests.steps.state_add_steps",
     "tests.steps.update_steps",
     "tests.steps.version_steps",
