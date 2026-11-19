@@ -27,6 +27,7 @@
 ## 待解决问题
 
 <!-- 跨 Plan 仍需追踪的问题；解决或移交时追加新条目并引用原问题。用 `loopspec state add --section open-question --scope change` 追加。 -->
+- 2026-11-19 Plan 001 assurance/check 已 exhausted：source-id 改动后先判定再提交，系统检查发现 src/loopspec/registry_store.py、tests/test_registry_store.py 的 HEAD 版本既非基线也非审查过的工作区内容而判 FAIL；随后已提交最终内容（3eb… 见 git log），但 assurance 无 on_fail、修订不能改冻结节点，需人决定是归档 Plan 001 重新规划还是保持现状。
 
 ## 参考
 
