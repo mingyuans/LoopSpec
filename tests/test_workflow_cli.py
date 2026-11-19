@@ -280,14 +280,9 @@ def test_removed_modules_cannot_be_imported(module):
 
 
 def registry_home(tmp_path: Path) -> Path:
-    from tests.registry_helpers import commit, make_registry, url
+    from tests.registry_helpers import registry_project
 
-    registry = make_registry(tmp_path / "registry")
-    commit(registry, "release", tag="v1.0.0")
-    (tmp_path / "project").mkdir()
-    return home_fixture(
-        tmp_path / "project", f"workflow: {{}}\nregistry:\n  url: {url(registry)}\n"
-    )
+    return registry_project(tmp_path)[1]
 
 
 def test_registry_not_configured(tmp_path: Path):
@@ -299,7 +294,6 @@ def test_registry_not_configured(tmp_path: Path):
 
 def test_registry_update_apply_cli(tmp_path: Path):
     home = registry_home(tmp_path)
-    (home / "fragments/qa-testing/test.instruction.md").write_text("mine\n")
     code, plan = invoke(home, "registry", "update")
     assert code == 0
     assert {
@@ -310,51 +304,71 @@ def test_registry_update_apply_cli(tmp_path: Path):
         "upstreamCommit",
         "upstreamTag",
         "baseAvailable",
+        "migration",
         "planId",
         "definitions",
         "files",
-        "unsupported",
+        "localConflicts",
+        "brokenReferences",
         "warnings",
         "nextSteps",
     } <= set(plan)
-    code, body = invoke(home, "registry", "apply", "--plan", plan["planId"])
-    assert code == 1 and body["error"] == "registry_conflict_unresolved"
-    code, body = invoke(
-        home,
-        "registry",
-        "apply",
-        "--plan",
-        plan["planId"],
-        "--resolve",
-        "fragments/qa-testing/test.instruction.md=local",
+    code, _ = invoke(
+        home, "registry", "apply", "--plan", plan["planId"], "--skip", "profiles/bugfix.yaml"
     )
+    assert code == 2  # --skip / --resolve no longer exist
+    code, body = invoke(home, "registry", "apply", "--plan", plan["planId"])
     assert code == 0 and body["applied"] is True
-    assert body["kept"] == ["fragments/qa-testing/test.instruction.md"]
+    assert {"added", "modified", "deleted", "lock"} <= set(body)
     code, body = invoke(home, "registry", "update", "--full")
     assert code == 0 and body["upToDate"] is False
     assert invoke(home, "registry", "update")[1]["upToDate"] is True
 
 
 def test_list_reports_registry_source(tmp_path: Path):
+    from tests.registry_helpers import local_fragment
+
     home = registry_home(tmp_path)
-    (home / "fragments" / "local-only").mkdir()
-    (home / "fragments" / "local-only" / "fragment.yaml").write_text(
-        (home / "fragments" / "requirements" / "fragment.yaml")
-        .read_text()
-        .replace("name: requirements", "name: local-only")
-    )
-    for item in invoke(home, "fragment", "list")[1]["fragments"]:
-        assert item["registry"] is None
+    code, body = invoke(home, "fragment", "list")
+    assert code == 1 and body["error"] == "registry_not_synced"
     plan = invoke(home, "registry", "update")[1]
     invoke(home, "registry", "apply", "--plan", plan["planId"])
+    local_fragment(home, "local-only")
     fragments = {i["name"]: i for i in invoke(home, "fragment", "list")[1]["fragments"]}
+    assert fragments["design"]["source"] == "registry"
     assert fragments["design"]["registry"] == {
         "syncedTag": "v1.0.0",
         "syncedCommit": plan["upstreamCommit"],
     }
+    assert fragments["local-only"]["source"] == "local"
     assert fragments["local-only"]["registry"] is None
     profiles = {i["name"]: i for i in invoke(home, "profile", "list")[1]["profiles"]}
     assert profiles["bugfix"]["registry"]["syncedTag"] == "v1.0.0"
     (home / "registry.lock.yaml").write_text(":::")
     code, body = invoke(home, "profile", "list")
-    assert code == 0 and all(i["registry"] is None for i in body["profiles"])
+    assert code == 1 and body["error"] == "config_invalid"
+
+
+def test_profile_save_refuses_registry_names(tmp_path: Path):
+    from tests.registry_helpers import sync
+    from tests.workflow_helpers import DOCS_FLOW, create_approved
+
+    home = registry_home(tmp_path)
+    sync(home)
+    create_approved(home, DOCS_FLOW)
+    code, body = invoke(home, "profile", "save", "bugfix", "-c", "AFD1111")
+    assert code == 1 and body["error"] == "profile_exists"
+    assert not (home / "profiles").exists()
+    code, body = invoke(home, "profile", "save", "docs-only", "-c", "AFD1111")
+    assert code == 0 and body["saved"] == "profiles/docs-only.yaml"
+    profiles = {i["name"]: i for i in invoke(home, "profile", "list")[1]["profiles"]}
+    assert profiles["docs-only"]["source"] == "local"
+
+
+def test_graph_profile_in_registry_mode(tmp_path: Path):
+    from tests.registry_helpers import sync
+
+    home = registry_home(tmp_path)
+    sync(home)
+    code, body = invoke(home, "graph", "--profile", "bugfix", "--no-open", "--json")
+    assert code == 0 and body["nodes"] > 0, body

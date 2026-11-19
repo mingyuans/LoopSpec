@@ -1,41 +1,35 @@
-"""Lock file, three-way classification, `update` plans and `apply` writes (D5–D7, D10)."""
+"""`registry update` plans and `registry apply` lock writes in registry (global store) mode."""
 
 from __future__ import annotations
 
+import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 import yaml
 
-from loopspec import registry_git
+from loopspec import registry_git, registry_store
 from loopspec.errors import WorkflowError
-from loopspec.registry_sync import LOCK_FILE, apply, synced_versions, update
+from loopspec.registry_sync import CACHE, LOCK_FILE, PLAN_FILE, apply, update
 from loopspec.workflow_io import write_lock
-from tests.registry_helpers import commit, make_registry, url
-from tests.workflow_helpers import home_fixture
+from tests.registry_helpers import (
+    add_fragment,
+    commit,
+    local_fragment,
+    registry_project,
+    sync,
+    url,
+)
+from tests.workflow_helpers import DOCS_FLOW, create_approved
 
-QA = "fragments/qa-testing/test.instruction.md"
 DESIGN = "fragments/design/design.instruction.md"
 BUGFIX = "profiles/bugfix.yaml"
 
 
-def setup(tmp_path: Path, *, version: str = "latest", tag: str = "v1.0.0") -> tuple[Path, Path]:
-    registry = make_registry(tmp_path / "registry")
-    commit(registry, "release", tag=tag)
-    project = tmp_path / "project"
-    project.mkdir()
-    config = f"workflow: {{}}\nregistry:\n  url: {url(registry)}\n  version: {version}\n"
-    return registry, home_fixture(project, config)
-
-
-def snapshot(home: Path) -> dict[str, bytes]:
-    return {
-        str(p.relative_to(home)): p.read_bytes()
-        for kind in ("fragments", "profiles")
-        for p in sorted((home / kind).rglob("*"))
-        if p.is_file()
-    }
+def lock(home: Path) -> dict:
+    return yaml.safe_load((home / LOCK_FILE).read_text())
 
 
 def statuses(result: dict) -> dict[str, str]:
@@ -46,23 +40,26 @@ def entry(result: dict, path: str) -> dict:
     return next(item for item in result["files"] if item["path"] == path)
 
 
-def lock(home: Path) -> dict:
-    return yaml.safe_load((home / LOCK_FILE).read_text())
+def untracked(home: Path) -> list[str]:
+    """What `git status` would show for the project, ignoring config.yaml and the lock."""
+    out = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=home.parent,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return sorted(
+        line[3:]
+        for line in out.splitlines()
+        if not line[3:].endswith(("config.yaml", LOCK_FILE))
+    )
 
 
-def synced(tmp_path: Path, **options: str) -> tuple[Path, Path]:
-    """A project already synced to the registry's first release."""
-    registry, home = setup(tmp_path, **options)
-    apply(home, update(home)["planId"], [], [])
-    return registry, home
-
-
-def add_fragment(registry: Path, name: str) -> None:
-    source = registry / "fragments" / "requirements"
-    target = registry / "fragments" / name
-    shutil.copytree(source, target)
-    definition = target / "fragment.yaml"
-    definition.write_text(definition.read_text().replace("name: requirements", f"name: {name}"))
+def error_code(call) -> str:  # type: ignore[no-untyped-def]
+    with pytest.raises(WorkflowError) as caught:
+        call()
+    return caught.value.code
 
 
 @pytest.fixture
@@ -82,481 +79,386 @@ def git_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 def test_not_configured(tmp_path: Path) -> None:
+    from tests.workflow_helpers import home_fixture
+
     home = home_fixture(tmp_path)
-    for action in (lambda: update(home), lambda: apply(home, "0" * 64, [], [])):
-        with pytest.raises(WorkflowError) as caught:
-            action()
-        assert caught.value.code == "registry_not_configured"
+    assert error_code(lambda: update(home)) == "registry_not_configured"
+    assert error_code(lambda: apply(home, "0" * 64)) == "registry_not_configured"
 
 
-def test_first_sync_classifies_without_writing(tmp_path: Path) -> None:
-    registry, home = setup(tmp_path)
-    (home / QA).write_text("project specific\n")
-    add_fragment(registry, "extra")
-    commit(registry, "extra", tag="v1.1.0")
-    before = snapshot(home)
+def test_first_update_plans_without_touching_the_project(tmp_path: Path) -> None:
+    _, home = registry_project(tmp_path)
     result = update(home)
-    found = statuses(result)
-    assert found[QA] == "conflict"
-    assert found["fragments/extra/fragment.yaml"] == "upstream-added"
-    assert DESIGN not in found  # unchanged entries are not listed
-    assert result["upToDate"] is False
-    assert result["upstreamTag"] == "v1.1.0"
-    assert result["baseCommit"] is None and result["baseTag"] is None
-    assert snapshot(home) == before
+    assert result["upToDate"] is False and result["baseCommit"] is None
+    assert set(statuses(result).values()) == {"added"}
+    assert entry(result, DESIGN)["basePath"] is None
+    assert Path(entry(result, DESIGN)["upstreamPath"]).read_text()
+    assert result["nextSteps"] == [f"loopspec registry apply --plan {result['planId']}"]
     assert not (home / LOCK_FILE).exists()
-    assert (home / ".cache" / "registry" / ".gitignore").read_text() == "*\n"
-    item = entry(result, QA)
-    assert Path(item["upstreamPath"]).resolve().is_relative_to(home.resolve())
-    assert Path(item["upstreamPath"]).read_bytes() == (registry / QA).read_bytes()
-    assert item["basePath"] is None
-    assert Path(item["localPath"]) == (home / QA).absolute()
-    extra = next(d for d in result["definitions"] if d["name"] == "extra")
-    assert extra == {
-        "kind": "fragment",
-        "name": "extra",
-        "deletedUpstream": False,
-        "baseTag": None,
-        "baseCommit": None,
-        "upstreamTag": "v1.1.0",
-        "upstreamCommit": result["upstreamCommit"],
-    }
+    assert untracked(home) == []
+    assert (home / CACHE / ".gitignore").read_text() == "*\n"
 
 
-def test_categories_after_sync(tmp_path: Path) -> None:
-    registry, home = synced(tmp_path)
-    (registry / DESIGN).write_text("upstream change\n")
-    (home / QA).write_text("local change\n")
-    (registry / BUGFIX).write_text((registry / BUGFIX).read_text() + "# upstream\n")
-    (home / BUGFIX).write_text((home / BUGFIX).read_text() + "# local\n")
-    (registry / "fragments" / "design" / "tasks.template.md").unlink()
-    (home / "fragments" / "design" / "tasks.instruction.md").unlink()
-    (home / "fragments" / "design" / "notes.md").write_text("mine")
-    commit(registry, "v2", tag="v2.0.0")
-    result = update(home)
-    assert statuses(result) == {
-        DESIGN: "upstream-modified",
-        QA: "local-modified",
-        BUGFIX: "conflict",
-        "fragments/design/tasks.template.md": "upstream-deleted",
-        "fragments/design/tasks.instruction.md": "local-deleted",
-        "fragments/design/notes.md": "local-only",
-    }
-    assert result["baseTag"] == "v1.0.0" and result["baseAvailable"] is True
-    item = entry(result, BUGFIX)
-    base = Path(item["basePath"]).read_text()
-    assert "# upstream" not in base and "# local" not in base
-    design = next(d for d in result["definitions"] if d["name"] == "design")
-    assert (design["baseTag"], design["upstreamTag"]) == ("v1.0.0", "v2.0.0")
+def test_first_apply_writes_only_the_lock(tmp_path: Path) -> None:
+    _, home = registry_project(tmp_path)
+    plan = update(home)
+    result = apply(home, plan["planId"])
+    assert result["applied"] is True and DESIGN in result["added"]
+    written = lock(home)
+    assert written["version"] == 2 and written["tag"] == "v1.0.0"
+    assert written["commit"] == plan["upstreamCommit"]
+    assert sorted(p.name for p in home.iterdir()) == [".cache", "config.yaml", LOCK_FILE]
+    assert not (home / PLAN_FILE).exists()
 
 
-def test_upstream_deleted_definition(tmp_path: Path) -> None:
-    registry, home = synced(tmp_path)
-    shutil.rmtree(registry / "fragments" / "frontend-tests")
-    commit(registry, "drop", tag="v2.0.0")
-    result = update(home)
-    gone = next(d for d in result["definitions"] if d["name"] == "frontend-tests")
-    assert gone["deletedUpstream"] is True and gone["upstreamTag"] is None
-    assert statuses(result)["fragments/frontend-tests/fragment.yaml"] == "upstream-deleted"
-
-
-def test_local_symlink_is_unsupported(tmp_path: Path) -> None:
-    registry, home = synced(tmp_path)
-    (home / QA).unlink()
-    (home / QA).symlink_to(home / DESIGN)
-    (registry / QA).write_text("changed\n")
-    commit(registry, "v2", tag="v2.0.0")
-    result = update(home)
-    assert QA in result["unsupported"]
-    assert QA not in statuses(result)
-
-
-def test_unchanged_commit_only_runs_ls_remote(tmp_path: Path, git_calls: list[str]) -> None:
-    _, home = synced(tmp_path)
+def test_latest_and_unchanged_only_runs_ls_remote(tmp_path: Path, git_calls: list[str]) -> None:
+    _, home = registry_project(tmp_path)
+    sync(home)
     git_calls.clear()
-    result = update(home)
-    assert result["upToDate"] is True and result["planId"] is None
-    # A fresh private repository is created each time; nothing is fetched or read.
-    assert git_calls == ["init", "ls-remote"]
+    assert update(home)["upToDate"] is True
+    assert "fetch" not in git_calls and "ls-remote" in git_calls
 
 
 def test_pinned_and_synced_is_offline(tmp_path: Path, git_calls: list[str]) -> None:
-    _, home = synced(tmp_path, version="v1.0.0")
+    _, home = registry_project(tmp_path, version="v1.0.0")
+    sync(home)
     git_calls.clear()
     assert update(home)["upToDate"] is True
     assert git_calls == []
 
 
-def test_full_always_fetches(tmp_path: Path, git_calls: list[str]) -> None:
-    _, home = synced(tmp_path, version="v1.0.0")
-    git_calls.clear()
+def test_full_always_plans(tmp_path: Path) -> None:
+    _, home = registry_project(tmp_path)
+    sync(home)
     result = update(home, full=True)
     assert result["upToDate"] is False and result["files"] == []
-    assert "fetch" in git_calls
+    assert apply(home, result["planId"])["applied"] is True
 
 
-def test_skipped_definition_reappears_without_new_commit(tmp_path: Path) -> None:
-    registry, home = synced(tmp_path)
-    (registry / DESIGN).write_text("upstream change\n")
-    commit(registry, "v2", tag="v2.0.0")
-    apply(home, update(home)["planId"], [], [DESIGN])
+def test_upstream_changes_are_classified_with_reviewable_content(tmp_path: Path) -> None:
+    registry, home = registry_project(tmp_path)
+    sync(home)
+    (registry / DESIGN).write_text("new design\n")
+    (registry / BUGFIX).unlink()
+    add_fragment(registry, "extra")
+    commit(registry, "next", tag="v1.1.0")
     result = update(home)
-    assert result["upToDate"] is False
-    assert statuses(result) == {DESIGN: "upstream-modified"}
+    found = statuses(result)
+    assert found[DESIGN] == "modified" and found[BUGFIX] == "deleted"
+    assert found["fragments/extra/fragment.yaml"] == "added"
+    design = entry(result, DESIGN)
+    assert Path(design["upstreamPath"]).read_text() == "new design\n"
+    assert Path(design["basePath"]).read_text() != "new design\n"
+    assert entry(result, BUGFIX)["upstreamPath"] is None
+    kinds = {(d["kind"], d["name"]): d["change"] for d in result["definitions"]}
+    assert kinds[("fragment", "extra")] == "added"
+    assert kinds[("fragment", "design")] == "modified"
+    applied = apply(home, result["planId"])
+    assert applied["modified"] == [DESIGN] and applied["deleted"] == [BUGFIX]
+    assert lock(home)["tag"] == "v1.1.0" and BUGFIX not in lock(home)["files"]
+    assert untracked(home) == []
 
 
-def test_invalid_lock_is_config_invalid(tmp_path: Path) -> None:
-    _, home = synced(tmp_path)
-    (home / LOCK_FILE).write_text("version: 1\ncommit: nothex\n")
-    with pytest.raises(WorkflowError) as caught:
-        update(home)
-    assert caught.value.code == "config_invalid"
+def test_apply_takes_effect_for_reads(tmp_path: Path) -> None:
+    from tests.workflow_helpers import invoke
+
+    registry, home = registry_project(tmp_path)
+    sync(home)
+    create_approved(home, DOCS_FLOW)
+    path = "fragments/requirements/proposal.instruction.md"
+    (registry / path).write_text("updated instruction\n")
+    commit(registry, "next", tag="v1.1.0")
+    sync(home)
+    code, body = invoke(
+        home, "node", "instructions", "-c", "AFD1111", "-n", "requirements/proposal"
+    )
+    assert code == 0 and body["instruction"] == "updated instruction\n"
+
+
+def test_missing_base_snapshot_is_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, isolated_registry_store: Path
+) -> None:
+    from loopspec.workflow_git import git
+
+    registry, home = registry_project(tmp_path)
+    sync(home)
+    old = lock(home)["commit"]
+    # The registry rewrote history: the locked commit is gone everywhere.
+    (registry / DESIGN).write_text("new design\n")
+    git(registry, ["add", "-A"])
+    git(registry, ["commit", "-q", "--amend", "-m", "rewritten"])
+    git(registry, ["tag", "-d", "v1.0.0"])
+    git(registry, ["tag", "v1.1.0"])
+    git(registry, ["reflog", "expire", "--expire=now", "--all"])
+    git(registry, ["gc", "-q", "--prune=now"])
+    shutil.rmtree(isolated_registry_store)
+    monkeypatch.setattr(registry_store, "_VERIFIED", set())
+    result = update(home)
+    assert result["baseAvailable"] is False and result["baseCommit"] == old
+    assert entry(result, DESIGN)["basePath"] is None
+    assert any("hash" in warning for warning in result["warnings"])
 
 
 # ---------------------------------------------------------------------- apply
 
 
-def test_first_apply_writes_lock(tmp_path: Path) -> None:
-    registry, home = setup(tmp_path)
-    result = update(home)
-    applied = apply(home, result["planId"], [], [])
-    assert applied["upstreamTag"] == "v1.0.0"
-    data = lock(home)
-    assert data["tag"] == "v1.0.0" and data["commit"] == result["upstreamCommit"]
-    assert data["registry"]["url"] == url(registry)
-    assert data["definitions"]["fragments/design"] == {
-        "tag": "v1.0.0",
-        "commit": result["upstreamCommit"],
-    }
-    assert set(data["files"]) >= {QA, DESIGN, BUGFIX}
-    assert not (home / ".cache" / "registry" / "plan.json").exists()
-    assert not (home / ".cache" / "registry" / "staging").exists()
-
-
-def test_apply_writes_upstream_changes(tmp_path: Path) -> None:
-    registry, home = synced(tmp_path)
-    (registry / DESIGN).write_text("upstream change\n")
-    (registry / "fragments" / "design" / "tasks.template.md").unlink()
-    add_fragment(registry, "extra")
-    # tasks.template.md is referenced by fragment.yaml, so drop the reference too.
-    definition = registry / "fragments" / "design" / "fragment.yaml"
-    text = definition.read_text()
-    definition.write_text(text.replace("  template: tasks.template.md\n", ""))
-    assert definition.read_text() != text
-    commit(registry, "v2.0.1", tag="v2.0.1")
-    result = update(home)
-    applied = apply(home, result["planId"], [], [])
-    assert (home / DESIGN).read_text() == "upstream change\n"
-    assert not (home / "fragments" / "design" / "tasks.template.md").exists()
-    assert (home / "fragments" / "extra" / "fragment.yaml").is_file()
-    assert DESIGN in applied["written"]
-    assert "fragments/design/tasks.template.md" in applied["deleted"]
-    assert lock(home)["tag"] == "v2.0.1"
-
-
-def test_apply_deletes_whole_definition_and_empty_dirs(tmp_path: Path) -> None:
-    registry, home = synced(tmp_path)
-    add_fragment(registry, "extra")
-    commit(registry, "extra", tag="v1.1.0")
-    apply(home, update(home)["planId"], [], [])
-    assert "fragments/extra" in lock(home)["definitions"]
-    shutil.rmtree(registry / "fragments" / "extra")
-    commit(registry, "drop", tag="v2.0.0")
-    apply(home, update(home)["planId"], [], [])
-    assert not (home / "fragments" / "extra").exists()
-    assert "fragments/extra" not in lock(home)["definitions"]
-
-
-def test_deleting_a_used_fragment_fails_validation(tmp_path: Path) -> None:
-    registry, home = synced(tmp_path)
-    shutil.rmtree(registry / "fragments" / "frontend-tests")
-    commit(registry, "drop", tag="v2.0.0")
-    with pytest.raises(WorkflowError) as caught:
-        apply(home, update(home)["planId"], [], [])
-    assert "frontend-implementation" in caught.value.message
-    assert (home / "fragments" / "frontend-tests" / "fragment.yaml").is_file()
-
-
 def test_stale_plan_id(tmp_path: Path) -> None:
-    _, home = setup(tmp_path)
+    _, home = registry_project(tmp_path)
     update(home)
-    with pytest.raises(WorkflowError) as caught:
-        apply(home, "0" * 64, [], [])
-    assert caught.value.code == "registry_plan_stale"
+    assert error_code(lambda: apply(home, "f" * 64)) == "registry_plan_stale"
 
 
-def test_unresolved_conflict(tmp_path: Path) -> None:
-    _, home = setup(tmp_path)
-    (home / QA).write_text("mine\n")
-    plan = update(home)["planId"]
-    with pytest.raises(WorkflowError) as caught:
-        apply(home, plan, [], [])
-    assert caught.value.code == "registry_conflict_unresolved"
+def test_no_plan_is_stale(tmp_path: Path) -> None:
+    _, home = registry_project(tmp_path)
+    assert error_code(lambda: apply(home, "f" * 64)) == "registry_plan_stale"
 
 
-@pytest.mark.parametrize(
-    ("resolves", "skips"),
-    [
-        ([f"{DESIGN}=local"], []),  # not a conflict
-        ([f"{QA}=theirs"], []),  # unknown choice
-        ([f"{QA}=local", f"{QA}=upstream"], []),  # duplicate
-        ([f"{QA}=local"], [DESIGN]),  # skip of an unchanged entry
-        ([f"{QA}=local"], [QA]),  # conflicts are resolved, not skipped
-        ([f"../{QA}=local"], []),
-    ],
-)
-def test_invalid_resolutions(tmp_path: Path, resolves: list[str], skips: list[str]) -> None:
-    _, home = setup(tmp_path)
-    (home / QA).write_text("mine\n")
-    plan = update(home)["planId"]
-    with pytest.raises(WorkflowError) as caught:
-        apply(home, plan, resolves, skips)
-    assert caught.value.code in {"config_invalid", "unsafe_path"}
+def test_lock_changed_after_plan_is_stale(tmp_path: Path) -> None:
+    registry, home = registry_project(tmp_path)
+    sync(home)
+    (registry / DESIGN).write_text("new\n")
+    commit(registry, "next", tag="v1.1.0")
+    plan = update(home)
+    (home / LOCK_FILE).write_text((home / LOCK_FILE).read_text() + "# edited\n")
+    assert error_code(lambda: apply(home, plan["planId"])) == "registry_plan_stale"
 
 
-@pytest.mark.parametrize("choice", ["local", "upstream"])
-def test_resolve_choices(tmp_path: Path, choice: str) -> None:
-    registry, home = setup(tmp_path)
-    (home / QA).write_text("mine\n")
-    plan = update(home)["planId"]
-    if choice == "local":
-        (home / QA).write_text("merged\n")  # the agent's confirmed merge
-    apply(home, plan, [f"{QA}=local" if choice == "local" else f"{QA}=upstream"], [])
-    expected = "merged\n" if choice == "local" else (registry / QA).read_text()
-    assert (home / QA).read_text() == expected
-    assert update(home)["upToDate"] is True
+def test_config_changed_after_plan_is_stale(tmp_path: Path) -> None:
+    _, home = registry_project(tmp_path)
+    plan = update(home)
+    config = (home / "config.yaml").read_text().replace("version: latest", "version: v1.0.0")
+    (home / "config.yaml").write_text(config)
+    assert error_code(lambda: apply(home, plan["planId"])) == "registry_plan_stale"
 
 
-def test_local_drift_after_plan_is_stale(tmp_path: Path) -> None:
-    registry, home = synced(tmp_path)
-    (registry / DESIGN).write_text("upstream change\n")
-    commit(registry, "v2", tag="v2.0.0")
-    plan = update(home)["planId"]
-    (home / DESIGN).write_text("edited after the plan\n")
-    with pytest.raises(WorkflowError) as caught:
-        apply(home, plan, [], [])
-    assert caught.value.code == "registry_plan_stale"
-    assert (home / DESIGN).read_text() == "edited after the plan\n"
-
-
-def test_tampered_staging_is_stale(tmp_path: Path) -> None:
-    registry, home = synced(tmp_path)
-    (registry / DESIGN).write_text("upstream change\n")
-    commit(registry, "v2", tag="v2.0.0")
-    result = update(home)
-    Path(entry(result, DESIGN)["upstreamPath"]).write_text("tampered\n")
-    with pytest.raises(WorkflowError) as caught:
-        apply(home, result["planId"], [], [])
-    assert caught.value.code == "registry_plan_stale"
-
-
-@pytest.mark.parametrize("broken", ["fragment", "profile"])
-def test_invalid_result_writes_nothing(tmp_path: Path, broken: str) -> None:
-    registry, home = synced(tmp_path)
-    (registry / DESIGN).write_text("upstream change\n")
-    if broken == "fragment":
-        (registry / "fragments" / "design" / "fragment.yaml").write_text("name: [oops\n")
-    else:
-        (registry / BUGFIX).write_text(
-            (registry / BUGFIX).read_text().replace("use: qa-testing", "use: no-such-fragment")
-        )
-    commit(registry, "broken", tag="v2.0.0")
-    before, lock_before = snapshot(home), (home / LOCK_FILE).read_bytes()
-    with pytest.raises(WorkflowError):
-        apply(home, update(home)["planId"], [], [])
-    assert snapshot(home) == before
-    assert (home / LOCK_FILE).read_bytes() == lock_before
-
-
-def test_skip_keeps_old_base_and_version(tmp_path: Path) -> None:
-    registry, home = synced(tmp_path)
-    first = lock(home)
-    (registry / DESIGN).write_text("upstream change\n")
-    (registry / QA).write_text("qa change\n")
-    commit(registry, "v2", tag="v2.0.0")
-    apply(home, update(home)["planId"], [], [DESIGN])
-    data = lock(home)
-    assert data["files"][DESIGN] == first["files"][DESIGN]
-    assert data["definitions"]["fragments/design"] == first["definitions"]["fragments/design"]
-    assert data["definitions"]["fragments/qa-testing"]["tag"] == "v2.0.0"
-    assert data["tag"] == "v2.0.0"
-    versions = synced_versions(home)
-    assert versions["fragments/design"]["syncedTag"] == "v1.0.0"
-    assert versions["fragments/qa-testing"]["syncedTag"] == "v2.0.0"
+def test_tampered_plan_is_stale(tmp_path: Path) -> None:
+    _, home = registry_project(tmp_path)
+    plan = update(home)
+    stored = json.loads((home / PLAN_FILE).read_text())
+    stored["files"][DESIGN] = "0" * 64
+    (home / PLAN_FILE).write_text(json.dumps(stored))
+    assert error_code(lambda: apply(home, plan["planId"])) == "registry_plan_stale"
 
 
 def test_concurrent_apply_is_rejected(tmp_path: Path) -> None:
-    _, home = setup(tmp_path)
-    plan = update(home)["planId"]
-    with write_lock(home / ".cache" / "registry"):
-        with pytest.raises(WorkflowError) as caught:
-            apply(home, plan, [], [])
-    assert caught.value.code == "concurrent_write"
+    _, home = registry_project(tmp_path)
+    plan = update(home)
+    with write_lock(home / CACHE):
+        assert error_code(lambda: apply(home, plan["planId"])) == "concurrent_write"
 
 
-def test_synced_versions_tolerates_broken_lock(tmp_path: Path) -> None:
-    _, home = synced(tmp_path)
-    (home / LOCK_FILE).write_text(":::")
-    assert synced_versions(home) == {}
-    (tmp_path / "other").mkdir()
-    assert synced_versions(home_fixture(tmp_path / "other")) == {}
+def test_local_copies_conflict_until_removed(tmp_path: Path) -> None:
+    _, home = registry_project(tmp_path)
+    (home / "fragments" / "design").mkdir(parents=True)
+    (home / "profiles").mkdir()
+    (home / BUGFIX).write_text("vendored\n")
+    plan = update(home)
+    assert plan["localConflicts"] == ["fragments/design", BUGFIX]
+    assert error_code(lambda: apply(home, plan["planId"])) == "registry_local_conflict"
+    assert not (home / LOCK_FILE).exists()
+    shutil.rmtree(home / "fragments" / "design")
+    (home / BUGFIX).unlink()
+    assert apply(home, plan["planId"])["applied"] is True
 
 
-def test_relative_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    _, home = setup(tmp_path)
-    monkeypatch.chdir(home.parent)
-    relative = Path(home.name)
-    result = update(relative)
-    apply(relative, result["planId"], [], [])
-    assert update(relative)["upToDate"] is True
-
-
-def test_local_files_with_unsafe_names_are_ignored(tmp_path: Path) -> None:
-    registry, home = synced(tmp_path)
-    (home / "fragments" / "design" / "$(id).md").write_text("x")
-    (registry / DESIGN).write_text("upstream change\n")
-    commit(registry, "v2", tag="v2.0.0")
-    result = update(home)
-    assert not any("$(" in item["path"] for item in result["files"])
-    assert not any("$(" in path for path in result["unsupported"])
-    assert any("名称不合法" in warning for warning in result["warnings"])
-
-
-def test_lock_with_unsafe_file_name_is_invalid(tmp_path: Path) -> None:
-    _, home = synced(tmp_path)
-    data = lock(home)
-    data["files"]["fragments/design/$(id).md"] = "0" * 64
-    (home / LOCK_FILE).write_text(yaml.safe_dump(data))
-    with pytest.raises(WorkflowError) as caught:
-        update(home)
-    assert caught.value.code == "config_invalid"
-
-
-def test_forged_plan_cannot_write_outside_definitions(tmp_path: Path) -> None:
-    import hashlib
-    import json
-
-    from loopspec.workflow_io import digest
-
-    registry, home = synced(tmp_path)
-    (registry / DESIGN).write_text("upstream change\n")
-    commit(registry, "v2", tag="v2.0.0")
-    update(home)
-    plan_path = home / ".cache" / "registry" / "plan.json"
-    plan = json.loads(plan_path.read_text())
-    payload = b"forged"
-    plan["entries"].append(
-        {
-            "path": "changes/x/evidence.md",
-            "status": "upstream-added",
-            "base": None,
-            "local": None,
-            "upstream": hashlib.sha256(payload).hexdigest(),
-        }
-    )
-    body = {k: v for k, v in plan.items() if k != "plan_id"}
-    plan["plan_id"] = digest(body)
-    staged = home / ".cache" / "registry" / "staging" / plan["plan_id"] / "upstream"
-    (staged / "changes" / "x").mkdir(parents=True)
-    (staged / "changes" / "x" / "evidence.md").write_bytes(payload)
-    plan_path.write_text(json.dumps(plan))
-    with pytest.raises(WorkflowError):
-        apply(home, plan["plan_id"], [], [])
-    assert not (home / "changes" / "x" / "evidence.md").exists()
-    assert (home / DESIGN).read_text() != "upstream change\n"
-
-
-# ------------------------------------------------- code review regressions
-
-
-@pytest.mark.parametrize("version", ["latest", "v1.1.0"])
-def test_skipped_new_definition_is_not_forgotten(tmp_path: Path, version: str) -> None:
-    registry, home = synced(tmp_path)
+def test_registry_adding_a_name_used_locally_conflicts(tmp_path: Path) -> None:
+    registry, home = registry_project(tmp_path)
+    sync(home)
+    local_fragment(home, "extra")
     add_fragment(registry, "extra")
-    commit(registry, "extra", tag="v1.1.0")
-    config = home / "config.yaml"
-    config.write_text(config.read_text().replace("version: latest", f"version: {version}"))
-    result = update(home)
-    added = [i["path"] for i in result["files"] if i["status"] == "upstream-added"]
-    assert added
-    apply(home, result["planId"], [], added)
-    assert lock(home)["held"] == ["fragments/extra"]
-    again = update(home)
-    assert again["upToDate"] is False
-    assert {i["path"] for i in again["files"]} == set(added)
-    apply(home, again["planId"], [], [])
-    assert lock(home)["held"] == []
-    assert lock(home)["definitions"]["fragments/extra"]["tag"] == "v1.1.0"
-    assert update(home)["upToDate"] is True
+    commit(registry, "next", tag="v1.1.0")
+    plan = update(home)
+    assert plan["localConflicts"] == ["fragments/extra"]
+    before = (home / LOCK_FILE).read_bytes()
+    assert error_code(lambda: apply(home, plan["planId"])) == "registry_local_conflict"
+    assert (home / LOCK_FILE).read_bytes() == before
 
 
-def test_deleting_a_fragment_used_by_a_local_profile_fails(tmp_path: Path) -> None:
-    registry, home = synced(tmp_path)
-    add_fragment(registry, "extra")
-    commit(registry, "extra", tag="v1.1.0")
-    apply(home, update(home)["planId"], [], [])
-    (home / "profiles" / "mine.yaml").write_text(
-        "version: 1\nname: mine\nflow:\n- id: extra\n  use: extra\n"
-    )
-    shutil.rmtree(registry / "fragments" / "extra")
-    commit(registry, "drop", tag="v2.0.0")
+def test_deleting_a_fragment_used_by_a_registry_profile_fails(tmp_path: Path) -> None:
+    registry, home = registry_project(tmp_path)
+    sync(home)
+    before = (home / LOCK_FILE).read_bytes()
+    shutil.rmtree(registry / "fragments" / "qa-testing")
+    commit(registry, "drop qa", tag="v1.1.0")
+    plan = update(home)
     with pytest.raises(WorkflowError) as caught:
-        apply(home, update(home)["planId"], [], [])
-    assert "profiles/mine" in caught.value.message
-    assert (home / "fragments" / "extra" / "fragment.yaml").is_file()
+        apply(home, plan["planId"])
+    assert "profiles/" in caught.value.message
+    assert (home / LOCK_FILE).read_bytes() == before
 
 
 def test_preexisting_broken_local_definition_does_not_block(tmp_path: Path) -> None:
-    registry, home = synced(tmp_path)
+    registry, home = registry_project(tmp_path)
+    sync(home)
+    (home / "profiles").mkdir()
     (home / "profiles" / "broken.yaml").write_text("version: 1\nname: broken\nflow: []\n")
-    (registry / DESIGN).write_text("upstream change\n")
-    commit(registry, "v2", tag="v2.0.0")
-    apply(home, update(home)["planId"], [], [])
-    assert (home / DESIGN).read_text() == "upstream change\n"
+    (registry / DESIGN).write_text("new\n")
+    commit(registry, "next", tag="v1.1.0")
+    assert apply(home, update(home)["planId"])["applied"] is True
 
 
-def test_changed_source_never_plans_deletions(tmp_path: Path) -> None:
-    _, home = synced(tmp_path)
-    other = make_registry(tmp_path / "other")
+def test_breaking_an_active_plan_is_refused(tmp_path: Path) -> None:
+    registry, home = registry_project(tmp_path)
+    sync(home)
+    create_approved(home, DOCS_FLOW)
+    before = (home / LOCK_FILE).read_bytes()
+    shutil.rmtree(registry / "fragments" / "design")
+    (registry / "profiles" / "large-feature.yaml").unlink()
+    commit(registry, "drop design", tag="v1.1.0")
+    plan = update(home)
+    assert {"change": "AFD1111", "path": DESIGN} in plan["brokenReferences"]
+    assert error_code(lambda: apply(home, plan["planId"])) == "registry_breaks_running_plan"
+    assert (home / LOCK_FILE).read_bytes() == before
+
+
+def test_required_fragment_removed_upstream_is_refused(tmp_path: Path) -> None:
+    registry, home = registry_project(tmp_path)
+    add_fragment(registry, "extra")
+    commit(registry, "extra", tag="v1.0.1")
+    config = (home / "config.yaml").read_text().replace(
+        "workflow: {}", "workflow:\n  required_fragments: [extra]"
+    )
+    (home / "config.yaml").write_text(config)
+    sync(home)
+    before = (home / LOCK_FILE).read_bytes()
+    shutil.rmtree(registry / "fragments" / "extra")
+    commit(registry, "drop extra", tag="v1.1.0")
+    plan = update(home)
+    assert error_code(lambda: apply(home, plan["planId"])) == "project_constraint"
+    assert (home / LOCK_FILE).read_bytes() == before
+
+
+def test_v1_lock_on_the_same_commit_migrates(tmp_path: Path) -> None:
+    _, home = registry_project(tmp_path)
+    sync(home)
+    current = lock(home)
+    version = {"tag": current["tag"], "commit": current["commit"]}
+    legacy = {
+        **current,
+        "version": 1,
+        "definitions": {"fragments/design": version},
+        "held": ["fragments/design"],
+    }
+    (home / LOCK_FILE).write_text(yaml.safe_dump(legacy))
+    plan = update(home)
+    assert plan["upToDate"] is False and plan["migration"] is True and plan["files"] == []
+    result = apply(home, plan["planId"])
+    assert result["migration"] is True
+    assert lock(home) == current
+    assert update(home)["upToDate"] is True
+
+
+def test_source_switch_lists_old_definitions_as_deleted(tmp_path: Path) -> None:
+    registry, home = registry_project(tmp_path)
+    sync(home)
+    other = tmp_path / "other"
+    shutil.copytree(registry, other)
     shutil.rmtree(other / "fragments" / "frontend-tests")
-    (other / DESIGN).write_text("other registry\n")
-    commit(other, "other", tag="v5.0.0")
-    config = home / "config.yaml"
-    text = config.read_text()
-    config.write_text(text.replace(url(tmp_path / "registry"), url(other)))
-    result = update(home)
-    found = statuses(result)
-    assert "upstream-deleted" not in found.values()
-    assert found[DESIGN] == "conflict"
-    assert found["fragments/frontend-tests/fragment.yaml"] == "local-only"
-    assert result["baseAvailable"] is False
-    assert any("来源" in w for w in result["warnings"])
+    for name in ("frontend-small-change.yaml", "large-feature.yaml"):
+        (other / "profiles" / name).unlink()
+    text = (other / "fragments/frontend-implementation/fragment.yaml").read_text()
+    assert "frontend-tests" in text
+    shutil.rmtree(other / "fragments" / "frontend-implementation")
+    commit(other, "fork", tag="v1.1.0")
+    config = (home / "config.yaml").read_text().replace(url(registry), url(other))
+    (home / "config.yaml").write_text(config)
+    plan = update(home)
+    assert statuses(plan)["fragments/frontend-tests/fragment.yaml"] == "deleted"
+    assert plan["sourceChanged"] is True and plan["previousRegistry"]["url"] == url(registry)
+    assert any("来源" in warning for warning in plan["warnings"])
+    assert apply(home, plan["planId"])["applied"] is True
+    assert lock(home)["registry"]["url"] == url(other)
+
+
+def test_registry_path_option(tmp_path: Path) -> None:
+    _, home = registry_project(tmp_path, path="workflows")
+    sync(home)
+    assert DESIGN in lock(home)["files"]
+    from tests.workflow_helpers import invoke
+
+    assert invoke(home, "fragment", "show", "design")[0] == 0
+
+
+def test_invalid_lock_is_config_invalid(tmp_path: Path) -> None:
+    _, home = registry_project(tmp_path)
+    (home / LOCK_FILE).write_text("version: 2\nregistry: {}\n")
+    assert error_code(lambda: update(home)) == "config_invalid"
+
+
+def test_lock_with_unsafe_file_name_is_invalid(tmp_path: Path) -> None:
+    _, home = registry_project(tmp_path)
+    sync(home)
     data = lock(home)
-    assert data["registry"]["url"] == url(tmp_path / "registry")  # untouched until apply
+    data["files"]["fragments/design/$(evil).md"] = "0" * 64
+    (home / LOCK_FILE).write_text(yaml.safe_dump(data))
+    assert error_code(lambda: update(home)) == "config_invalid"
 
 
-def test_switching_between_pinned_and_latest(tmp_path: Path, git_calls: list[str]) -> None:
-    registry, home = synced(tmp_path, version="v1.0.0")
-    (registry / DESIGN).write_text("upstream change\n")
-    commit(registry, "v2", tag="v2.0.0")
-    config = home / "config.yaml"
-    assert update(home)["upToDate"] is True  # pinned: offline, no newer version
-    config.write_text(config.read_text().replace("version: v1.0.0", "version: latest"))
-    result = update(home)
-    assert result["upstreamTag"] == "v2.0.0" and statuses(result) == {DESIGN: "upstream-modified"}
-    apply(home, result["planId"], [], [])
-    config.write_text(config.read_text().replace("version: latest", "version: v1.0.0"))
-    git_calls.clear()
-    back = update(home)
-    assert "ls-remote" in git_calls  # the lock is at v2.0.0, so the pin is re-resolved
-    assert back["upstreamTag"] == "v1.0.0" and statuses(back) == {DESIGN: "upstream-modified"}
+def test_relative_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _, home = registry_project(tmp_path)
+    monkeypatch.chdir(home.parent)
+    assert apply(Path("loopspec"), update(Path("loopspec"))["planId"])["applied"] is True
 
 
-def test_conflict_kept_local_still_advances_definition(tmp_path: Path) -> None:
-    registry, home = synced(tmp_path)
-    (registry / BUGFIX).write_text((registry / BUGFIX).read_text() + "# upstream\n")
-    (home / BUGFIX).write_text((home / BUGFIX).read_text() + "# local\n")
-    commit(registry, "v2", tag="v2.0.0")
-    apply(home, update(home)["planId"], [f"{BUGFIX}=local"], [])
-    assert lock(home)["definitions"]["profiles/bugfix"]["tag"] == "v2.0.0"
-    assert statuses(update(home, full=True)) == {BUGFIX: "local-modified"}
+def test_deeply_nested_plan_is_stale(tmp_path: Path) -> None:
+    _, home = registry_project(tmp_path)
+    plan = update(home)
+    (home / PLAN_FILE).write_text("[" * 100000 + "]" * 100000)
+    assert error_code(lambda: apply(home, plan["planId"])) == "registry_plan_stale"
+
+
+def test_repinning_a_tag_on_the_same_commit_rewrites_the_lock(tmp_path: Path) -> None:
+    from loopspec.workflow_git import git
+
+    registry, home = registry_project(tmp_path, version="v1.0.0")
+    sync(home)
+    git(registry, ["tag", "v1.0.1"])
+    config = (home / "config.yaml").read_text().replace("version: v1.0.0", "version: v1.0.1")
+    (home / "config.yaml").write_text(config)
+    plan = update(home)
+    assert plan["upToDate"] is False and plan["files"] == []
+    apply(home, plan["planId"])
+    assert lock(home)["tag"] == "v1.0.1"
+    assert update(home)["upToDate"] is True
+
+
+def test_first_tag_on_the_locked_head_is_picked_up(tmp_path: Path) -> None:
+    from loopspec.workflow_git import git
+
+    registry, home = registry_project(tmp_path, tag=None)
+    sync(home)
+    assert lock(home)["tag"] is None
+    git(registry, ["tag", "v1.0.0"])
+    plan = update(home)
+    assert plan["upToDate"] is False
+    apply(home, plan["planId"])
+    assert lock(home)["tag"] == "v1.0.0"
+
+
+def test_source_switch_is_reported_even_without_file_changes(tmp_path: Path) -> None:
+    registry, home = registry_project(tmp_path)
+    sync(home)
+    mirror = tmp_path / "mirror"
+    shutil.copytree(registry, mirror)
+    config = (home / "config.yaml").read_text().replace(url(registry), url(mirror))
+    (home / "config.yaml").write_text(config)
+    plan = update(home)
+    assert plan["files"] == [] and plan["sourceChanged"] is True
+    assert plan["previousRegistry"]["url"] == url(registry)
+    assert apply(home, plan["planId"])["applied"] is True
+    assert update(home)["sourceChanged"] is False
+
+
+def test_plan_whose_lock_would_be_unreadable_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, home = registry_project(tmp_path)
+    monkeypatch.setattr(registry_store, "MAX_DOCUMENT_BYTES", 512)
+    assert error_code(lambda: update(home)) == "resource_limit"
+    assert not (home / PLAN_FILE).exists()
+
+
+def test_oversized_lock_is_config_invalid(tmp_path: Path) -> None:
+    _, home = registry_project(tmp_path)
+    (home / LOCK_FILE).write_text("# " + "x" * (3 * 1024 * 1024) + "\n")
+    assert error_code(lambda: update(home)) == "config_invalid"

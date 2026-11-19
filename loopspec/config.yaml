@@ -5,6 +5,3 @@ workflow:
   excluded_paths: [.venv, __pycache__, .pytest_cache, .mypy_cache, .ruff_cache,
                    .idea, dist, repos, .DS_Store,
                    docs/**, README*, '*.md', .claude/**, .codex/**, .github/**, loopspec/config.yaml]
-registry:
-  url: git@github.com:mingyuans/loopspec-fragments.git
-  version: latest

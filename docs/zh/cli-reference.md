@@ -205,7 +205,7 @@ loopspec state add -c <change> --section <key> --text <content> [--scope change|
 
 ## loopspec fragment list
 
-列出工作区中的 Fragment。每个条目带 `registry` 字段：在 `registry.lock.yaml` 中有记录的定义为 `{syncedTag, syncedCommit}`，否则为 `null`（锁缺失或不合法时也为 `null`）。参数：`--home`。
+列出工作区中的 Fragment。registry 模式下包含 lock 锁定的 registry 定义与项目内的本地定义。每个条目带 `source`（`registry` 或 `local`）与 `registry` 字段：registry 定义为 `{syncedTag, syncedCommit}`，本地定义为 `null`。registry 模式下锁缺失、不合法或与本地定义同名时返回对应错误。参数：`--home`。
 
 ## loopspec fragment show
 
@@ -217,7 +217,7 @@ loopspec state add -c <change> --section <key> --text <content> [--scope change|
 
 ## loopspec profile list
 
-列出工作区中的 Profile。每个条目带 `registry` 字段：在 `registry.lock.yaml` 中有记录的定义为 `{syncedTag, syncedCommit}`，否则为 `null`（锁缺失或不合法时也为 `null`）。参数：`--home`。
+列出工作区中的 Profile。registry 模式下包含 lock 锁定的 registry 定义与项目内的本地定义。每个条目带 `source`（`registry` 或 `local`）与 `registry` 字段：registry 定义为 `{syncedTag, syncedCommit}`，本地定义为 `null`。registry 模式下锁缺失、不合法或与本地定义同名时返回对应错误。参数：`--home`。
 
 ## loopspec profile show
 
@@ -233,7 +233,7 @@ loopspec state add -c <change> --section <key> --text <content> [--scope change|
 loopspec profile save <name> -c <change>
 ```
 
-把活动 Plan 的 `spec.flow`（含 `on_fail`）保存为 `profiles/<name>.yaml`。不保存执行状态，从不覆盖已有 Profile。参数：`--change`、`--home`。
+把活动 Plan 的 `spec.flow`（含 `on_fail`）保存为 `profiles/<name>.yaml`。不保存执行状态，从不覆盖已有 Profile；registry 模式下名称与 registry 中的 Profile 相同时返回 `profile_exists`。参数：`--change`、`--home`。
 
 ## loopspec graph
 
@@ -252,15 +252,15 @@ loopspec graph -c <change> [--plan <id>] [--output <file>] [--no-open] [--json]
 loopspec registry update [--full]
 ```
 
-按 `config.yaml` 的 `registry` 规划 `fragments/` 与 `profiles/` 的同步，只写 `<home>/.cache/registry/`。先用 `git ls-remote` 解析目标（`latest` 或固定 tag）：该 commit 与锁一致且没有落后的定义时，直接返回 `upToDate: true` 而不拉取；固定 tag 且已同步时完全不执行 git。否则把该 commit 拉取到私有裸仓库（从不 checkout），以锁为基线比对 registry 中的全部定义与本地副本，并暂存上游与基线内容供审阅。每个文件得到一个 `status`：`upstream-added`、`upstream-modified`、`upstream-deleted`（待确认）、`conflict`（必须解决）、`local-modified`、`local-deleted`、`local-only`（保持原样）。符号链接与子模块列入 `unsupported`，永不写入。返回 `registry`、`upToDate`、`baseCommit`、`baseTag`、`upstreamCommit`、`upstreamTag`、`baseAvailable`、`planId`、`definitions`（每项含 `kind`、`name`、`deletedUpstream`、`baseTag`、`baseCommit`、`upstreamTag`、`upstreamCommit`）、`files`（每项含 `path`、`status`、`localPath`、`upstreamPath`、`basePath`）、`unsupported`、`warnings` 与 `nextSteps`。`--full` 跳过版本预检，总是比对。需要 `PATH` 中有 `git`。参数：`--full`、`--home`。
+按 `config.yaml` 的 `registry` 规划 `registry.lock.yaml` 的更新，从不写 lock，项目内只写 `<home>/.cache/registry/`。先用 `git ls-remote` 解析目标（`latest` 或固定 tag）：新格式锁的 commit 与 tag 都已是目标时直接返回 `upToDate: true`；固定 tag 且已锁定时完全不执行 git。否则从 git 读取目标 commit 的定义树（私有裸仓库，从不 checkout），把它发布为全局存储中的快照，与当前 lock 逐文件比对：每个文件的 `status` 为 `added`、`modified` 或 `deleted`。旧格式锁总是生成计划（`migration: true`）。返回 `registry`、`upToDate`、`baseCommit`、`baseTag`、`upstreamCommit`、`upstreamTag`、`baseAvailable`（能否给出当前版本的内容）、`migration`、`sourceChanged` 与 `previousRegistry`（lock 来源与配置不同时为旧来源，需单独确认）、`planId`、`definitions`（每项含 `kind`、`name`、`change`）、`files`（每项含 `path`、`status`、`upstreamPath`、`basePath`，指向全局存储中已校验的文件，供审阅 diff）、`localConflicts`（目标版本中与项目内定义同名的路径）、`brokenReferences`（进行中的 Plan 引用、但目标版本不再提供的资源，每项含 `change` 与 `path`）、`warnings` 与 `nextSteps`。`--full` 跳过版本预检，总是生成计划。需要 `PATH` 中有 `git`。参数：`--full`、`--home`。
 
 ## loopspec registry apply
 
 ```bash
-loopspec registry apply --plan <planId> [--resolve <path>=local|upstream]... [--skip <path>]...
+loopspec registry apply --plan <planId>
 ```
 
-在人确认后写入最近一次 `registry update` 的计划。每个 `conflict` 必须恰好有一个 `--resolve`：`local` 保留当前本地文件（包括确认后写入的合并结果），`upstream` 采用 registry 版本。`--skip` 跳过一项待确认变更，其基线与所属定义的版本保持不变，下次仍会出现。计划不是最新、暂存内容被改动或计划生成后本地文件被修改时，返回 `registry_plan_stale`。结果先在预览目录中构建并加载，任何 Fragment 或 Profile 校验失败都会在写入前终止命令。随后原子写入文件，删除只删除计划列出的文件，并更新 `registry.lock.yaml`。返回 `applied`、`upstreamCommit`、`upstreamTag`、`written`、`deleted`、`skipped`、`kept` 与 `lock`。写入会立即影响执行中的 Plan。参数：`--plan`、`--resolve`、`--skip`、`--home`。
+在人确认后应用最近一次 `registry update` 的计划，只写 `registry.lock.yaml`。计划 ID 不一致、`config.yaml` 的 registry 或 lock 在计划生成后被改动、计划被篡改时返回 `registry_plan_stale`。写入前依次检查：项目内与目标版本同名的定义（`registry_local_conflict`）；目标版本与本地定义能否全部加载（同步前已失效的本地定义不阻塞）；`workflow.required_fragments` 与 `workflow.assurance_rules` 是否仍可满足（`project_constraint` 等）；进行中的 Plan 引用的资源是否仍存在（`registry_breaks_running_plan`）。任何一项失败都不写 lock。返回 `applied`、`upstreamCommit`、`upstreamTag`、`migration`、`added`、`modified`、`deleted` 与 `lock`。写入会立即影响执行中的 Plan。与 `registry update` 及 registry 模式下的 `profile save` 共用项目级写锁。参数：`--plan`、`--home`。
 
 ## loopspec memory list
 
@@ -354,8 +354,13 @@ loopspec memory show <topic>
 | `registry_unavailable` | 未安装 `git` 或它不在 `PATH` 中。 |
 | `registry_fetch_failed` | `ls-remote` 或拉取失败、超时、tag 不存在，或 registry 在预检与拉取之间发生变化。 |
 | `registry_invalid` | registry 树无法读取、`path` 不存在，或超过大小与数量限额。 |
-| `registry_plan_stale` | 没有当前计划、计划 ID 不一致，或 `registry update` 之后暂存文件或本地文件被修改。 |
-| `registry_conflict_unresolved` | 有冲突没有 `--resolve`。 |
+| `registry_plan_stale` | 没有当前计划、计划 ID 不一致、计划被篡改，或 `registry update` 之后 `config.yaml` 的 registry 或 `registry.lock.yaml` 被修改。 |
+| `registry_not_synced` | registry 模式的项目没有 `registry.lock.yaml`。 |
+| `registry_lock_outdated` | 旧格式 `registry.lock.yaml` 含被跳过的定义，无法对应单一 registry 版本。 |
+| `registry_lock_mismatch` | lock 的来源与 `config.yaml` 不一致，lock 的 tag 在 registry 中不指向 lock 的 commit，或该 commit 的内容与 lock 记录的 hash 不一致。 |
+| `registry_local_conflict` | 项目内存在与 registry 同名的 Fragment 或 Profile。 |
+| `registry_store_corrupt` | 全局存储中的快照与 lock 不一致（被改动或缺文件）。 |
+| `registry_breaks_running_plan` | 应用计划会删除进行中 Plan 引用的资源。 |
 | `update_invalid_version` | `update` 收到或读到的版本号不是合法的 Release 版本，或 `--beta` 与 `--version` 同时使用。 |
 | `update_fetch_failed` | `update` 无法下载 Release 文件：网络错误、超时、超过大小上限、非 https 地址，`checksums.txt` 中没有 wheel，或（带 `--beta` 时）`releases.atom` 订阅源中没有合法的 Release tag。 |
 | `update_verify_failed` | wheel 在 `checksums.txt` 中不是恰好一行，SHA256 不一致，或某个 tag 的 `checksums.txt` 中的版本与 tag 不符；未安装任何内容。 |

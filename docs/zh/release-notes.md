@@ -4,6 +4,17 @@
 > 适用读者：升级已有安装或工作区的用户。
 > 语言：**中文** · [English](../en/release-notes.md)
 
+## 未发布
+
+### registry 模式：定义改存全局存储
+
+- 配置了 `registry` 的项目不再把 fragments/profiles 写进项目。定义按「来源 + commit」存放在 `$LOOPSPEC_REGISTRY_STORE`（默认 `~/.loopspec/registry`），项目只提交 `config.yaml` 与 `registry.lock.yaml`。
+- 新 clone 或新 worktree 读取定义时，按 lock 自动拉取并校验锁定的 commit，无需额外命令。
+- `registry.lock.yaml` 升级为 `version: 2`（`commit`、`tag`、`files`）；`registry apply` 只写 lock，删除 `--resolve` 与 `--skip`，不再有本地三方合并。
+- 项目内与 registry 同名的定义返回 `registry_local_conflict`；名称不同的本地定义继续可用，`fragment list`/`profile list` 新增 `source` 字段。
+- registry 模式下 `loopspec init` 不复制内置定义。
+- 迁移：删除项目内与 registry 同名的定义，运行 `registry update` 与 `registry apply`，提交删除与新的 lock（见[配置](configuration.md)）。
+
 ## 2.0.0
 
 2.0.0 与 1.x 不兼容。基于 Schema 的工作流已删除；所有 Change 都由 Fragment 与 Profile 组合出的 Plan 驱动。

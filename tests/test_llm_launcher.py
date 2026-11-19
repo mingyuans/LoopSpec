@@ -110,7 +110,7 @@ def test_bash_runs_loopspec_only_and_file_tools_stay_in_the_project() -> None:
     allowed = ClaudeCliLauncher.allowed_tools
     bash_rules = [rule for rule in allowed if rule.startswith("Bash")]
     assert bash_rules == [f"Bash(loopspec {sub}:*)" for sub in llm_launcher.LOOPSPEC_SUBCOMMANDS]
-    for refused in ("init", "update", "hook", "registry", "version"):
+    for refused in ("init", "update", "hook", "version"):
         assert f"Bash(loopspec {refused}:*)" not in allowed  # hook runs only via Claude
     assert "Bash(loopspec:*)" not in allowed
     file_rules = [rule for rule in allowed if not rule.startswith("Bash")]
@@ -390,8 +390,18 @@ def test_an_enabled_but_invalid_setup_leaves_not_llm_runs_alone(
 GUARD = Path(__file__).resolve().parent / "llm_bin" / "loopspec"
 
 
-def run_guard(project: Path, *args: str, real: Path) -> subprocess.CompletedProcess[str]:
+def run_guard(
+    project: Path,
+    *args: str,
+    real: Path,
+    store: str | None = None,
+    registry_url: str | None = None,
+) -> subprocess.CompletedProcess[str]:
     env = {"PATH": "/usr/bin:/bin", "LOOPSPEC_LLM_REAL_LOOPSPEC": str(real)}
+    if store is not None:
+        env["LOOPSPEC_REGISTRY_STORE"] = store
+    if registry_url is not None:
+        env["LOOPSPEC_LLM_REGISTRY_URL"] = registry_url
     return subprocess.run(  # noqa: S603 - fixed argv, no shell
         [sys.executable, str(GUARD), *args],
         cwd=project, env=env, capture_output=True, text=True, check=False,
@@ -411,6 +421,81 @@ def project_dir(tmp_path: Path) -> Path:
     project = Path(os.path.realpath(tmp_path)) / "proj"
     (project / "loopspec").mkdir(parents=True)
     return project
+
+
+FIXTURE_URL = "file:///tmp/fixture-registry"
+
+
+def write_registry_config(project: Path, url: str) -> None:
+    (project / "loopspec" / "config.yaml").write_text(
+        f"artifacts_dir: changes\nworkflow: {{}}\nregistry:\n  url: {url}\n  version: latest\n"
+    )
+
+
+@pytest.mark.parametrize("store", [None, "/tmp/elsewhere", "relative/store", "../outside"])
+def test_guard_refuses_registry_without_a_store_in_the_project(
+    project_dir: Path, fake_real: Path, store: str | None
+) -> None:
+    write_registry_config(project_dir, FIXTURE_URL)
+    result = run_guard(
+        project_dir, "registry", "update", real=fake_real, store=store, registry_url=FIXTURE_URL
+    )
+    assert result.returncode == 126 and "REAL" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    "args", [("registry", "update"), ("fragment", "list"), ("node", "instructions")]
+)
+@pytest.mark.parametrize(
+    "config",
+    [
+        "workflow: {}\nregistry:\n  url: git@github.com:someone/private.git\n",
+        # Flow style and quoting: the guard must parse exactly as the CLI does.
+        "workflow: {}\nregistry: {url: 'git@github.com:someone/private.git'}\n",
+        "{workflow: {}, registry: {url: \"git@github.com:someone/private.git\"}}\n",
+        "workflow: {}\nregistry:\n  url: [not, valid]\n",
+    ],
+)
+def test_guard_refuses_registries_other_than_the_fixture(
+    project_dir: Path, fake_real: Path, args: tuple[str, ...], config: str
+) -> None:
+    (project_dir / "loopspec" / "config.yaml").write_text(config)
+    store = str(project_dir / ".loopspec-store")
+    result = run_guard(project_dir, *args, real=fake_real, store=store, registry_url=FIXTURE_URL)
+    assert result.returncode == 126 and "REAL" not in result.stdout
+
+
+def test_guard_checks_the_default_home_even_when_a_value_looks_like_home(
+    project_dir: Path, fake_real: Path
+) -> None:
+    write_registry_config(project_dir, "git@github.com:someone/private.git")
+    decoy = project_dir / "decoy"
+    decoy.mkdir()
+    (decoy / "config.yaml").write_text(
+        f"workflow: {{}}\nregistry:\n  url: {FIXTURE_URL}\n"
+    )
+    store = str(project_dir / ".loopspec-store")
+    args = ("plan", "create", "-c", "X", "-f", "r.yaml", "--note", "--home=decoy")
+    result = run_guard(project_dir, *args, real=fake_real, store=store, registry_url=FIXTURE_URL)
+    assert result.returncode == 126 and "REAL" not in result.stdout
+
+
+def test_guard_refuses_registry_without_a_fixture(project_dir: Path, fake_real: Path) -> None:
+    result = run_guard(project_dir, "registry", "update", real=fake_real)
+    assert result.returncode == 126 and "REAL" not in result.stdout
+
+
+def test_guard_allows_the_fixture_registry_with_a_store_in_the_project(
+    project_dir: Path, fake_real: Path
+) -> None:
+    write_registry_config(project_dir, FIXTURE_URL)
+    store = str(project_dir / ".loopspec-store")
+    for args in (("registry", "update"), ("fragment", "list")):
+        result = run_guard(
+            project_dir, *args, real=fake_real, store=store, registry_url=FIXTURE_URL
+        )
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "REAL " + " ".join(args)
 
 
 def test_guard_is_executable() -> None:
@@ -440,7 +525,6 @@ def test_guard_passes_skill_commands_to_the_real_loopspec(
         (),
         ("init", ".", "--tools", "claude"),
         ("update",),
-        ("registry", "update"),
         ("--install-completion",),
         ("change", "new", "X", "--project-root", "/tmp"),
         ("change", "new", "X", "--home", "/tmp/elsewhere"),

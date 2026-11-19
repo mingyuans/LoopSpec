@@ -6,11 +6,11 @@ import fnmatch
 from typing import Literal
 
 from .errors import WorkflowError
+from .registry_store import definition_bundle
 from .workflow_diff import MAX_IGNORED_WARNINGS as MAX_LISTED_WARNINGS
 from .workflow_diff import DiffSnapshot, collect_diff
 from .workflow_evidence import Evidence, evidence_path, next_round, rounds_dir, valid_evidence
 from .workflow_io import (
-    ResourceBundle,
     archive_file,
     atomic_write,
     byte_hash,
@@ -25,7 +25,7 @@ from .workflow_state import LoadedPlan
 
 def live_rules(loaded: LoadedPlan) -> AssuranceRules:
     rules = assurance_rules(
-        ResourceBundle(loaded.home), loaded.spec.nodes, project_constraints(loaded.home)
+        definition_bundle(loaded.home), loaded.spec.nodes, project_constraints(loaded.home)
     )
     if rules is None:
         raise WorkflowError("assurance_missing", "Plan 与项目都没有配置保障规则")

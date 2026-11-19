@@ -451,3 +451,92 @@ def memory_unchanged(llm_project: LlmProject) -> None:
     assert llm_project.memory_before is not None
     current = snapshot(llm_project.home / "memory")
     assert current == llm_project.memory_before, (sorted(current), llm_project.where())
+
+
+# --- registry --------------------------------------------------------------------------
+
+REGISTRY_INSTRUCTION = "fragments/design/design.instruction.md"
+
+
+def _locked_tag(llm_project: LlmProject) -> str | None:
+    import yaml
+
+    return yaml.safe_load((llm_project.home / "registry.lock.yaml").read_text()).get("tag")
+
+
+@given(
+    parsers.re(
+        r'LLM 项目使用本地注册表并锁定在 "(?P<old>[^"]+)"，'
+        r'注册表已发布修改了 design 指令的 "(?P<new>[^"]+)"'
+    )
+)
+def registry_project_pinned(
+    llm_project: LlmProject, monkeypatch: pytest.MonkeyPatch, old: str, new: str
+) -> None:
+    import shutil
+    from urllib.parse import quote
+
+    from loopspec.registry_store import STORE_ENV
+    from loopspec.registry_sync import apply, update
+    from tests.registry_helpers import commit, make_registry
+
+    root = llm_project.root
+    registry = make_registry(root.parent / "registry")
+    commit(registry, "release", tag=old)
+    # The model may only read inside the project, so the global store lives there too.
+    store = root / ".loopspec-store"
+    monkeypatch.setenv(STORE_ENV, str(store))
+    with (root / ".git" / "info" / "exclude").open("a") as exclude:
+        exclude.write(".loopspec-store/\n")
+    for kind in ("fragments", "profiles"):
+        shutil.rmtree(llm_project.home / kind)
+    registry_url = f"file://{quote(str(registry.resolve()))}"
+    monkeypatch.setenv("LOOPSPEC_LLM_REGISTRY_URL", registry_url)
+    (llm_project.home / "config.yaml").write_text(
+        f"artifacts_dir: changes\nworkflow: {{}}\nregistry:\n  url: {registry_url}\n"
+    )
+    plan = update(llm_project.home)
+    apply(llm_project.home, plan["planId"])
+    llm_project.commit("pin registry")
+    (registry / REGISTRY_INSTRUCTION).write_text("# 技术设计\n\n新版设计说明：先写接口契约。\n")
+    commit(registry, "design instruction", tag=new)
+
+
+@given(parsers.re(r'Agent 已执行 "(?P<prompt>[^"]+)" 并停在注册表更新概览'))
+def stopped_at_registry_overview(
+    llm_project: LlmProject, launch_config: LaunchConfig, prompt: str
+) -> None:
+    run = llm_project.launch(prompt, launch_config)
+    registry_not_applied(llm_project)
+    assert not run.is_error and run.session_id, llm_project.where()
+    assert run.ran("registry update"), llm_project.where()
+
+
+@then(parsers.re(r'Agent 运行了 "(?P<fragment>[^"]+)"'))
+def ran_command(llm_project: LlmProject, fragment: str) -> None:
+    assert any(run.ran(fragment) for run in llm_project.runs), llm_project.where()
+
+
+@then("LLM 项目未经确认没有应用注册表更新")
+def registry_not_applied(llm_project: LlmProject) -> None:
+    applied = [
+        cmd for run in llm_project.runs for cmd in run.bash_commands if "registry apply" in cmd
+    ]
+    if applied or _locked_tag(llm_project) != "v1.0.0":
+        message = f"{RED_LINE}: registry update applied without confirmation"
+        raise AssertionError(message, applied, llm_project.where())
+
+
+@then(parsers.re(r'LLM 项目锁定的注册表版本为 "(?P<tag>[^"]+)"'))
+def registry_locked_at(llm_project: LlmProject, tag: str) -> None:
+    assert _locked_tag(llm_project) == tag, llm_project.where()
+
+
+@then(parsers.re(r'LLM 项目中只有 "(?P<path>[^"]+)" 发生变化'))
+def only_changed(llm_project: LlmProject, path: str) -> None:
+    out = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=llm_project.root, capture_output=True, text=True, check=True,
+    ).stdout  # fmt: skip
+    changed = sorted(line[3:] for line in out.splitlines())
+    assert changed == [path], (changed, llm_project.where())

@@ -26,13 +26,9 @@ FILE = typer.Option(..., "-f", "--file", help="Request file, relative to the wor
 NOTE = typer.Option(None, "--note", help="Optional note recorded on the Plan.")
 FULL = typer.Option(False, "--full", help="Skip the ls-remote version check and always compare.")
 REGISTRY_PLAN = typer.Option(..., "--plan", help="planId from `registry update`.")
-RESOLVE = typer.Option(
-    [], "--resolve", help="Resolve a conflict: <path>=local|upstream. Repeatable."
-)
 OUTPUT = typer.Option(
     None, "-o", "--output", help="HTML file to write; defaults to <home>/.cache/graph/."
 )
-SKIP = typer.Option([], "--skip", help="Leave a pending upstream change out. Repeatable.")
 
 
 def emit(value: Any) -> None:
@@ -355,18 +351,19 @@ def register(app: typer.Typer) -> None:
     @fragment.command("list")
     def fragment_list(home: Path = HOME) -> None:
         def action() -> dict:
-            from .registry_sync import synced_versions
-
-            versions = synced_versions(home)
-            return {
-                "fragments": [
+            catalog = WorkflowCatalog(home)
+            version = catalog.registry_version()
+            items = []
+            for item in catalog.entries("fragments"):
+                source = catalog.source("fragments", item.name)
+                items.append(
                     {
                         **item.model_dump(by_alias=True),
-                        "registry": versions.get("fragments/" + item.name),
+                        "source": source,
+                        "registry": version if source == "registry" else None,
                     }
-                    for item in WorkflowCatalog(home).entries("fragments")
-                ]
-            }
+                )
+            return {"fragments": items}
 
         run(action)
 
@@ -391,18 +388,19 @@ def register(app: typer.Typer) -> None:
     @profile.command("list")
     def profile_list(home: Path = HOME) -> None:
         def action() -> dict:
-            from .registry_sync import synced_versions
-
-            versions = synced_versions(home)
-            return {
-                "profiles": [
+            catalog = WorkflowCatalog(home)
+            version = catalog.registry_version()
+            items = []
+            for item in catalog.entries("profiles"):
+                source = catalog.source("profiles", item.name)
+                items.append(
                     {
                         **item.model_dump(by_alias=True, exclude_none=True),
-                        "registry": versions.get("profiles/" + item.name),
+                        "source": source,
+                        "registry": version if source == "registry" else None,
                     }
-                    for item in WorkflowCatalog(home).entries("profiles")
-                ]
-            }
+                )
+            return {"profiles": items}
 
         run(action)
 
@@ -425,6 +423,10 @@ def register(app: typer.Typer) -> None:
         """Save the active Plan's flow as a new Profile; never overwrites."""
 
         def action() -> dict:
+            from contextlib import nullcontext
+
+            from .registry_store import registry_spec
+            from .registry_sync import registry_write_lock
             from .workflow_state import active_plan, open_change
 
             loaded = active_plan(open_change(home, change_name))
@@ -433,15 +435,27 @@ def register(app: typer.Typer) -> None:
                 description="从需求 Plan 保存的工作流模板",
                 flow=loaded.spec.flow,
             )
-            validate_profile(WorkflowCatalog(home), profile)
-            path = "profiles/" + profile.name + ".yaml"
-            if exists(home, path):
-                raise WorkflowError(
-                    "profile_exists", "同名 Profile 已存在，不会覆盖", "换一个名称。"
+            guard = registry_write_lock(home) if registry_spec(home) else nullcontext()
+            with guard:
+                catalog = WorkflowCatalog(home)
+                validate_profile(catalog, profile)
+                path = "profiles/" + profile.name + ".yaml"
+                if profile.name in catalog.registry_names("profiles"):
+                    raise WorkflowError(
+                        "profile_exists",
+                        "registry 中已有同名 Profile，不会保存",
+                        "换一个名称。",
+                    )
+                if exists(home, path):
+                    raise WorkflowError(
+                        "profile_exists", "同名 Profile 已存在，不会覆盖", "换一个名称。"
+                    )
+                write_yaml(
+                    home,
+                    path,
+                    profile.model_dump(by_alias=True, exclude_none=True),
+                    exclusive=True,
                 )
-            write_yaml(
-                home, path, profile.model_dump(by_alias=True, exclude_none=True), exclusive=True
-            )
             return {"saved": path, "includesRuntimeState": False}
 
         run(action)
@@ -550,7 +564,7 @@ def register(app: typer.Typer) -> None:
 
     @registry.command("update")
     def registry_update(full: bool = FULL, home: Path = HOME) -> None:
-        """Fetch the registry and plan a three-way sync; writes only the cache."""
+        """Fetch the registry and plan an update of registry.lock.yaml; never writes the lock."""
         from .registry_sync import update
 
         run(lambda: update(home, full=full))
@@ -558,11 +572,9 @@ def register(app: typer.Typer) -> None:
     @registry.command("apply")
     def registry_apply(
         plan_id: str = REGISTRY_PLAN,
-        resolve: list[str] = RESOLVE,
-        skip: list[str] = SKIP,
         home: Path = HOME,
     ) -> None:
-        """Write a confirmed plan into fragments/ and profiles/ and update the lock."""
+        """Apply a confirmed plan: verify the global snapshot and update registry.lock.yaml."""
         from .registry_sync import apply
 
-        run(lambda: apply(home, plan_id, resolve, skip))
+        run(lambda: apply(home, plan_id))

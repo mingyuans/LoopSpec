@@ -21,10 +21,11 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 
 ALLOWED_SUBCOMMANDS = frozenset(
-    {"change", "plan", "node", "gate", "state", "memory", "fragment", "profile"}
+    {"change", "plan", "node", "gate", "state", "memory", "fragment", "profile", "registry"}
     # `hook pre-tool-use` is what Claude itself runs before every tool call (the plan guard
     # that `loopspec init --tools claude` installs); it only reads stdin and prints a
     # decision. The model's Bash rules do not allow calling it directly.
@@ -52,9 +53,79 @@ def inside(project: str, value: str) -> bool:
     return target == project or target.startswith(project + os.sep)
 
 
+#: Run with the guard's own interpreter (the worktree venv): `-I` keeps the project directory
+#: and PYTHON* variables out of sys.path, so the project cannot shadow loopspec modules.
+_READ_REGISTRY = """
+import json, sys
+from pathlib import Path
+from loopspec.registry_store import registry_spec
+try:
+    spec = registry_spec(Path(sys.argv[1]))
+except Exception:
+    print(json.dumps({"invalid": True}))
+else:
+    print(json.dumps({"url": spec.url if spec else None}))
+"""
+
+
+def home_candidates(args: list[str]) -> list[str]:
+    """Every directory the CLI might use as the workflow home.
+
+    Tokens are not parsed the way the CLI parses them (an option such as --note can
+    consume a value that looks like --home=...), so the default home and every value
+    that could be a --home are all checked.
+    """
+    candidates = ["loopspec"]
+    for index, arg in enumerate(args):
+        if arg == "--home" and index + 1 < len(args):
+            candidates.append(args[index + 1])
+        elif arg.startswith("--home="):
+            candidates.append(arg.split("=", 1)[1])
+    return candidates
+
+
+def configured_registry_url(home: str, project: str) -> str | None:
+    """`registry.url` exactly as the CLI parses `home`'s config.yaml.
+
+    Returns None when no registry is configured; refuses when the config cannot be read.
+    """
+    try:
+        result = subprocess.run(  # noqa: S603 - fixed interpreter and code, argv list
+            [sys.executable, "-I", "-c", _READ_REGISTRY, os.path.join(project, home)],
+            cwd=project, capture_output=True, text=True, timeout=60, check=True,
+        )  # fmt: skip
+        data = json.loads(result.stdout)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        refuse("could not read the workflow home's registry configuration")
+    if data.get("invalid"):
+        refuse("could not read the workflow home's registry configuration")
+    url = data.get("url")
+    return url if isinstance(url, str) else None
+
+
+def check_registry(args: list[str], project: str) -> None:
+    """Registry access only to the scenario's fixture registry, snapshots only into the project.
+
+    Any command that reads definitions can fetch from the configured registry, so this
+    applies to every subcommand: a model that edits config.yaml cannot point the host's
+    git (and its credentials) at another repository.
+    """
+    urls = [configured_registry_url(home, project) for home in home_candidates(args)]
+    if all(url is None for url in urls) and args[0] != "registry":
+        return
+    allowed = os.environ.get("LOOPSPEC_LLM_REGISTRY_URL", "")
+    if not allowed or any(url not in (None, allowed) for url in urls) or allowed not in urls:
+        refuse("registry access is limited to the scenario's fixture registry")
+    store = os.environ.get("LOOPSPEC_REGISTRY_STORE", "")
+    if not store or not os.path.isabs(store) or not inside(project, store):
+        refuse("registry needs LOOPSPEC_REGISTRY_STORE inside the working directory")
+
+
 def check(args: list[str], project: str) -> None:
     if not args or args[0] not in ALLOWED_SUBCOMMANDS:
         refuse(f"only these subcommands are available here: {sorted(ALLOWED_SUBCOMMANDS)}")
+    if args[0] != "hook":
+        check_registry(args, project)
     for index, arg in enumerate(args):
         name = arg.split("=", 1)[0]
         if name in REFUSED_OPTIONS:

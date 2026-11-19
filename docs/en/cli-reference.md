@@ -205,7 +205,7 @@ Appends one single-line record to the matching section of the Change-level or th
 
 ## loopspec fragment list
 
-Lists the Fragments in the workflow home. Each entry carries `registry`: `{syncedTag, syncedCommit}` for a definition recorded in `registry.lock.yaml`, otherwise `null` (also when the lock is missing or malformed). Options: `--home`.
+Lists the Fragments in the workflow home. In registry mode this is the registry definitions pinned by the lock plus the project's local ones. Each entry carries `source` (`registry` or `local`) and `registry`: `{syncedTag, syncedCommit}` for a registry definition, `null` for a local one. In registry mode a missing or malformed lock, or a local definition with a registry name, fails with the matching error. Options: `--home`.
 
 ## loopspec fragment show
 
@@ -217,7 +217,7 @@ Lists the Fragments in the workflow home. Each entry carries `registry`: `{synce
 
 ## loopspec profile list
 
-Lists the Profiles in the workflow home. Each entry carries `registry`: `{syncedTag, syncedCommit}` for a definition recorded in `registry.lock.yaml`, otherwise `null` (also when the lock is missing or malformed). Options: `--home`.
+Lists the Profiles in the workflow home. In registry mode this is the registry definitions pinned by the lock plus the project's local ones. Each entry carries `source` (`registry` or `local`) and `registry`: `{syncedTag, syncedCommit}` for a registry definition, `null` for a local one. In registry mode a missing or malformed lock, or a local definition with a registry name, fails with the matching error. Options: `--home`.
 
 ## loopspec profile show
 
@@ -233,7 +233,7 @@ Lists the Profiles in the workflow home. Each entry carries `registry`: `{synced
 loopspec profile save <name> -c <change>
 ```
 
-Saves the active Plan's `spec.flow`, `on_fail` included, as `profiles/<name>.yaml`. No execution state is saved and an existing Profile is never overwritten. Options: `--change`, `--home`.
+Saves the active Plan's `spec.flow`, `on_fail` included, as `profiles/<name>.yaml`. No execution state is saved and an existing Profile is never overwritten; in registry mode a name used by a registry Profile is `profile_exists`. Options: `--change`, `--home`.
 
 ## loopspec graph
 
@@ -252,15 +252,15 @@ The file goes to `<home>/.cache/graph/profile-<name>.html` or `<home>/.cache/gra
 loopspec registry update [--full]
 ```
 
-Plans a sync of `fragments/` and `profiles/` from the `registry` in `config.yaml`; it writes only `<home>/.cache/registry/`. First `git ls-remote` resolves the target (`latest` or the fixed tag). When that commit equals the lock's and no definition lags behind, it returns `upToDate: true` without fetching; a fixed tag that is already synced runs no git at all. Otherwise it fetches the commit into a private bare repository (never checked out), compares every registry definition with the local copies against the lock, and stages upstream and base contents for review. Each file gets a `status`: `upstream-added`, `upstream-modified`, `upstream-deleted` (pending, need confirmation), `conflict` (must be resolved), `local-modified`, `local-deleted`, `local-only` (kept as they are). Symlinks and submodules are listed in `unsupported` and never written. Returns `registry`, `upToDate`, `baseCommit`, `baseTag`, `upstreamCommit`, `upstreamTag`, `baseAvailable`, `planId`, `definitions` (each with `kind`, `name`, `deletedUpstream`, `baseTag`, `baseCommit`, `upstreamTag`, `upstreamCommit`), `files` (each with `path`, `status`, `localPath`, `upstreamPath`, `basePath`), `unsupported`, `warnings` and `nextSteps`. `--full` skips the version check and always compares. Requires `git` on `PATH`. Options: `--full`, `--home`.
+Plans an update of `registry.lock.yaml` from the `registry` in `config.yaml`. It never writes the lock; inside the project it writes only `<home>/.cache/registry/`. It first resolves the target (`latest` or a pinned tag) with `git ls-remote`: when a new-format lock already pins the target commit and tag it returns `upToDate: true`, and a pinned tag that is already locked runs no git at all. Otherwise it reads the target commit's definitions from git (a private bare repository, never checked out), publishes them as a snapshot in the global store, and compares them with the current lock file by file: each file gets a `status` of `added`, `modified` or `deleted`. An old-format lock always produces a plan (`migration: true`). Returns `registry`, `upToDate`, `baseCommit`, `baseTag`, `upstreamCommit`, `upstreamTag`, `baseAvailable` (whether the current version's contents could be provided), `migration`, `sourceChanged` and `previousRegistry` (the lock's old source when it differs from the config; confirm the switch separately), `planId`, `definitions` (each with `kind`, `name`, `change`), `files` (each with `path`, `status`, `upstreamPath`, `basePath`, pointing at verified files in the global store for reviewing the diff), `localConflicts` (project paths that share a name with the target version), `brokenReferences` (resources referenced by running Plans that the target no longer provides, each with `change` and `path`), `warnings` and `nextSteps`. `--full` skips the version pre-check and always plans. Requires `git` on `PATH`. Options: `--full`, `--home`.
 
 ## loopspec registry apply
 
 ```bash
-loopspec registry apply --plan <planId> [--resolve <path>=local|upstream]... [--skip <path>]...
+loopspec registry apply --plan <planId>
 ```
 
-Writes the latest `registry update` plan after the human confirmed it. Every `conflict` needs exactly one `--resolve`: `local` keeps the current local file (including a merge written there after confirmation), `upstream` takes the registry version. `--skip` leaves a pending change out; its base and its definition's version stay as they were, so it appears again next time. Refused with `registry_plan_stale` when the plan is not the latest, the staged contents changed, or a local file changed after the plan. The result is built and loaded in a preview first; any Fragment or Profile that fails validation stops the command before anything is written. Then files are written atomically, deletions remove only listed files, and `registry.lock.yaml` is updated. Returns `applied`, `upstreamCommit`, `upstreamTag`, `written`, `deleted`, `skipped`, `kept` and `lock`. Applying takes effect immediately for running Plans. Options: `--plan`, `--resolve`, `--skip`, `--home`.
+Applies the latest `registry update` plan after the human confirmed it, writing only `registry.lock.yaml`. Refused with `registry_plan_stale` when the plan id differs, the registry in `config.yaml` or the lock changed since the plan, or the plan was tampered with. Before writing it checks, in order: project definitions sharing a name with the target version (`registry_local_conflict`); that every target and local definition loads (local definitions that were already broken do not block); that `workflow.required_fragments` and `workflow.assurance_rules` can still be satisfied (`project_constraint` and the like); and that resources referenced by running Plans still exist (`registry_breaks_running_plan`). Any failure leaves the lock untouched. Returns `applied`, `upstreamCommit`, `upstreamTag`, `migration`, `added`, `modified`, `deleted` and `lock`. Applying takes effect immediately for running Plans. It shares a project-level write lock with `registry update` and registry-mode `profile save`. Options: `--plan`, `--home`.
 
 ## loopspec memory list
 
@@ -354,8 +354,13 @@ Prints one topic in full as JSON (`topic`, `path`, `content`, `untrustedData`); 
 | `registry_unavailable` | `git` is not installed or not on `PATH`. |
 | `registry_fetch_failed` | `ls-remote` or fetch failed, timed out, the tag does not exist, or the registry moved between check and fetch. |
 | `registry_invalid` | The registry tree is unreadable, `path` is missing, or a size or count limit was exceeded. |
-| `registry_plan_stale` | No current plan, the plan id differs, or staged or local files changed since `registry update`. |
-| `registry_conflict_unresolved` | A conflict has no `--resolve`. |
+| `registry_plan_stale` | No current plan, the plan id differs, the plan was tampered with, or the registry in `config.yaml` or `registry.lock.yaml` changed since `registry update`. |
+| `registry_not_synced` | A registry-mode project has no `registry.lock.yaml`. |
+| `registry_lock_outdated` | An old-format `registry.lock.yaml` holds skipped definitions and matches no single registry version. |
+| `registry_lock_mismatch` | The lock's source differs from `config.yaml`, the lock's tag does not point at its commit in the registry, or the registry's content at that commit differs from the hashes in the lock. |
+| `registry_local_conflict` | The project holds a Fragment or Profile with a registry definition's name. |
+| `registry_store_corrupt` | A snapshot in the global store does not match the lock (modified or incomplete). |
+| `registry_breaks_running_plan` | Applying the plan would remove a resource a running Plan references. |
 | `update_invalid_version` | A version given to or read by `update` is not a release version, or `--beta` was combined with `--version`. |
 | `update_fetch_failed` | `update` could not download a release file: network error, timeout, size limit, non-https URL, a `checksums.txt` without a wheel, or (with `--beta`) a `releases.atom` feed without a valid release tag. |
 | `update_verify_failed` | The wheel has no single `checksums.txt` line, its SHA256 differs, or the version in a tag's `checksums.txt` does not match the tag; nothing was installed. |

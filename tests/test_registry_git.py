@@ -297,3 +297,27 @@ def test_large_batch_read_completes(tmp_path: Path) -> None:
 def test_ssh_user_cannot_start_with_dash() -> None:
     with pytest.raises(ValueError):
         RegistrySpec(url="ssh://-oProxy@host/repo.git")
+
+
+def test_fetch_commit_by_tag_and_by_id(tmp_path: Path) -> None:
+    registry = make_registry(tmp_path / "registry")
+    first = commit(registry, "release", tag="v1.0.0")
+    second = commit(registry, "next")
+    spec = RegistrySpec(url=url(registry))
+    for pinned, tag in ((first, "v1.0.0"), (second, None)):
+        repo = RegistryRepo(tmp_path / f"cache-{pinned[:7]}", spec)
+        repo.fetch_commit(pinned, tag)
+        assert repo.has_commit(pinned)
+        assert "fragments/design/fragment.yaml" in repo.read_tree(pinned).files
+
+
+def test_fetch_commit_fails_strictly(tmp_path: Path) -> None:
+    registry = make_registry(tmp_path / "registry")
+    commit(registry, "release", tag="v1.0.0")
+    repo = RegistryRepo(tmp_path / "cache", RegistrySpec(url=url(registry)))
+    with pytest.raises(WorkflowError) as caught:
+        repo.fetch_commit("0" * 40, "v9.9.9")
+    assert caught.value.code == "registry_fetch_failed"
+    with pytest.raises(WorkflowError) as caught:
+        repo.fetch_commit("not-a-commit")
+    assert caught.value.code == "registry_invalid"

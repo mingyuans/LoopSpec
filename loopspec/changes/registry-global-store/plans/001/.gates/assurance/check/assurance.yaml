@@ -1,0 +1,111 @@
+diffDigest: 4dc3043ccc41780737832a0c78d53b234d2174f95cb14c4c5c6df964418e675f
+baseline: 04812daa63283f7991d1c4684958e3538b816928
+warnings:
+  ignoredPaths:
+  - .llm-e2e-runs/
+  ignoredTotal: 1
+  unknownPaths:
+  - loopspec/registry.lock.yaml
+  unknownTotal: 1
+unknown_paths:
+- loopspec/registry.lock.yaml
+missing_evidence: []
+stale_evidence: []
+missing_fragments: []
+diverged_commits:
+- src/loopspec/registry_store.py
+- tests/test_registry_store.py
+requiredCapabilities:
+  src/loopspec/cli.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/registry_git.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/registry_store.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/registry_sync.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/workflow_assurance.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/workflow_catalog.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/workflow_cli.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  src/loopspec/workflow_runtime.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/conftest.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/features/llm_skills.feature:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/features/registry.feature:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/llm_bin/loopspec:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/llm_launcher.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/registry_helpers.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/steps/llm_steps.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/steps/registry_steps.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_cli.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_docs_consistency.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_llm_launcher.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_registry_git.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_registry_store.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_registry_sync.py:
+  - backend-tests
+  - pr-review
+  - security-review
+  tests/test_workflow_cli.py:
+  - backend-tests
+  - pr-review
+  - security-review
+passed: false

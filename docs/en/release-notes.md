@@ -4,6 +4,17 @@
 > Audience: users upgrading an existing installation or workspace.
 > Language: **English** · [中文](../zh/release-notes.md)
 
+## Unreleased
+
+### Registry mode: definitions move to a global store
+
+- A project that configures `registry` no longer has fragments/profiles written into it. Definitions are kept per source and commit under `$LOOPSPEC_REGISTRY_STORE` (default `~/.loopspec/registry`); the project commits only `config.yaml` and `registry.lock.yaml`.
+- A fresh clone or worktree fetches and verifies the locked commit automatically the first time it reads definitions; no extra command.
+- `registry.lock.yaml` is now `version: 2` (`commit`, `tag`, `files`); `registry apply` writes only the lock, `--resolve` and `--skip` are removed, and there is no local three-way merge any more.
+- A project definition with a registry name fails with `registry_local_conflict`; local definitions with other names keep working, and `fragment list`/`profile list` gain a `source` field.
+- In registry mode `loopspec init` copies no built-in definitions.
+- Migration: delete the project definitions that share a name with the registry, run `registry update` and `registry apply`, and commit the deletions and the new lock (see [Configuration](configuration.md)).
+
 ## 2.0.0
 
 2.0.0 is not compatible with 1.x. The Schema-based workflow is removed; every Change is now driven by Plans composed from Fragments and Profiles.

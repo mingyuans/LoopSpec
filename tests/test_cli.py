@@ -45,6 +45,20 @@ def test_init_creates_workspace_without_schemas(tmp_path: Path):
     assert not (home / "schemas").exists()
 
 
+@pytest.mark.parametrize("flags", [[], ["--update-resources"]])
+def test_init_in_registry_mode_copies_no_definitions(tmp_path: Path, flags: list[str]):
+    home = tmp_path / "wf"
+    home.mkdir()
+    (home / "config.yaml").write_text(
+        "workflow: {}\nregistry:\n  url: git@github.com:acme/flows.git\n"
+    )
+    code, data = run("init", str(home), "--json", *flags)
+    assert code == 0, data
+    assert data["resourcesUpdate"] == "registry"
+    assert data["copiedWorkflowResources"] == []
+    assert not (home / "fragments").exists() and not (home / "profiles").exists()
+
+
 def test_init_rejects_removed_no_builtin_flag(tmp_path: Path):
     result = runner.invoke(app, ["init", str(tmp_path / "wf"), "--no-builtin", "--json"])
     assert result.exit_code != 0

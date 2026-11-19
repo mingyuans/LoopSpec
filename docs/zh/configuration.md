@@ -35,7 +35,7 @@ workflow:
 
 ### registry 字段
 
-可选的 git 仓库（通常在 GitHub），用于单独维护共享的 fragments 与 profiles。fragments 与 profiles 仍只从 `<home>/fragments/` 与 `<home>/profiles/` 加载；registry 是它们的上游，由 `loopspec registry update` 与 `loopspec registry apply` 同步（见 [CLI 参考](cli-reference.md)）。每个项目只配置一个 registry，并全量同步。
+可选的 git 仓库（通常在 GitHub），用于单独维护共享的 fragments 与 profiles。配置 registry 后项目进入 **registry 模式**：registry 的 fragments 与 profiles 不再写进项目，而是存放在用户级全局存储中，项目只提交 `config.yaml` 与 `registry.lock.yaml`。版本由 `loopspec registry update` 与 `loopspec registry apply` 更新（见 [CLI 参考](cli-reference.md)）。每个项目只配置一个 registry。
 
 <!-- loopspec:example=config -->
 ```yaml
@@ -57,20 +57,17 @@ registry:
 
 ### registry.lock.yaml
 
-`loopspec registry apply` 写出 `<home>/registry.lock.yaml`，与 `config.yaml` 一起提交。它是三方比对的基线，并记录每个定义来自哪个上游版本。`loopspec init` 不会创建它，内置资源也不带版本号。它作为不可信输入严格校验，不合法时返回 `config_invalid`。
+`loopspec registry apply` 写出 `<home>/registry.lock.yaml`，与 `config.yaml` 一起提交。它锁定项目使用的 registry commit，并记录该 commit 中每个定义文件的 SHA-256。`loopspec init` 不会创建它。它作为不可信输入严格校验，不合法时返回 `config_invalid`。
 
 <!-- loopspec:example=registry-lock -->
 ```yaml
-version: 1
+version: 2
 registry:
   url: git@github.com:acme/loopspec-workflows.git
   version: latest
   path: workflows
 commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1
 tag: v1.4.0
-definitions:
-  fragments/qa-testing: {tag: v1.3.0, commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1}
-  profiles/bugfix: {tag: v1.4.0, commit: 3f2a9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1}
 files:
   fragments/qa-testing/fragment.yaml: 9c1e5b7d4f60a8e2c3b1d9f7a6e5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7
   profiles/bugfix.yaml: 51ab7d4f60a8e2c3b1d9f7a6e5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d7c6
@@ -78,24 +75,30 @@ files:
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- | --- |
-| `version` | 整数 | 否 | `1` | 格式版本。 |
-| `registry` | registry 映射 | 是 | - | 本次锁对应的 registry。 |
-| `commit` | commit id | 是 | - | 上次 apply 的上游 commit。 |
+| `version` | 整数 | 否 | `2` | 格式版本。旧格式 `1`（定义写在项目内时的锁）仍可读取，下一次 `registry apply` 改写为 `2`。 |
+| `registry` | registry 映射 | 是 | - | 本次锁对应的 registry。`url` 或 `path` 与 `config.yaml` 不一致，或 `config.yaml` 固定了 tag 而 lock 的 `tag` 与之不同，读取定义返回 `registry_lock_mismatch`；修改 `version` 后先 `registry update` 与 `registry apply`。 |
+| `commit` | commit id | 是 | - | 项目使用的 registry commit。 |
 | `tag` | tag 或 null | 否 | - | 该 commit 的 release tag。 |
-| `definitions` | 映射 | 否 | `{}` | `fragments/<name>` 或 `profiles/<name>` 到该定义实际所处的版本。有文件被跳过的定义保留旧版本。 |
-| `held` | 定义列表 | 否 | `[]` | 有文件被跳过的定义。只要存在这样的定义，即使 registry 没有变化，`registry update` 也会重新比对，被跳过的变更不会被遗忘。 |
-| `files` | 映射 | 否 | `{}` | 每个已同步文件到其上游内容的 SHA-256，用于区分本地修改与上游修改。 |
+| `files` | 映射 | 否 | `{}` | 该 commit 中每个定义文件到其内容 SHA-256。定义集合由它推出，全局存储中的快照逐文件按它校验。 |
 
-冲突选择 `local` 同样算作基于该上游版本作出了决定：该定义的版本会推进，此后这个文件显示为 `local-modified`。`url` 或 `path` 变化后不再使用旧锁作为基线：所有差异按冲突报告，不会规划任何删除。
+### 全局存储
 
-`definitions` 的每一项：
+registry 定义按「来源 + commit」存放在 `$LOOPSPEC_REGISTRY_STORE`（默认 `~/.loopspec/registry`）下：`<store>/<source-id>/<commit>/`，`source-id` 形如 `<仓库名>[-<path>]-<hash8>`：可读前缀取 `url` 最后一段（去掉 `.git`）加上 `path`，转为小写并只保留 `a-z0-9-`（最长 48 个字符）；`hash8` 是 `url` 与 `path` 的 SHA-256 前 8 位，因此同一仓库的 SSH 与 HTTPS 写法是两个来源。例如 `url: git@github.com:AfterShip/docs-coke-context.git`、`path: channels-loopspec` 存放在 `~/.loopspec/registry/docs-coke-context-channels-loopspec-2d42f67b/<commit>/`。快照写完临时目录后原子发布，此后不再改变，同一台机器上的多个项目与 worktree 共用。目录必须属于当前用户、路径中没有符号链接且组与其他用户不可写，否则返回 `unsafe_path`；新建目录权限为 `0700`。
 
-| 字段 | 类型 | 必填 | 默认值 | 说明 |
-| --- | --- | --- | --- | --- |
-| `tag` | tag 或 null | 否 | - | 同步该定义时的 release tag。 |
-| `commit` | commit id | 是 | - | 同步该定义时的上游 commit。 |
+- **自动拉取。**读取定义（`fragment list`、`plan create`、`node instructions`、保障规则等）时，如果存储中还没有 lock 锁定的 commit，CLI 会从 registry 拉取该 commit，按 lock 的 hash 完整校验后发布，再继续执行；lock 带 `tag` 时，先确认该 tag 在 registry 中仍指向 lock 的 commit，否则返回 `registry_lock_mismatch`，伪造的 lock 无法借已发布的 tag 掩盖其他 commit。注意：这意味着在不信任的项目里执行读取定义的命令，也可能按该项目配置的 `registry.url` 发起 git 连接并使用本机的 SSH 或凭据助手认证；对不熟悉的项目，先检查 `config.yaml` 与 `registry.lock.yaml`。新 clone 或新 worktree 因此不需要额外步骤；只有首次拉取需要网络与 git 凭据，失败返回 `registry_fetch_failed`，不会留下半成品快照。
+- **完整性。**每次读取都按 lock 校验文件内容；快照被改动或缺文件时返回 `registry_store_corrupt`，按提示删除该快照目录后重试即可重新拉取。CLI 不会自动替换已存在的快照。
+- **本地定义。**项目内仍可在 `<home>/fragments/`、`<home>/profiles/` 放置名称不同于 registry 定义的本地定义，二者可在同一 Plan 中使用，`fragment list`/`profile list` 用 `source` 区分。与 registry 同名的本地文件或目录会让读取定义的命令返回 `registry_local_conflict`，删除这些项目内副本即可。
+- **缺少锁。**registry 模式下没有 `registry.lock.yaml` 时返回 `registry_not_synced`；旧格式锁中有被跳过的定义（`held`）时返回 `registry_lock_outdated`。两者都通过 `registry update` 与 `registry apply` 修复。
 
-缓存目录 `<home>/.cache/registry/`（私有裸仓库、计划与暂存文件）通过自带的 `.gitignore` 忽略自身，可随时删除。
+缓存目录 `<home>/.cache/registry/`（同步计划与写锁）通过自带的 `.gitignore` 忽略自身，可随时删除。
+
+### 从项目内定义迁移
+
+之前由 `registry apply` 写入项目的 `fragments/`、`profiles/` 副本在升级后会与 registry 同名而报 `registry_local_conflict`：
+
+1. 删除项目内与 registry 同名的定义（只保留你自己的本地定义）。
+2. 运行 `loopspec registry update`，确认后 `loopspec registry apply --plan <planId>`，锁改写为新格式。
+3. 提交删除与新的 `registry.lock.yaml`。
 
 ### 何时读取
 
