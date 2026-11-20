@@ -31,3 +31,4 @@
 ## Plan 记录
 
 <!-- 引擎自动追加 Plan 沿革，请勿手工编辑，也勿在此段之后新增段落。 -->
+- 2026-11-20T16:34:06+00:00 · Change quote-markers 归档前 memory 审阅 · 结论：none · 变化的 topic：无 · 备注：引用块格式规范已写入 AGENTS.md 与 text_format 文档并由 quoted_blocks 测试固定；流程上沿用已有 gate-workflow/dev-environment 经验，本次无新的可复用结论。
