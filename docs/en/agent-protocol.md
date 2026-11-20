@@ -41,6 +41,7 @@ For `loopspec node instructions -c <change> -n <node>`:
 - Code Gate (`gateProtocol.kind: code-evidence`): run `beginCommand`, review or test exactly the returned scope, write the report under `artifacts/`, then run `recordCommand` with the `roundId`. If the code changes meanwhile, begin again.
 - Assurance node (`gateProtocol.kind: assurance`): run `recordCommand`. Never write its PASS by hand.
 - Read `priorAttempts` before redoing a node: it lists earlier FAIL reports and archived artifacts.
+- Files the instruction refers to (`references/…`, `scripts/…`, or a bare file name) live in the directory of the node's Fragment: resolve them against `fragmentDir`, looking in its subdirectories (such as `references/`) for a bare file name. In registry mode that directory is in the global snapshot; the project has no `fragments/`.
 
 ## 3. Rework
 

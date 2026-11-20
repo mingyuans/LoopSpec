@@ -41,6 +41,7 @@
 - 代码 Gate（`gateProtocol.kind: code-evidence`）：执行 `beginCommand`，只审查或测试返回的范围，把报告写到 `artifacts/` 下，再带上 `roundId` 执行 `recordCommand`。期间代码变化则重新 begin。
 - 保障节点（`gateProtocol.kind: assurance`）：执行 `recordCommand`，不要手写它的 PASS。
 - 重做节点前先读 `priorAttempts`：其中列出以前的 FAIL 报告与归档的产物。
+- 指令引用的辅助文件（`references/…`、`scripts/…` 或只写文件名的文件）都在节点所属 Fragment 的目录里：按 `fragmentDir` 定位，只写文件名时在其子目录（如 `references/`）中查找。registry 模式下该目录位于全局快照中，项目里没有 `fragments/`。
 
 ## 3. 返工
 

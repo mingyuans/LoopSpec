@@ -23,6 +23,13 @@
     并且 返回非空的执行指令
     并且 解析后的产物路径为活动 Plan 目录下的 "artifacts/requirements/proposal.md"
 
+  场景: 执行指令给出节点所属 Fragment 的绝对目录与文件路径
+    假如 隔离项目中有一个已批准的缺陷修复 Plan
+    当 获取节点 "requirements/proposal" 的执行指令
+    那么 命令成功
+    并且 输出字段 "fragmentName" 为 "requirements"
+    并且 fragmentDir 是工作区中 "fragments/requirements" 的绝对路径，指令与模板文件都在其中
+
   场景: 代码 Gate 先 begin 再凭轮次与报告记录 PASS
     假如 隔离项目中有一个已批准的缺陷修复 Plan
     并且 后端代码已修改且流程推进到 "be/tests/check"

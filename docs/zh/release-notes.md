@@ -6,6 +6,10 @@
 
 ## 未发布
 
+### `node instructions` 给出 Fragment 的绝对路径
+
+- 新增 `fragmentName`、`fragmentDir`、`instructionPath`、`templatePath`（Gate 为 `templatePaths`）。registry 模式下 Fragment 只在全局快照中，指令里引用的 `references/`、`scripts/` 等辅助文件按 `fragmentDir` 定位。
+
 ### 工作流命令默认输出文本报告（破坏性变更）
 
 - 所有工作流命令（`change`、`plan`、`node`、`gate`、`state`、`fragment`、`profile`、`registry`、`memory`）默认输出写给 LLM 阅读的纯文本报告，样式与 `change status` 一致；加 `--json` 输出与之前完全相同的 JSON。
