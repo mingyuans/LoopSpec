@@ -502,6 +502,67 @@ def registry_project_pinned(
     commit(registry, "design instruction", tag=new)
 
 
+REFERENCE_FRAGMENT = "fragments/requirements"
+
+
+@given(
+    parsers.re(
+        r"LLM 项目使用本地注册表，其 requirements 指令要求把 references/rules.md 中的口令"
+        r'写进产物，口令为 "(?P<token>[^"]+)"'
+    )
+)
+def registry_with_reference(
+    llm_project: LlmProject, monkeypatch: pytest.MonkeyPatch, token: str
+) -> None:
+    """A Fragment whose instruction points at an auxiliary file only the snapshot holds."""
+    import shutil
+    from urllib.parse import quote
+
+    from loopspec.registry_store import STORE_ENV
+    from loopspec.registry_sync import apply, update
+    from tests.registry_helpers import commit, make_registry
+
+    root = llm_project.root
+    registry = make_registry(root.parent / "registry")
+    fragment = registry / REFERENCE_FRAGMENT
+    (fragment / "references").mkdir()
+    (fragment / "references" / "rules.md").write_text(f"# 写作规则\n\n口令：{token}\n")
+    instruction = fragment / "proposal.instruction.md"
+    instruction.write_text(
+        instruction.read_text()
+        + "\n产物的第一行必须原样写出 `references/rules.md` 中给出的口令。\n"
+    )
+    commit(registry, "reference rules", tag="v1.0.0")
+    store = root / ".loopspec-store"  # the model may only read inside the project
+    monkeypatch.setenv(STORE_ENV, str(store))
+    with (root / ".git" / "info" / "exclude").open("a") as exclude:
+        exclude.write(".loopspec-store/\n")
+    for kind in ("fragments", "profiles"):
+        shutil.rmtree(llm_project.home / kind)
+    registry_url = f"file://{quote(str(registry.resolve()))}"
+    monkeypatch.setenv("LOOPSPEC_LLM_REGISTRY_URL", registry_url)
+    (llm_project.home / "config.yaml").write_text(
+        f"artifacts_dir: changes\nworkflow: {{}}\nregistry:\n  url: {registry_url}\n"
+    )
+    plan = update(llm_project.home)
+    apply(llm_project.home, plan["planId"])
+    llm_project.commit("pin registry")
+
+
+@then(
+    parsers.re(
+        r'LLM 项目中 Change "(?P<change>[^"]+)" 的节点 "(?P<node>[^"]+)" '
+        r'产物写有口令 "(?P<token>[^"]+)"'
+    )
+)
+def artifact_has_token(llm_project: LlmProject, change: str, node: str, token: str) -> None:
+    plan = loaded(llm_project.home, change)
+    spec = next(entry for entry in plan.spec.nodes if entry.id == node)
+    assert spec.generates, node
+    artifact = plan.root / spec.generates
+    assert artifact.is_file() and token in artifact.read_text(), llm_project.where()
+
+
 @given(parsers.re(r'Agent 已执行 "(?P<prompt>[^"]+)" 并停在注册表更新概览'))
 def stopped_at_registry_overview(
     llm_project: LlmProject, launch_config: LaunchConfig, prompt: str

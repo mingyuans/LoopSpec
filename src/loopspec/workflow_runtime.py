@@ -335,4 +335,38 @@ def instructions(loaded: LoadedPlan, identity: str) -> dict:
             "recordCommand": f"loopspec gate record -c {name} -n {identity}",
         }
     result["stateProtocol"] = state_protocol(name, plan, identity, gate=node.gate is not None)
+    result.update(fragment_paths(node, bundle))
     return result
+
+
+def fragment_paths(node: ResolvedNode, bundle: ResourceBundle) -> dict[str, Any]:
+    """Absolute paths of the node's Fragment and files, so relative references resolve.
+
+    Every file named here was read through `bundle` first (path and registry hash checked).
+    """
+    sources = [node.instruction, node.template]
+    if node.gate and node.gate.templates:
+        sources.append(node.gate.templates.pass_)
+    name, folder = None, None
+    for source in sources:
+        if not source:
+            continue
+        parts = relative_path(source).split("/")
+        if len(parts) >= 3 and parts[0] == "fragments":
+            # The directory that holds this file's Fragment, wherever the bundle keeps it.
+            name, folder = parts[1], bundle.location(source).parents[len(parts) - 3]
+            break
+    paths: dict[str, Any] = {
+        "fragmentName": name,
+        "fragmentDir": str(folder) if folder else None,
+    }
+    if node.instruction:
+        paths["instructionPath"] = str(bundle.location(node.instruction))
+    if node.template:
+        paths["templatePath"] = str(bundle.location(node.template))
+    if node.gate and node.gate.templates:
+        paths["templatePaths"] = {
+            "pass": str(bundle.location(node.gate.templates.pass_)),
+            "fail": str(bundle.location(node.gate.templates.fail)),
+        }
+    return paths

@@ -6,9 +6,14 @@
 
 ## 未发布
 
+### `node instructions` 给出 Fragment 的绝对路径
+
+- 新增 `fragmentName`、`fragmentDir`、`instructionPath`、`templatePath`（Gate 为 `templatePaths`）。registry 模式下 Fragment 只在全局快照中，指令里引用的 `references/`、`scripts/` 等辅助文件按 `fragmentDir` 定位。
+
 ### 工作流命令默认输出文本报告（破坏性变更）
 
 - 所有工作流命令（`change`、`plan`、`node`、`gate`、`state`、`fragment`、`profile`、`registry`、`memory`）默认输出写给 LLM 阅读的纯文本报告，样式与 `change status` 一致；加 `--json` 输出与之前完全相同的 JSON。
+- 多行内容（指令、模板、state、memory 等）作为有界引用块输出：`--- begin <名称> (N lines) ---` 与 `--- end <名称> ---` 之间每行缩进四个空格；`change status` 中的 state.md 与 core 也改为这种格式。
 - 文本模式下失败输出 `=== ERROR ===` 报告，退出码不变。`hook pre-tool-use` 仍只输出 JSON。
 - 迁移：解析 `loopspec` 输出 JSON 的脚本需加上 `--json`。项目中的 loopspec skill 会在下一条工作流命令执行时自动同步。
 

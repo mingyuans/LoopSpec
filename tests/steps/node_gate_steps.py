@@ -125,3 +125,17 @@ def change_complete(home: Path) -> None:
     report = status(home)
     assert report["isComplete"] is True, report["nodes"]
     assert all(node["status"] == "done" for node in report["nodes"]), report["nodes"]
+
+
+@then(
+    parsers.re(
+        r'fragmentDir 是工作区中 "(?P<relative>[^"]+)" 的绝对路径，指令与模板文件都在其中'
+    )
+)
+def fragment_dir_is_absolute(home: Path, last_call: LastCall, relative: str) -> None:
+    data = outcome_of(last_call).data
+    folder = Path(data["fragmentDir"])
+    assert folder.is_absolute() and folder == home.resolve() / relative
+    for key, body in (("instructionPath", "instruction"), ("templatePath", "template")):
+        path = Path(data[key])
+        assert path.parent == folder and path.read_text() == data[body]

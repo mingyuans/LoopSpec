@@ -44,6 +44,15 @@
     并且 Agent 在本场景中从未执行 "plan archive"
     并且 Agent 在本场景中从未执行 "change archive"
 
+  场景: 指令引用的辅助文件按 fragmentDir 在注册表快照中找到
+    假如 LLM 项目使用本地注册表，其 requirements 指令要求把 references/rules.md 中的口令写进产物，口令为 "LOOP-7316-KITE"
+    并且 LLM 项目中 Change "CALC1" 已有按文档流程批准并提交的 Plan
+    当 Agent 执行 "/loopspec-continue CALC1，只完成当前第一个节点后停下。"
+    那么 Agent 正常结束
+    并且 LLM 项目中 Change "CALC1" 的节点 "requirements/proposal" 已完成且产物非空
+    并且 LLM 项目中 Change "CALC1" 的节点 "requirements/proposal" 产物写有口令 "LOOP-7316-KITE"
+    并且 Agent 在本场景中从未执行 "plan approve"
+
   场景: 用户确认时给出的署名取舍记为该用户的 HUMAN 决策
     假如 Agent 已执行 "/loopspec-new 给 calc.py 增加 sub(a, b) 函数，返回 a - b，并补单元测试。Change 名用 CALC1。" 并停在 Change "CALC1" 的 Plan 草稿
     当 用户在同一会话中回复 "确认这个草稿。我是张三，我决定：sub 对浮点数按 Python 原生行为计算，不做精度修正。"

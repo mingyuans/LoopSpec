@@ -75,7 +75,7 @@ def test_sections_follow_the_fixed_order_in_every_state(tmp_path: Path):
     create_draft(home, DOCS_FLOW)
     code, text = report(home)
     assert sections(text) == [*base, "NEXT STEPS"]
-    assert "draft plan:  001" in text and "--- plan 001 (draft): " in text
+    assert "draft plan:  001" in text and "--- begin plan 001 (draft): " in text
     approve(home, "001")
     code, text = report(home)
     assert sections(text) == [*base, "NODES", "NEXT STEPS"]
@@ -180,10 +180,12 @@ def test_state_text_is_quoted_and_indented(tmp_path: Path):
     _, text = report(home)
     assert sections(text) == ["OVERVIEW", "STATE RECORDS", "MEMORY", "PLANS", "NEXT STEPS"]
     records = block(text, "STATE RECORDS")
-    header = next(i for i, line in enumerate(records) if line.startswith("--- plan 001 (draft): "))
-    quoted = records[header + 1 :]
-    while quoted and not quoted[-1]:
-        quoted.pop()
+    header = next(
+        i for i, line in enumerate(records) if line.startswith("--- begin plan 001 (draft): ")
+    )
+    assert records[header].endswith("state.md (6 lines) ---")
+    end = records.index("--- end plan 001 (draft) ---")
+    quoted = records[header + 1 : end]
     assert quoted == [
         "    === NEXT STEPS ===",
         "    --- plan 009 ---",
@@ -309,8 +311,10 @@ def test_state_line_separators_stay_quoted(tmp_path: Path):
     _, text = report(home)
     assert unicode_sections(text) == ["OVERVIEW", "STATE RECORDS", "MEMORY", "PLANS", "NEXT STEPS"]
     lines = unicode_lines(text)
-    header = next(i for i, line in enumerate(lines) if line.startswith("--- plan 001 (draft): "))
-    quoted = lines[header + 1 : lines.index("=== MEMORY ===")]
+    header = next(
+        i for i, line in enumerate(lines) if line.startswith("--- begin plan 001 (draft): ")
+    )
+    quoted = lines[header + 1 : lines.index("--- end plan 001 (draft) ---")]
     assert all(line.startswith("    ") or not line for line in quoted)
     assert not any(line.startswith("--- plan 009") for line in lines)
     assert_single_line_break(text)
@@ -359,3 +363,16 @@ def test_parallel_steps_are_announced_as_independent(tmp_path: Path):
     nodes = " ".join(block(text, "NODES"))
     assert "act on the one named" not in nodes
     assert "act only on the nodes named in NEXT STEPS" in nodes
+
+
+def test_state_and_core_blocks_are_bounded_and_counted(tmp_path: Path):
+    from tests.test_text_reports import quoted_blocks
+
+    home = project(tmp_path)
+    new_change(home)
+    create_draft(home, DOCS_FLOW)
+    (home / "memory").mkdir(exist_ok=True)
+    (home / "memory" / "core.md").write_text("# core\n\n## rule\n- one\n")
+    _, text = report(home)
+    labels = sorted(label.split(": ")[0] for label, _ in quoted_blocks(text))
+    assert labels == ["change", "core", "plan 001 (draft)"]

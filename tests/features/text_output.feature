@@ -9,7 +9,7 @@
     当 以默认格式获取节点 "requirements/proposal" 的执行指令
     那么 命令成功
     并且 输出是以 "=== NODE ===" 开头的文本报告
-    并且 文本中有 "INSTRUCTION" 与 "TEMPLATE" 两节，正文逐行缩进四个空格
+    并且 文本中有 "INSTRUCTION" 与 "TEMPLATE" 两节，正文在 begin/end 行之间逐行缩进四个空格且行数一致
     并且 文本中有 "resolvedOutputPath" 字段，值为活动 Plan 目录下的 "artifacts/requirements/proposal.md"
 
   场景: 带 --json 时输出与文本同一份数据的 JSON

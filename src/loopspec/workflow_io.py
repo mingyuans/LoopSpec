@@ -371,6 +371,10 @@ class ResourceBundle:
             self.files[path] = value
         return self.files[path]
 
+    def location(self, path: str) -> Path:
+        """Where `path` lives on disk, absolute; call after `read` proved it is valid."""
+        return self.root.resolve() / relative_path(path)
+
     def model(self, path: str, model: type[ModelT]) -> ModelT:
         try:
             return model.model_validate(parse_yaml(self.read(path)))
