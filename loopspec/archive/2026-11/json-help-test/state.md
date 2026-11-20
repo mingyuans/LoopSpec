@@ -30,3 +30,4 @@
 ## Plan 记录
 
 <!-- 引擎自动追加 Plan 沿革，请勿手工编辑，也勿在此段之后新增段落。 -->
+- 2026-11-20T17:15:12+00:00 · Change json-help-test 归档前 memory 审阅 · 结论：updated · 变化的 topic：dev-environment · 备注：dev-environment 增加：测试勿在 rich 帮助文本中查找选项，CI 有 ANSI 颜色；本地用 FORCE_COLOR=1 复现。
