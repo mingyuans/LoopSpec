@@ -53,13 +53,20 @@ def starts_with(last_call: LastCall, header: str) -> None:
 
 
 @then(
-    parsers.re(r'文本中有 "(?P<first>[A-Z]+)" 与 "(?P<second>[A-Z]+)" 两节，正文逐行缩进四个空格')
+    parsers.re(
+        r'文本中有 "(?P<first>[A-Z]+)" 与 "(?P<second>[A-Z]+)" 两节，'
+        r"正文在 begin/end 行之间逐行缩进四个空格且行数一致"
+    )
 )
 def quoted_sections(home: Path, last_call: LastCall, first: str, second: str) -> None:
     text = outcome_of(last_call).output
     for name in (first, second):
         body = text.split(f"\n=== {name} ===\n", 1)[1].split("\n=== ", 1)[0]
-        quoted = [line for line in body.split("\n\n", 1)[1].split("\n") if line.strip()]
+        label = name.lower()
+        begin = re.search(rf"(?m)^--- begin {label} \((\d+) lines?\) ---$", body)
+        assert begin, name
+        quoted = body[begin.end() + 1 :].split(f"\n--- end {label} ---", 1)[0].split("\n")
+        assert len(quoted) == int(begin[1]), name
         assert quoted and all(line.startswith("    ") for line in quoted), name
     assert "\\n" not in text
 

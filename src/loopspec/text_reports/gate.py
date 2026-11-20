@@ -9,7 +9,7 @@ from .common import (
     compact,
     fields,
     join,
-    quote,
+    quote_block,
     sanitize,
     section,
     warning_lines,
@@ -17,7 +17,7 @@ from .common import (
 
 PROMPT_STATE = (
     "The record was appended to the matching section of state.md (append only).\n"
-    "line is the exact text written, quoted below."
+    "line is the exact text written, quoted between the begin and end lines."
 )
 PROMPT_BEGIN = (
     "A review round is open and the code under review is pinned (scopeDigest).\n"
@@ -48,7 +48,7 @@ PROMPT_WARNINGS = "Warnings that do not change the verdict; mention them in the 
 def render_state(payload: dict) -> str:
     keys = ("changeName", "scope", "plan", "section", "path")
     rows = [(key, payload[key]) for key in keys if key in payload]
-    body = [*fields(rows), "line:", *quote(payload["line"])]
+    body = [*fields(rows), *quote_block("line", payload["line"])]
     lines = section("=== STATE RECORD ADDED ===", PROMPT_STATE, body)
     if "warnings" in payload:
         lines += section("=== WARNINGS ===", PROMPT_WARNINGS, warning_lines(payload["warnings"]))
@@ -69,7 +69,7 @@ def render_begin(payload: dict) -> str:
     rows = [
         (key, payload[key]) for key in ("gate", "roundId", "scopeDigest", "baseline", "planDigest")
     ]
-    body = [*fields(rows), "instruction:", *quote(payload["instruction"])]
+    body = [*fields(rows), *quote_block("instruction", payload["instruction"])]
     lines = section("=== GATE ROUND ===", PROMPT_BEGIN, body)
     review: list[str] = []
     for item in payload["paths"]:

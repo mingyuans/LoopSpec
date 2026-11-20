@@ -13,6 +13,7 @@
 ### Workflow commands print text reports by default (breaking)
 
 - Every workflow command (`change`, `plan`, `node`, `gate`, `state`, `fragment`, `profile`, `registry`, `memory`) now prints a plain-text report written for an LLM, in the style of `change status`; `--json` prints exactly the JSON it printed before.
+- Multi-line content (instructions, templates, state, memory, …) is a bounded quote: `--- begin <name> (N lines) ---` … `--- end <name> ---`, every line indented by four spaces; `change status` quotes state.md and core the same way.
 - In text mode a failure prints an `=== ERROR ===` report; exit statuses are unchanged. `hook pre-tool-use` still prints JSON only.
 - Migration: scripts that parse `loopspec` JSON output must add `--json`. The project's loopspec skills are synced by the next workflow command.
 
