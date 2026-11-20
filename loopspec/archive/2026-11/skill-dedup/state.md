@@ -31,3 +31,4 @@
 ## Plan 记录
 
 <!-- 引擎自动追加 Plan 沿革，请勿手工编辑，也勿在此段之后新增段落。 -->
+- 2026-11-20T17:01:14+00:00 · Change skill-dedup 归档前 memory 审阅 · 结论：updated · 变化的 topic：skill-files · 备注：skill-files 增加 skill 与命令输出分工的约定（读法放输出说明段，skill 只写流程与红线；共享 memory 维护流程例外）。
