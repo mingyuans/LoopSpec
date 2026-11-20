@@ -202,9 +202,15 @@ def test_every_command_has_a_text_renderer_or_is_an_exception() -> None:
 
 
 def test_every_rendered_command_takes_json() -> None:
+    # Inspect the command objects, not --help: rich may colour the help text and split
+    # "--json" with ANSI codes (it does on CI), which made a text search flaky.
+    group = typer.main.get_group(app)
     for command in RENDERERS:
-        result = runner.invoke(app, [*command.split(), "--help"])
-        assert "--json" in result.stdout, command
+        target = group
+        for name in command.split():
+            target = target.commands[name]  # type: ignore[attr-defined]
+        options = {opt for param in target.params for opt in getattr(param, "opts", [])}
+        assert "--json" in options, command
 
 
 def test_samples_cover_every_renderer(samples: list[Sample]) -> None:
