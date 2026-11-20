@@ -6,6 +6,12 @@
 
 ## 未发布
 
+### 工作流命令默认输出文本报告（破坏性变更）
+
+- 所有工作流命令（`change`、`plan`、`node`、`gate`、`state`、`fragment`、`profile`、`registry`、`memory`）默认输出写给 LLM 阅读的纯文本报告，样式与 `change status` 一致；加 `--json` 输出与之前完全相同的 JSON。
+- 文本模式下失败输出 `=== ERROR ===` 报告，退出码不变。`hook pre-tool-use` 仍只输出 JSON。
+- 迁移：解析 `loopspec` 输出 JSON 的脚本需加上 `--json`。项目中的 loopspec skill 会在下一条工作流命令执行时自动同步。
+
 ### 工作流命令自动同步项目 skill
 
 - 接受 `--home` 的命令执行前，自动把项目中已配置 AI 工具的 loopspec skill/command 文件同步到当前 CLI 内置版本（过期的覆盖、缺失的补上），结果打印到 stderr；升级 CLI 后不再需要重新执行 `loopspec init` 刷新 skill。

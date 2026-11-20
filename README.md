@@ -105,7 +105,7 @@ loopspec change archive AFD1111
 loopspec change archive --confirm <archiveId> --memory updated --note "recorded the retry lesson"
 ```
 
-Workflow commands always print JSON for the agent driving the loop; `version` and `init` print human-readable output. See the [agent protocol](docs/en/agent-protocol.md) for revisions, replanning and what happens when a command is interrupted.
+Workflow commands print a plain-text report laid out for the agent driving the loop, or JSON with `--json`; `version` and `init` print human-readable output. See the [agent protocol](docs/en/agent-protocol.md) for revisions, replanning and what happens when a command is interrupted.
 
 ## Development
 

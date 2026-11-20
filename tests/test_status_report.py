@@ -24,7 +24,6 @@ from tests.workflow_helpers import (
     create_approved,
     create_draft,
     fail_gate,
-    invoke,
     new_change,
     pass_node,
     project,
@@ -219,13 +218,14 @@ def test_errors_render_as_text_or_json(tmp_path: Path):
 
 
 # T23
-def test_other_workflow_commands_still_refuse_json(tmp_path: Path):
+def test_other_workflow_commands_print_text_and_accept_json(tmp_path: Path):
     home = project(tmp_path)
     new_change(home)
     for args in (("plan", "list", "-c", CHANGE), ("change", "next", CHANGE)):
+        text = runner.invoke(app, [*args, "--home", str(home)])
+        assert text.exit_code == 0 and text.stdout.startswith("=== "), args
         result = runner.invoke(app, [*args, "--json", "--home", str(home)])
-        assert result.exit_code == 2, args
-    assert invoke(home, "change", "next", CHANGE)[0] == 0
+        assert result.exit_code == 0 and json.loads(result.stdout)["changeName"] == CHANGE, args
 
 
 def test_glob_outputs_list_their_matches_indented():

@@ -35,6 +35,7 @@ def isolated_registry_store(
     monkeypatch.setattr(registry_store, "_TAG_BINDINGS", set())
     return store
 
+
 #: Real-model scenarios run only when this is exactly "1" and the launcher is available.
 LLM_ENABLE_ENV = "LOOPSPEC_LLM_E2E"
 LLM_RUNS_DIR_ENV = "LOOPSPEC_LLM_RUNS_DIR"
@@ -53,6 +54,7 @@ pytest_plugins = [
     "tests.steps.registry_steps",
     "tests.steps.skill_sync_steps",
     "tests.steps.state_add_steps",
+    "tests.steps.text_output_steps",
     "tests.steps.update_steps",
     "tests.steps.version_steps",
     "tests.steps.llm_steps",

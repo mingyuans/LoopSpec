@@ -8,8 +8,8 @@
 
 - Commands are `loopspec <resource> <verb>`, with singular resources: `change`, `plan`, `node`, `gate`, `state`, `fragment`, `profile`. Only `version`, `update`, `init` and `graph` stand alone; the `hook` group is called by AI-tool hooks.
 - `-c/--change` names a Change, `-p/--plan` a three-digit Plan number, `-n/--node` a leaf node or Gate path, `-f/--file` a request file relative to the workflow home, `--digest` the digest a human confirmed, `--note` an optional note. `change` commands take the Change name as an argument.
-- Every command except `version`, `update`, `init` and `hook` accepts `--home` (default `./loopspec`) and prints JSON. The exceptions are `change status`, which prints a plain-text report for an LLM by default, and `graph`, which prints plain text for people; both print JSON only with `--json`. On failure it prints `{"error": <code>, "message": <text>, "fix": <next action>}` and exits with status 1; usage errors exit with status 2.
-- **Skill sync.** Before running, every command that accepts `--home` brings the loopspec skill and command files of the project's configured AI tools in line with this CLI's built-in content (the project root is the workflow home's parent, as `init` uses by default): files with different content are rewritten and missing ones are added; tools without loopspec skills get nothing; only files inside the project root are written, so Codex's global prompts are never touched; a symlink on the way is not followed and only reported. The sync reports on stderr only (`loopspec: synced N skill file(s) …`); the JSON output and exit status are unaffected, and a failed sync never breaks the command. These files are managed by the CLI, so hand edits are overwritten. Projects initialised with another root through `init --project-root` are not synced.
+- Every command except `version`, `update`, `init` and `hook` accepts `--home` (default `./loopspec`) and prints a plain-text report by default, or JSON with `--json` (`hook pre-tool-use` speaks the hook protocol and prints JSON only). The CLI is mostly called by an LLM, so the text report is laid out for one to read: sections start with a `=== SECTION ===` line at column zero followed by a prompt paragraph, fields are `key: value` lines that keep the JSON field names (such as `digest`, `archiveId`, `roundId`), and multi-line content such as instructions, templates, state and memory is quoted verbatim with every line indented by four spaces. There is no Markdown and no colour, the bytes do not depend on the terminal, and no untrusted value can open a section or a next step at column zero. When there are commands to run next, the last section is `NEXT STEPS`. `--json` prints the same data as the text report; each command below lists its fields. On failure the text mode prints an `=== ERROR ===` report (`error`, `message`, `fix`) and `--json` prints `{"error": <code>, "message": <text>, "fix": <next action>}`; both exit with status 1, and usage errors exit with status 2. If the text report cannot be rendered (the command has already taken effect), the JSON payload is printed instead with `loopspec: text report unavailable` on stderr, and the exit status is unchanged. `graph` prints plain text for people by default.
+- **Skill sync.** Before running, every command that accepts `--home` brings the loopspec skill and command files of the project's configured AI tools in line with this CLI's built-in content (the project root is the workflow home's parent, as `init` uses by default): files with different content are rewritten and missing ones are added; tools without loopspec skills get nothing; only files inside the project root are written, so Codex's global prompts are never touched; a symlink on the way is not followed and only reported. The sync reports on stderr only (`loopspec: synced N skill file(s) …`); the command's output and exit status are unaffected, and a failed sync never breaks the command. These files are managed by the CLI, so hand edits are overwritten. Projects initialised with another root through `init --project-root` are not synced.
 - Execution commands (`node`, `gate`, `plan rollback`) act only on the active Plan. Without one they fail with `plan_not_active` and a `fix` naming the next planning step. Every command takes effect in a single write, so an interrupted command leaves the Change as before or as after; rework files still to be archived are moved first by the next writing command.
 
 ## loopspec version
@@ -50,10 +50,10 @@ A denial prints `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permiss
 ## loopspec change new
 
 ```bash
-loopspec change new <change>
+loopspec change new <change> [--json]
 ```
 
-Creates an unplanned Change: `.workflow.yaml` (format 4, no Plan, no baseline), a sectioned `state.md` template (background, goals and boundaries, decisions, open questions, references and, at the end, the engine's Plan records) and `plans/`. Nothing is compiled or executable. Re-running on an existing Change returns it with `reusedChange: true`. Options: `--home`.
+Creates an unplanned Change: `.workflow.yaml` (format 4, no Plan, no baseline), a sectioned `state.md` template (background, goals and boundaries, decisions, open questions, references and, at the end, the engine's Plan records) and `plans/`. Nothing is compiled or executable. Re-running on an existing Change returns it with `reusedChange: true`. Options: `--json`, `--home`.
 
 ## loopspec change status
 
@@ -68,33 +68,33 @@ With `--json` it returns `status` (`unplanned`, `planning`, `active`, `complete`
 ## loopspec change next
 
 ```bash
-loopspec change next <change>
+loopspec change next <change> [--json]
 ```
 
-Same logic as `change status`, returning only `status`, `isComplete`, `node` (the first node to work on), `nodes` (every node behind `nextSteps`: the rollback Gate, the exhausted Gates, or all ready leaves), `parallel` and `nextSteps`. Options: `--home`.
+Same logic as `change status`, returning only `status`, `isComplete`, `node` (the first node to work on), `nodes` (every node behind `nextSteps`: the rollback Gate, the exhausted Gates, or all ready leaves), `parallel` and `nextSteps`. Options: `--json`, `--home`.
 
 ## loopspec change history
 
 ```bash
-loopspec change history <change> [-p <NNN>]
+loopspec change history <change> [-p <NNN>] [--json]
 ```
 
-Lists the rework records in `.attempts/` of the active Plan, or of the open or latest Plan, or of the Plan given with `--plan`: `seq`, `kind`, `gate`, `reset`, archived `files`, and for revisions the target digest and revision. Options: `--plan`, `--home`.
+Lists the rework records in `.attempts/` of the active Plan, or of the open or latest Plan, or of the Plan given with `--plan`: `seq`, `kind`, `gate`, `reset`, archived `files`, and for revisions the target digest and revision. Options: `--plan`, `--json`, `--home`.
 
 ## loopspec change artifacts
 
 ```bash
-loopspec change artifacts <change>
+loopspec change artifacts <change> [--json]
 ```
 
-Lists every artifact the Change owns, grouped by location (the active Change and any archived copies) and by Plan, archived Plans included. Read-only. Options: `--home`.
+Lists every artifact the Change owns, grouped by location (the active Change and any archived copies) and by Plan, archived Plans included. Read-only. Options: `--json`, `--home`.
 
 ## loopspec change archive
 
 ```bash
-loopspec change archive <change> [--force]
-loopspec change archive --all [--older-than <days>]
-loopspec change archive --confirm <archiveId> --memory updated|none --note <text>
+loopspec change archive <change> [--force] [--json]
+loopspec change archive --all [--older-than <days>] [--json]
+loopspec change archive --confirm <archiveId> --memory updated|none --note <text> [--json]
 ```
 
 Archiving takes two steps, and the memory review is part of the protocol.
@@ -103,97 +103,97 @@ Archiving takes two steps, and the memory review is part of the protocol.
 
 **Step two** (`--confirm`) requires both `--memory updated|none` and `--note` (one line, not empty, at most 1000 characters, no HTML comment markers), and cannot be combined with a Change name, `--all`, `--force` or `--older-than`. Under the write locks of every Change involved it re-derives the status and compares the content digests (`archive_ticket_stale` if anything changed since step one; run step one again), then checks memory: `updated` needs at least one memory topic changed since step one, `none` needs none changed. When everything passes it first records the review outcome (choice, changed topics, note) as an event in each Change's `state.md`, then moves the Change directory to `archive/<YYYY-MM>/<change>`, and finally deletes the ticket. It returns `archiveId`, `memoryReview` (`memory`, `note`, `changedTopics`) and `archived` (each with `changeName`, `forced`, `moved`, `destination`, `dropped`, and `notDropped` when a deletion failed). If a batch stops part way, the ticket keeps the progress and the same command resumes, skipping Changes already archived.
 
-After a successful move it deletes, for every Plan (archived Plans included), the files that only serve a running Plan instead of keeping them in the archive: the rework records `.attempts/`, the Gate evidence `.gates/`, the round records `.gate-rounds/`, and the PASS/FAIL reports each Gate declares in `plan.yaml` (only under `artifacts/`; other files in the same directory stay and emptied directories are removed). Requirements, design, implementation and other non-Gate outputs are kept. A failed deletion does not undo the archive; a refused or failed move deletes nothing, and a symlinked `.attempts` is refused with `unsafe_path` while the status is re-derived. Options: `--all`, `--older-than`, `--force`, `--confirm`, `--memory`, `--note`, `--home`.
+After a successful move it deletes, for every Plan (archived Plans included), the files that only serve a running Plan instead of keeping them in the archive: the rework records `.attempts/`, the Gate evidence `.gates/`, the round records `.gate-rounds/`, and the PASS/FAIL reports each Gate declares in `plan.yaml` (only under `artifacts/`; other files in the same directory stay and emptied directories are removed). Requirements, design, implementation and other non-Gate outputs are kept. A failed deletion does not undo the archive; a refused or failed move deletes nothing, and a symlinked `.attempts` is refused with `unsafe_path` while the status is re-derived. Options: `--all`, `--older-than`, `--force`, `--confirm`, `--memory`, `--note`, `--json`, `--home`.
 
 ## loopspec plan validate
 
 ```bash
-loopspec plan validate -c <change> -f <request>
+loopspec plan validate -c <change> -f <request> [--json]
 ```
 
-Read-only. Without an approved Plan it compiles the request and checks project constraints, returning `spec` and `digest`. With an approved Plan it treats the request as a revision: checks `base_revision` and the freeze rules and returns the new `digest`, `addedInstances` and `rerunNodes` to show the human. Options: `--change`, `--file`, `--home`.
+Read-only. Without an approved Plan it compiles the request and checks project constraints, returning `spec` and `digest`. With an approved Plan it treats the request as a revision: checks `base_revision` and the freeze rules and returns the new `digest`, `addedInstances` and `rerunNodes` to show the human. Options: `--change`, `--file`, `--json`, `--home`.
 
 ## loopspec plan create
 
 ```bash
-loopspec plan create -c <change> -f <request> [--note <text>]
+loopspec plan create -c <change> -f <request> [--note <text>] [--json]
 ```
 
-Compiles the request against the current Fragments and `config.yaml`. With no open Plan it creates the next numbered draft Plan and, the first time, fixes the Change baseline and repository. With an open draft it replaces that draft's `spec` (and `note` when given). With an approved Plan it fails with `plan_active`. A new draft gets a sectioned Plan-level `state.md` template. After a draft is created or replaced it appends one event line to the Plan-level `state.md` (see the [overview](overview.md)); a failed append does not change the result and only adds `warnings: ["state_append_failed: <path>"]` to the output. Options: `--change`, `--file`, `--note`, `--home`.
+Compiles the request against the current Fragments and `config.yaml`. With no open Plan it creates the next numbered draft Plan and, the first time, fixes the Change baseline and repository. With an open draft it replaces that draft's `spec` (and `note` when given). With an approved Plan it fails with `plan_active`. A new draft gets a sectioned Plan-level `state.md` template. After a draft is created or replaced it appends one event line to the Plan-level `state.md` (see the [overview](overview.md)); a failed append does not change the result and only adds `warnings: ["state_append_failed: <path>"]` to the output. Options: `--change`, `--file`, `--note`, `--json`, `--home`.
 
 ## loopspec plan show
 
 ```bash
-loopspec plan show -c <change> [-p <NNN>]
+loopspec plan show -c <change> [-p <NNN>] [--json]
 ```
 
-Returns `meta`, `spec`, `baseline` and `repository` of the open Plan, or of the Plan given with `--plan`. This is what a human reviews before approval. Options: `--change`, `--plan`, `--home`.
+Returns `meta`, `spec`, `baseline` and `repository` of the open Plan, or of the Plan given with `--plan`. This is what a human reviews before approval. Options: `--change`, `--plan`, `--json`, `--home`.
 
 ## loopspec plan list
 
 ```bash
-loopspec plan list -c <change>
+loopspec plan list -c <change> [--json]
 ```
 
-Lists every Plan with its number, status, revision, note and timestamps. Options: `--change`, `--home`.
+Lists every Plan with its number, status, revision, note and timestamps. Options: `--change`, `--json`, `--home`.
 
 ## loopspec plan approve
 
 ```bash
-loopspec plan approve -c <change> -p <NNN> --digest <digest>
-loopspec plan approve -c <change> -p <NNN> -f <revision-request> --digest <digest>
+loopspec plan approve -c <change> -p <NNN> --digest <digest> [--json]
+loopspec plan approve -c <change> -p <NNN> -f <revision-request> --digest <digest> [--json]
 ```
 
-Run only after a human explicitly confirmed what they were shown. Without `--file` it approves the draft: it recompiles the draft's flow, requires both the stored and the recompiled digest to equal `--digest`, checks the repository, sets `revision: 1` and makes the Plan active. With `--file` it applies a revision of the active Plan: recompiles the request, requires its digest to equal `--digest`, checks `base_revision` and the freeze rules, archives the re-run nodes' files and replaces `spec`. Repeating an approval that already took effect returns `alreadyApproved: true` and appends nothing. After an approval or revision takes effect it appends one event line to the Plan-level `state.md` (see the [overview](overview.md)); a failed append does not change the result and only adds `warnings: ["state_append_failed: <path>"]` to the output. Options: `--change`, `--plan`, `--digest`, `--file`, `--home`.
+Run only after a human explicitly confirmed what they were shown. Without `--file` it approves the draft: it recompiles the draft's flow, requires both the stored and the recompiled digest to equal `--digest`, checks the repository, sets `revision: 1` and makes the Plan active. With `--file` it applies a revision of the active Plan: recompiles the request, requires its digest to equal `--digest`, checks `base_revision` and the freeze rules, archives the re-run nodes' files and replaces `spec`. Repeating an approval that already took effect returns `alreadyApproved: true` and appends nothing. After an approval or revision takes effect it appends one event line to the Plan-level `state.md` (see the [overview](overview.md)); a failed append does not change the result and only adds `warnings: ["state_append_failed: <path>"]` to the output. Options: `--change`, `--plan`, `--digest`, `--file`, `--json`, `--home`.
 
 ## loopspec plan archive
 
 ```bash
-loopspec plan archive -c <change> -p <NNN> [--note <text>]
+loopspec plan archive -c <change> -p <NNN> [--note <text>] [--json]
 ```
 
-Marks the open draft or approved Plan `archived` and clears the Change's pointers; the Change becomes `unplanned`. The Plan directory and business code are left untouched. Archiving an approved Plan requires the human's explicit consent first. After it takes effect it appends one event line to both the Plan-level and the change-level `state.md` (see the [overview](overview.md)); a failed append does not change the result and only adds `warnings: ["state_append_failed: <path>"]` to the output. Options: `--change`, `--plan`, `--note`, `--home`.
+Marks the open draft or approved Plan `archived` and clears the Change's pointers; the Change becomes `unplanned`. The Plan directory and business code are left untouched. Archiving an approved Plan requires the human's explicit consent first. After it takes effect it appends one event line to both the Plan-level and the change-level `state.md` (see the [overview](overview.md)); a failed append does not change the result and only adds `warnings: ["state_append_failed: <path>"]` to the output. Options: `--change`, `--plan`, `--note`, `--json`, `--home`.
 
 ## loopspec plan rollback
 
 ```bash
-loopspec plan rollback -c <change> -p <NNN>
+loopspec plan rollback -c <change> -p <NNN> [--json]
 ```
 
-For an effective FAIL in the active Plan, applies that Gate's own `on_fail`: archives the artifacts, reports and evidence of its `reset` nodes, the Gate and everything downstream into `.attempts/<NNN>/` (`kind: rollback`). Business code is not reverted. Fails with `retries_exhausted` when the Gate has no `on_fail` or no retries left, and `no_failed_gate` when nothing failed. After it takes effect it appends one event line to the Plan-level `state.md` (see the [overview](overview.md)); a failed append does not change the result and only adds `warnings: ["state_append_failed: <path>"]` to the output. Options: `--change`, `--plan`, `--home`.
+For an effective FAIL in the active Plan, applies that Gate's own `on_fail`: archives the artifacts, reports and evidence of its `reset` nodes, the Gate and everything downstream into `.attempts/<NNN>/` (`kind: rollback`). Business code is not reverted. Fails with `retries_exhausted` when the Gate has no `on_fail` or no retries left, and `no_failed_gate` when nothing failed. After it takes effect it appends one event line to the Plan-level `state.md` (see the [overview](overview.md)); a failed append does not change the result and only adds `warnings: ["state_append_failed: <path>"]` to the output. Options: `--change`, `--plan`, `--json`, `--home`.
 
 ## loopspec node instructions
 
 ```bash
-loopspec node instructions -c <change> -n <node>
+loopspec node instructions -c <change> -n <node> [--json]
 ```
 
-Returns what an agent needs to execute one ready (or done) leaf node of the active Plan: the live `instruction`, `template` or Gate `templates`, `outputPath` and `resolvedOutputPath`, `dependencies`, and `priorAttempts` (earlier rework records and FAIL reports, marked untrusted). Code Gates add `gateProtocol` with the `gate begin` and `gate record` commands; the assurance node adds its `gate record` command. Every leaf also gets a `stateProtocol`: the `state add` commands that fit the node, generated from the same section registry as the templates, with `when`, `contentBoundary`, `format`, `required`, `optional` and `command` for each. Change-level commands carry only the Change; Plan-level commands are pinned to the actual Change, Plan and node; a Gate node also gets `rework`. When effective rework records still have files to archive, it first finishes those moves under the Change's write lock, so new outputs never overwrite files still to be archived; otherwise it only reads, so parallel agents can fetch their nodes at the same time. Options: `--change`, `--node`, `--home`. It also carries `memory`: the same bounded topic summary as `change status` (`topics`, `total`, `omitted`, `listCommand`) and, for `core`, only `present`, `bytes` and `showCommand`, never the text.
+Returns what an agent needs to execute one ready (or done) leaf node of the active Plan: the live `instruction`, `template` or Gate `templates`, `outputPath` and `resolvedOutputPath`, `dependencies`, and `priorAttempts` (earlier rework records and FAIL reports, marked untrusted). Code Gates add `gateProtocol` with the `gate begin` and `gate record` commands; the assurance node adds its `gate record` command. Every leaf also gets a `stateProtocol`: the `state add` commands that fit the node, generated from the same section registry as the templates, with `when`, `contentBoundary`, `format`, `required`, `optional` and `command` for each. Change-level commands carry only the Change; Plan-level commands are pinned to the actual Change, Plan and node; a Gate node also gets `rework`. When effective rework records still have files to archive, it first finishes those moves under the Change's write lock, so new outputs never overwrite files still to be archived; otherwise it only reads, so parallel agents can fetch their nodes at the same time. Options: `--change`, `--node`, `--json`, `--home`. It also carries `memory`: the same bounded topic summary as `change status` (`topics`, `total`, `omitted`, `listCommand`) and, for `core`, only `present`, `bytes` and `showCommand`, never the text.
 
 ## loopspec gate begin
 
 ```bash
-loopspec gate begin -c <change> -n <gate>
+loopspec gate begin -c <change> -n <gate> [--json]
 ```
 
-Only for a ready code Gate. Pins the content of its `evidence.paths` relative to the baseline and returns a one-time `roundId` and the files in scope (paths, kinds and digests, never content). When paths ignored by Git are not listed in `workflow.excluded_paths`, it also returns `warnings` (`ignoredPaths`, at most 20, and `ignoredTotal`); reviewers should record them in the report summary. Options: `--change`, `--node`, `--home`.
+Only for a ready code Gate. Pins the content of its `evidence.paths` relative to the baseline and returns a one-time `roundId` and the files in scope (paths, kinds and digests, never content). When paths ignored by Git are not listed in `workflow.excluded_paths`, it also returns `warnings` (`ignoredPaths`, at most 20, and `ignoredTotal`); reviewers should record them in the report summary. Options: `--change`, `--node`, `--json`, `--home`.
 
 ## loopspec gate record
 
 ```bash
-loopspec gate record -c <change> -n <gate> --round <roundId> --report <artifacts/...>
-loopspec gate record -c <change> -n <assurance-node>
+loopspec gate record -c <change> -n <gate> --round <roundId> --report <artifacts/...> [--json]
+loopspec gate record -c <change> -n <assurance-node> [--json]
 ```
 
-For a code Gate, `--round` and `--report` are required. The report lives under the Plan's `artifacts/` and its header holds only `verdict` and `summary`. The round must be unused and the pinned code unchanged; then the PASS or FAIL report and evidence bound to the Plan digest are written, and the same `warnings` are returned. For the assurance node both options are refused: the CLI checks the full diff against the assurance rules and writes the system PASS or FAIL with diagnostics. Warnings never change the verdict; they go into the system report's `summary` and the diagnostics' `warnings`. With `unknown_paths: warn` in the assurance rules, changed paths matching no rule are reported there as warnings too. Ignored files never count toward the diff or evidence digests. Options: `--change`, `--node`, `--round`, `--report`, `--home`.
+For a code Gate, `--round` and `--report` are required. The report lives under the Plan's `artifacts/` and its header holds only `verdict` and `summary`. The round must be unused and the pinned code unchanged; then the PASS or FAIL report and evidence bound to the Plan digest are written, and the same `warnings` are returned. For the assurance node both options are refused: the CLI checks the full diff against the assurance rules and writes the system PASS or FAIL with diagnostics. Warnings never change the verdict; they go into the system report's `summary` and the diagnostics' `warnings`. With `unknown_paths: warn` in the assurance rules, changed paths matching no rule are reported there as warnings too. Ignored files never count toward the diff or evidence digests. Options: `--change`, `--node`, `--round`, `--report`, `--json`, `--home`.
 
 ## loopspec state add
 
 ```bash
-loopspec state add -c <change> --section <key> --text <content> [--scope change|plan] [-p <plan>] [-n <node>] [--actor HUMAN|MODEL --by <who>]
+loopspec state add -c <change> --section <key> --text <content> [--scope change|plan] [-p <plan>] [-n <node>] [--actor HUMAN|MODEL --by <who>] [--json]
 ```
 
-Appends one single-line record to the matching section of the Change-level or the Plan-level `state.md`, under the Change's write lock. It is the only state write operation: resolving a question, replacing a decision, verifying an assumption or correcting a record is done by adding a new record that refers to the earlier one, and no entry ids are assigned. Prints `changeName`, `scope`, `plan` (`null` at the change level), `section`, `path` and the appended `line`. Options: `--change`, `--section`, `--text`, `--scope`, `--plan`, `--node`, `--actor`, `--by`, `--home`.
+Appends one single-line record to the matching section of the Change-level or the Plan-level `state.md`, under the Change's write lock. It is the only state write operation: resolving a question, replacing a decision, verifying an assumption or correcting a record is done by adding a new record that refers to the earlier one, and no entry ids are assigned. Prints `changeName`, `scope`, `plan` (`null` at the change level), `section`, `path` and the appended `line`. Options: `--change`, `--section`, `--text`, `--scope`, `--plan`, `--node`, `--actor`, `--by`, `--json`, `--home`.
 
 | Section | Layer | Required | Entry |
 | --- | --- | --- | --- |
@@ -213,35 +213,35 @@ Appends one single-line record to the matching section of the Change-level or th
 
 ## loopspec fragment list
 
-Lists the Fragments in the workflow home. In registry mode this is the registry definitions pinned by the lock plus the project's local ones. Each entry carries `source` (`registry` or `local`) and `registry`: `{syncedTag, syncedCommit}` for a registry definition, `null` for a local one. In registry mode a missing or malformed lock, or a local definition with a registry name, fails with the matching error. Options: `--home`.
+Lists the Fragments in the workflow home. In registry mode this is the registry definitions pinned by the lock plus the project's local ones. Each entry carries `source` (`registry` or `local`) and `registry`: `{syncedTag, syncedCommit}` for a registry definition, `null` for a local one. In registry mode a missing or malformed lock, or a local definition with a registry name, fails with the matching error. Options: `--json`, `--home`.
 
 ## loopspec fragment show
 
-`loopspec fragment show <name>` returns one Fragment definition. Options: `--home`.
+`loopspec fragment show <name>` returns one Fragment definition. Options: `--json`, `--home`.
 
 ## loopspec fragment validate
 
-`loopspec fragment validate <name>` expands the Fragment and checks dependencies, resources, outputs and `on_fail` (including `on_fail_conflict`). Options: `--home`.
+`loopspec fragment validate <name>` expands the Fragment and checks dependencies, resources, outputs and `on_fail` (including `on_fail_conflict`). Options: `--json`, `--home`.
 
 ## loopspec profile list
 
-Lists the Profiles in the workflow home. In registry mode this is the registry definitions pinned by the lock plus the project's local ones. Each entry carries `source` (`registry` or `local`) and `registry`: `{syncedTag, syncedCommit}` for a registry definition, `null` for a local one. In registry mode a missing or malformed lock, or a local definition with a registry name, fails with the matching error. Options: `--home`.
+Lists the Profiles in the workflow home. In registry mode this is the registry definitions pinned by the lock plus the project's local ones. Each entry carries `source` (`registry` or `local`) and `registry`: `{syncedTag, syncedCommit}` for a registry definition, `null` for a local one. In registry mode a missing or malformed lock, or a local definition with a registry name, fails with the matching error. Options: `--json`, `--home`.
 
 ## loopspec profile show
 
-`loopspec profile show <name>` returns one Profile. Options: `--home`.
+`loopspec profile show <name>` returns one Profile. Options: `--json`, `--home`.
 
 ## loopspec profile validate
 
-`loopspec profile validate <name>` compiles its flow and returns the build order, instances and each Gate's resulting `on_fail`. Options: `--home`.
+`loopspec profile validate <name>` compiles its flow and returns the build order, instances and each Gate's resulting `on_fail`. Options: `--json`, `--home`.
 
 ## loopspec profile save
 
 ```bash
-loopspec profile save <name> -c <change>
+loopspec profile save <name> -c <change> [--json]
 ```
 
-Saves the active Plan's `spec.flow`, `on_fail` included, as `profiles/<name>.yaml`. No execution state is saved and an existing Profile is never overwritten; in registry mode a name used by a registry Profile is `profile_exists`. Options: `--change`, `--home`.
+Saves the active Plan's `spec.flow`, `on_fail` included, as `profiles/<name>.yaml`. No execution state is saved and an existing Profile is never overwritten; in registry mode a name used by a registry Profile is `profile_exists`. Options: `--change`, `--json`, `--home`.
 
 ## loopspec graph
 
@@ -257,34 +257,34 @@ The file goes to `<home>/.cache/graph/profile-<name>.html` or `<home>/.cache/gra
 ## loopspec registry update
 
 ```bash
-loopspec registry update [--full]
+loopspec registry update [--full] [--json]
 ```
 
-Plans an update of `registry.lock.yaml` from the `registry` in `config.yaml`. It never writes the lock; inside the project it writes only `<home>/.cache/registry/`. It first resolves the target (`latest` or a pinned tag) with `git ls-remote`: when a new-format lock already pins the target commit and tag it returns `upToDate: true`, and a pinned tag that is already locked runs no git at all. Otherwise it reads the target commit's definitions from git (a private bare repository, never checked out), publishes them as a snapshot in the global store, and compares them with the current lock file by file: each file gets a `status` of `added`, `modified` or `deleted`. An old-format lock always produces a plan (`migration: true`). Returns `registry`, `upToDate`, `baseCommit`, `baseTag`, `upstreamCommit`, `upstreamTag`, `baseAvailable` (whether the current version's contents could be provided), `migration`, `sourceChanged` and `previousRegistry` (the lock's old source when it differs from the config; confirm the switch separately), `planId`, `definitions` (each with `kind`, `name`, `change`), `files` (each with `path`, `status`, `upstreamPath`, `basePath`, pointing at verified files in the global store for reviewing the diff), `localConflicts` (project paths that share a name with the target version), `brokenReferences` (resources referenced by running Plans that the target no longer provides, each with `change` and `path`), `warnings` and `nextSteps`. `--full` skips the version pre-check and always plans. Requires `git` on `PATH`. Options: `--full`, `--home`.
+Plans an update of `registry.lock.yaml` from the `registry` in `config.yaml`. It never writes the lock; inside the project it writes only `<home>/.cache/registry/`. It first resolves the target (`latest` or a pinned tag) with `git ls-remote`: when a new-format lock already pins the target commit and tag it returns `upToDate: true`, and a pinned tag that is already locked runs no git at all. Otherwise it reads the target commit's definitions from git (a private bare repository, never checked out), publishes them as a snapshot in the global store, and compares them with the current lock file by file: each file gets a `status` of `added`, `modified` or `deleted`. An old-format lock always produces a plan (`migration: true`). Returns `registry`, `upToDate`, `baseCommit`, `baseTag`, `upstreamCommit`, `upstreamTag`, `baseAvailable` (whether the current version's contents could be provided), `migration`, `sourceChanged` and `previousRegistry` (the lock's old source when it differs from the config; confirm the switch separately), `planId`, `definitions` (each with `kind`, `name`, `change`), `files` (each with `path`, `status`, `upstreamPath`, `basePath`, pointing at verified files in the global store for reviewing the diff), `localConflicts` (project paths that share a name with the target version), `brokenReferences` (resources referenced by running Plans that the target no longer provides, each with `change` and `path`), `warnings` and `nextSteps`. `--full` skips the version pre-check and always plans. Requires `git` on `PATH`. Options: `--full`, `--json`, `--home`.
 
 ## loopspec registry apply
 
 ```bash
-loopspec registry apply --plan <planId>
+loopspec registry apply --plan <planId> [--json]
 ```
 
-Applies the latest `registry update` plan after the human confirmed it, writing only `registry.lock.yaml`. Refused with `registry_plan_stale` when the plan id differs, the registry in `config.yaml` or the lock changed since the plan, or the plan was tampered with. Before writing it checks, in order: project definitions sharing a name with the target version (`registry_local_conflict`); that every target and local definition loads (local definitions that were already broken do not block); that `workflow.required_fragments` and `workflow.assurance_rules` can still be satisfied (`project_constraint` and the like); and that resources referenced by running Plans still exist (`registry_breaks_running_plan`). Any failure leaves the lock untouched. Returns `applied`, `upstreamCommit`, `upstreamTag`, `migration`, `added`, `modified`, `deleted` and `lock`. Applying takes effect immediately for running Plans. It shares a project-level write lock with `registry update` and registry-mode `profile save`. Options: `--plan`, `--home`.
+Applies the latest `registry update` plan after the human confirmed it, writing only `registry.lock.yaml`. Refused with `registry_plan_stale` when the plan id differs, the registry in `config.yaml` or the lock changed since the plan, or the plan was tampered with. Before writing it checks, in order: project definitions sharing a name with the target version (`registry_local_conflict`); that every target and local definition loads (local definitions that were already broken do not block); that `workflow.required_fragments` and `workflow.assurance_rules` can still be satisfied (`project_constraint` and the like); and that resources referenced by running Plans still exist (`registry_breaks_running_plan`). Any failure leaves the lock untouched. Returns `applied`, `upstreamCommit`, `upstreamTag`, `migration`, `added`, `modified`, `deleted` and `lock`. Applying takes effect immediately for running Plans. It shares a project-level write lock with `registry update` and registry-mode `profile save`. Options: `--plan`, `--json`, `--home`.
 
 ## loopspec memory list
 
 ```bash
-loopspec memory list [--offset <n>] [--limit <n>] [--all]
+loopspec memory list [--offset <n>] [--limit <n>] [--all] [--json]
 ```
 
-Prints the index of cross-Change memory topics, which are plain Markdown files at `<home>/memory/{topic}.md`: `topics` (one page sorted by name, each with `topic`, `path`, `title`, `hint`, `bytes` and `status` of `ok`, `too_large` or `unreadable`), `total`, `offset` and `nextOffset` (`null` on the last page). `title` and `hint` are at most 120 characters; `hint` is the first `When to use:` line or else the first body line. Topics are sorted by topic name. `--offset` skips that many topics and `--limit` sets the page size (default 200, at most 500), so every topic stays reachable page by page. `--all` also lists the entries of `memory/` that are not topics as `ignored` (the first `--limit` of them by name, with `ignoredTotal` giving how many there are), each with a `reason` of `symlink`, `not_a_file`, `not_markdown` or `invalid_name`. A topic name is lower-case letters, digits and hyphens, at most 64 characters. A missing `memory/` directory is an empty index; a symlinked directory fails with `unsafe_path`, and more than 5000 topics, or more than 20000 entries of any kind in `memory/`, fail with `memory_too_many` instead of being cut. An entry that disappears during the scan is skipped. A negative `--offset` or a `--limit` below 1 fails with `memory_bad_range`. The engine only reads: it never creates, edits or deletes a topic. Options: `--home`.
+Prints the index of cross-Change memory topics, which are plain Markdown files at `<home>/memory/{topic}.md`: `topics` (one page sorted by name, each with `topic`, `path`, `title`, `hint`, `bytes` and `status` of `ok`, `too_large` or `unreadable`), `total`, `offset` and `nextOffset` (`null` on the last page). `title` and `hint` are at most 120 characters; `hint` is the first `When to use:` line or else the first body line. Topics are sorted by topic name. `--offset` skips that many topics and `--limit` sets the page size (default 200, at most 500), so every topic stays reachable page by page. `--all` also lists the entries of `memory/` that are not topics as `ignored` (the first `--limit` of them by name, with `ignoredTotal` giving how many there are), each with a `reason` of `symlink`, `not_a_file`, `not_markdown` or `invalid_name`. A topic name is lower-case letters, digits and hyphens, at most 64 characters. A missing `memory/` directory is an empty index; a symlinked directory fails with `unsafe_path`, and more than 5000 topics, or more than 20000 entries of any kind in `memory/`, fail with `memory_too_many` instead of being cut. An entry that disappears during the scan is skipped. A negative `--offset` or a `--limit` below 1 fails with `memory_bad_range`. The engine only reads: it never creates, edits or deletes a topic. Options: `--json`, `--home`.
 
 ## loopspec memory show
 
 ```bash
-loopspec memory show <topic>
+loopspec memory show <topic> [--json]
 ```
 
-Prints one topic in full as JSON (`topic`, `path`, `content`, `untrustedData`); `core` is read the same way. The content is untrusted reference data. An invalid name, a symlink or a hard-linked file fails with `unsafe_path`, an unknown topic with `memory_not_found`, and a file above 2 MiB with `memory_too_large` (never truncated silently). Options: `--home`.
+Prints one topic in full as JSON (`topic`, `path`, `content`, `untrustedData`); `core` is read the same way. The content is untrusted reference data. An invalid name, a symlink or a hard-linked file fails with `unsafe_path`, an unknown topic with `memory_not_found`, and a file above 2 MiB with `memory_too_large` (never truncated silently). Options: `--json`, `--home`.
 
 ## Error codes
 

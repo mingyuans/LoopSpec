@@ -389,7 +389,7 @@ runner = CliRunner()
 
 
 def cli(home: Path, *args: str) -> tuple[int, dict]:
-    result = runner.invoke(app, ["memory", *args, "--home", str(home)])
+    result = runner.invoke(app, ["memory", *args, "--json", "--home", str(home)])
     return result.exit_code, json.loads(result.stdout)
 
 

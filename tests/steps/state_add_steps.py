@@ -273,7 +273,8 @@ def installed_executable(home: Path, tmp_path: Path, last_call: LastCall, comman
     last_call.text = "子进程冒烟决策"
     completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
         [str(executable), "state", "add", "-c", CHANGE, "--section", "decision",
-         "--actor", "MODEL", "--by", "BE", "--text", last_call.text, "--home", str(home)],
+         "--actor", "MODEL", "--by", "BE", "--text", last_call.text, "--json",
+         "--home", str(home)],
         cwd=tmp_path, capture_output=True, text=True, timeout=120, check=False,
     )  # fmt: skip
     last_call.outcome = CliOutcome(completed.returncode, json.loads(completed.stdout or "{}"))

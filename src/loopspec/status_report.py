@@ -20,10 +20,13 @@ state-md-writeback design):
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
-from .presentation import escape_control, sanitize
+from .presentation import sanitize
+from .text_format import columns as _columns
+from .text_format import fields as _fields
+from .text_format import quote as _quote
+from .text_format import section as _section
 
 __all__ = ["render_error_report", "render_status_report", "sanitize"]
 
@@ -85,7 +88,6 @@ SECTION_PENDING_ROLLBACK = "=== PENDING ROLLBACK ==="
 SECTION_NEXT_STEPS = "=== NEXT STEPS ==="
 SECTION_ERROR = "=== ERROR ==="
 
-QUOTE = "    "
 CONTINUATION = "  "
 
 # --------------------------------------------------------------------------- #
@@ -172,27 +174,6 @@ PROMPT_ERROR = (
 
 NO_NEXT_STEPS = "(nothing queued)"
 NO_PLANS = "(no plans yet)"
-# Everything sanitize() escapes except \n and \t, which quoted state.md keeps.
-_QUOTED_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029]")
-
-
-def _section(header: str, prompt: str, body: list[str]) -> list[str]:
-    return [header, prompt, "", *body, ""]
-
-
-def _fields(rows: list[tuple[str, Any]], width: int = 0) -> list[str]:
-    width = max(width, max(len(label) for label, _ in rows) + 2)
-    return [f"{label + ':':<{width}}{sanitize(value)}" for label, value in rows]
-
-
-def _columns(rows: list[list[str]]) -> list[str]:
-    widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]) - 1)]
-    return [
-        "  ".join(
-            [*(cell.ljust(width) for cell, width in zip(row, widths, strict=False)), row[-1]]
-        ).rstrip()
-        for row in rows
-    ]
 
 
 def _overview(payload: dict) -> list[str]:
@@ -225,12 +206,6 @@ def _plan_label(payload: dict, plan_id: str) -> str:
     entry = next((item for item in payload["plans"] if item["plan"] == plan_id), None)
     status = entry["status"] if entry else "unknown"
     return f"{status}, active" if plan_id == payload.get("activePlan") else status
-
-
-def _quote(content: str) -> list[str]:
-    text = content.replace("\r\n", "\n").replace("\r", "\n")
-    text = _QUOTED_CONTROL.sub(lambda match: escape_control(match.group()), text)
-    return [QUOTE + line for line in text.removesuffix("\n").split("\n")]
 
 
 def _state_block(title: str, view: dict) -> list[str]:

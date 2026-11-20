@@ -18,6 +18,7 @@
     并且 LLM 项目中 Change "CALC1" 的 state.md 中记录了 "No relevant memory"
     并且 LLM 项目中 Change "CALC1" 的 state.md 中没有 HUMAN 决策
     并且 LLM 项目中 Change "CALC1" 的 Plan "001" 为草稿
+    并且 Agent 读取的是 loopspec 默认的文本报告，没有加 --json
     并且 Agent 在本场景中从未执行 "plan approve"
 
   场景: 用户确认后 Agent 批准的正是展示过的草稿
@@ -38,6 +39,7 @@
     当 Agent 执行 "/loopspec-continue CALC1，只完成当前第一个节点后停下。"
     那么 Agent 正常结束
     并且 LLM 项目中 Change "CALC1" 的节点 "requirements/proposal" 已完成且产物非空
+    并且 Agent 读取的是 loopspec 默认的文本报告，没有加 --json
     并且 Agent 在本场景中从未执行 "plan approve"
     并且 Agent 在本场景中从未执行 "plan archive"
     并且 Agent 在本场景中从未执行 "change archive"

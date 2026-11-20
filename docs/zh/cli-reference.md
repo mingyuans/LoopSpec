@@ -8,8 +8,8 @@
 
 - 命令统一为 `loopspec <资源> <动作>`，资源名为单数：`change`、`plan`、`node`、`gate`、`state`、`fragment`、`profile`。只有 `version`、`update`、`init` 与 `graph` 单独使用；`hook` 组供 AI 工具的 hook 调用。
 - `-c/--change` 指定 Change，`-p/--plan` 指定三位数字的 Plan 编号，`-n/--node` 指定叶子节点或 Gate 路径，`-f/--file` 指定相对工作区的请求文件，`--digest` 是人确认过的摘要，`--note` 是可选说明。`change` 组的命令以位置参数给出 Change 名。
-- 除 `version`、`update`、`init` 与 `hook` 外，所有命令都接受 `--home`（默认 `./loopspec`），并输出 JSON；例外是 `change status`（默认输出给 LLM 阅读的纯文本报告）与 `graph`（默认输出给人看的纯文本），带 `--json` 时才输出 JSON。失败时输出 `{"error": <错误码>, "message": <说明>, "fix": <下一步>}`，退出码为 1；用法错误退出码为 2。
-- **skill 自动同步。**接受 `--home` 的命令在执行前，会把项目中已配置 AI 工具的 loopspec skill 与 command 文件同步到当前 CLI 内置的内容（项目根取 workflow home 的上一级，与 `init` 默认一致）：内容不同的覆盖，缺失的补上；没有 loopspec skill 的工具不会新建；只写项目根内的文件，Codex 的全局 prompts 不会被改动；路径上有符号链接时不跟随、只告警。同步结果只打印到 stderr（`loopspec: synced N skill file(s) …`），JSON 输出与退出码不受影响，同步失败也不影响命令本身。这些文件由 CLI 管理，手工修改会被覆盖。用 `init --project-root` 指定过其他项目根的项目不会被同步。
+- 除 `version`、`update`、`init` 与 `hook` 外，所有命令都接受 `--home`（默认 `./loopspec`），默认输出纯文本报告，带 `--json` 时输出 JSON（`hook pre-tool-use` 按 hook 协议只输出 JSON）。CLI 的主要调用方是 LLM，所以文本报告按 LLM 易读的方式编排：以顶格的 `=== SECTION ===` 行分节，每节先有一段说明，字段写成 `key: value` 且沿用 JSON 字段名（如 `digest`、`archiveId`、`roundId`），指令、模板、state 与 memory 等多行内容每行缩进四个空格原样引用；不使用 Markdown，不含颜色，字节不随终端变化，任何不可信内容都不能生成顶格的分节或下一步。有后续命令时最后一节是 `NEXT STEPS`。`--json` 的输出与文本报告来自同一份数据，字段见各命令说明。失败时文本模式输出 `=== ERROR ===` 报告（`error`、`message`、`fix`），`--json` 时输出 `{"error": <错误码>, "message": <说明>, "fix": <下一步>}`，退出码均为 1；用法错误退出码为 2。文本报告渲染失败时（命令已生效），改为输出 JSON 并在 stderr 提示 `loopspec: text report unavailable`，退出码不变。`graph` 默认输出给人看的纯文本。
+- **skill 自动同步。**接受 `--home` 的命令在执行前，会把项目中已配置 AI 工具的 loopspec skill 与 command 文件同步到当前 CLI 内置的内容（项目根取 workflow home 的上一级，与 `init` 默认一致）：内容不同的覆盖，缺失的补上；没有 loopspec skill 的工具不会新建；只写项目根内的文件，Codex 的全局 prompts 不会被改动；路径上有符号链接时不跟随、只告警。同步结果只打印到 stderr（`loopspec: synced N skill file(s) …`），命令输出与退出码不受影响，同步失败也不影响命令本身。这些文件由 CLI 管理，手工修改会被覆盖。用 `init --project-root` 指定过其他项目根的项目不会被同步。
 - 执行类命令（`node`、`gate`、`plan rollback`）只作用于活动 Plan。没有活动 Plan 时返回 `plan_not_active`，`fix` 给出下一个规划步骤。每条命令只有一次生效写入，中断后 Change 要么是命令之前、要么是命令之后的状态；尚待归档的返工文件由下一条写入类命令先行搬运。
 
 ## loopspec version
@@ -50,10 +50,10 @@ Claude Code 与 Codex 的 PreToolUse hook，由 `loopspec init` 配置，不需�
 ## loopspec change new
 
 ```bash
-loopspec change new <change>
+loopspec change new <change> [--json]
 ```
 
-创建一个未规划的 Change：`.workflow.yaml`（format 4，没有 Plan，没有基线）、带分段模板的 `state.md`（背景、目标与边界、决策、待解决问题、参考，末尾是引擎追加的 Plan 记录）与 `plans/`。不编译也没有可执行节点。对已有 Change 重复执行时返回它，并带 `reusedChange: true`。参数：`--home`。
+创建一个未规划的 Change：`.workflow.yaml`（format 4，没有 Plan，没有基线）、带分段模板的 `state.md`（背景、目标与边界、决策、待解决问题、参考，末尾是引擎追加的 Plan 记录）与 `plans/`。不编译也没有可执行节点。对已有 Change 重复执行时返回它，并带 `reusedChange: true`。参数：`--json`、`--home`。
 
 ## loopspec change status
 
@@ -68,33 +68,33 @@ loopspec change status <change> [--json]
 ## loopspec change next
 
 ```bash
-loopspec change next <change>
+loopspec change next <change> [--json]
 ```
 
-与 `change status` 使用同一逻辑，只返回 `status`、`isComplete`、`node`（第一个要处理的节点）、`nodes`（`nextSteps` 对应的全部节点：rollback 的 Gate、exhausted 的 Gate，或全部就绪叶子）、`parallel` 与 `nextSteps`。参数：`--home`。
+与 `change status` 使用同一逻辑，只返回 `status`、`isComplete`、`node`（第一个要处理的节点）、`nodes`（`nextSteps` 对应的全部节点：rollback 的 Gate、exhausted 的 Gate，或全部就绪叶子）、`parallel` 与 `nextSteps`。参数：`--json`、`--home`。
 
 ## loopspec change history
 
 ```bash
-loopspec change history <change> [-p <NNN>]
+loopspec change history <change> [-p <NNN>] [--json]
 ```
 
-列出活动 Plan（或未结束 Plan、最新 Plan，或 `--plan` 指定的 Plan）在 `.attempts/` 中的重做记录：`seq`、`kind`、`gate`、`reset`、归档的 `files`，修订记录还包括目标摘要与修订号。参数：`--plan`、`--home`。
+列出活动 Plan（或未结束 Plan、最新 Plan，或 `--plan` 指定的 Plan）在 `.attempts/` 中的重做记录：`seq`、`kind`、`gate`、`reset`、归档的 `files`，修订记录还包括目标摘要与修订号。参数：`--plan`、`--json`、`--home`。
 
 ## loopspec change artifacts
 
 ```bash
-loopspec change artifacts <change>
+loopspec change artifacts <change> [--json]
 ```
 
-按位置（当前 Change 与已归档副本）和 Plan（含已归档 Plan）列出 Change 拥有的全部产物。只读。参数：`--home`。
+按位置（当前 Change 与已归档副本）和 Plan（含已归档 Plan）列出 Change 拥有的全部产物。只读。参数：`--json`、`--home`。
 
 ## loopspec change archive
 
 ```bash
-loopspec change archive <change> [--force]
-loopspec change archive --all [--older-than <days>]
-loopspec change archive --confirm <archiveId> --memory updated|none --note <text>
+loopspec change archive <change> [--force] [--json]
+loopspec change archive --all [--older-than <days>] [--json]
+loopspec change archive --confirm <archiveId> --memory updated|none --note <text> [--json]
 ```
 
 两段式归档，memory 审阅是协议的一部分。
@@ -103,97 +103,97 @@ loopspec change archive --confirm <archiveId> --memory updated|none --note <text
 
 **第二段**（`--confirm`）必须同时给出 `--memory updated|none` 与 `--note`（单行、非空、最多 1000 个字符、不能含 HTML 注释分隔符），且不能与需求名、`--all`、`--force`、`--older-than` 同用。它在全部相关 Change 的写锁内重新推导状态，核对内容摘要（第一段之后有改动则 `archive_ticket_stale`，需重新执行第一段），再核对 memory：`updated` 要求至少一个 memory topic 相对第一段有变化，`none` 要求没有变化。全部通过后，先把审阅结论（选择、变化的 topic、说明）作为事件写入每个 Change 的 `state.md`，再把 Change 目录移到 `archive/<YYYY-MM>/<change>`，最后删除凭据。返回 `archiveId`、`memoryReview`（`memory`、`note`、`changedTopics`）与 `archived`（每项含 `changeName`、`forced`、`moved`、`destination`、`dropped`，删除失败时含 `notDropped`）。批量确认中途失败时凭据保留进度，用同一命令重试会跳过已归档的 Change。
 
-移动成功后删除各 Plan（含已归档 Plan）只服务于执行中 Plan 的文件，不放入归档目录：返工记录 `.attempts/`、Gate 证据 `.gates/`、轮次记录 `.gate-rounds/`，以及 `plan.yaml` 中各 Gate 声明的 PASS/FAIL 报告（仅限 `artifacts/` 下，同目录的其他文件保留，删空的目录一并移除）。需求、设计、实现等非 Gate 产物保留。删除失败不影响归档本身；拒绝归档或移动失败时不删除任何内容；`.attempts` 是符号链接时在重新推导状态时即以 `unsafe_path` 拒绝。参数：`--all`、`--older-than`、`--force`、`--confirm`、`--memory`、`--note`、`--home`。
+移动成功后删除各 Plan（含已归档 Plan）只服务于执行中 Plan 的文件，不放入归档目录：返工记录 `.attempts/`、Gate 证据 `.gates/`、轮次记录 `.gate-rounds/`，以及 `plan.yaml` 中各 Gate 声明的 PASS/FAIL 报告（仅限 `artifacts/` 下，同目录的其他文件保留，删空的目录一并移除）。需求、设计、实现等非 Gate 产物保留。删除失败不影响归档本身；拒绝归档或移动失败时不删除任何内容；`.attempts` 是符号链接时在重新推导状态时即以 `unsafe_path` 拒绝。参数：`--all`、`--older-than`、`--force`、`--confirm`、`--memory`、`--note`、`--json`、`--home`。
 
 ## loopspec plan validate
 
 ```bash
-loopspec plan validate -c <change> -f <request>
+loopspec plan validate -c <change> -f <request> [--json]
 ```
 
-只读。没有已确认 Plan 时编译请求并检查项目约束，返回 `spec` 与 `digest`。有已确认 Plan 时按修订处理：检查 `base_revision` 与冻结规则，返回新的 `digest`、`addedInstances` 与 `rerunNodes` 供展示给人。参数：`--change`、`--file`、`--home`。
+只读。没有已确认 Plan 时编译请求并检查项目约束，返回 `spec` 与 `digest`。有已确认 Plan 时按修订处理：检查 `base_revision` 与冻结规则，返回新的 `digest`、`addedInstances` 与 `rerunNodes` 供展示给人。参数：`--change`、`--file`、`--json`、`--home`。
 
 ## loopspec plan create
 
 ```bash
-loopspec plan create -c <change> -f <request> [--note <text>]
+loopspec plan create -c <change> -f <request> [--note <text>] [--json]
 ```
 
-按当前 Fragment 与 `config.yaml` 编译请求。没有未结束 Plan 时新建下一个编号的草稿 Plan，首次时固定 Change 基线与仓库；已有草稿时覆盖其 `spec`（给出 `--note` 时同时更新说明）；已有已确认 Plan 时返回 `plan_active`。新建草稿时写入带分段模板的 Plan 级 `state.md`；新建与覆盖草稿提交后向 Plan 级 `state.md` 末尾追加一行事件（见[概览](overview.md)）；追加失败不影响结果，只在输出中加 `warnings: ["state_append_failed: <路径>"]`。参数：`--change`、`--file`、`--note`、`--home`。
+按当前 Fragment 与 `config.yaml` 编译请求。没有未结束 Plan 时新建下一个编号的草稿 Plan，首次时固定 Change 基线与仓库；已有草稿时覆盖其 `spec`（给出 `--note` 时同时更新说明）；已有已确认 Plan 时返回 `plan_active`。新建草稿时写入带分段模板的 Plan 级 `state.md`；新建与覆盖草稿提交后向 Plan 级 `state.md` 末尾追加一行事件（见[概览](overview.md)）；追加失败不影响结果，只在输出中加 `warnings: ["state_append_failed: <路径>"]`。参数：`--change`、`--file`、`--note`、`--json`、`--home`。
 
 ## loopspec plan show
 
 ```bash
-loopspec plan show -c <change> [-p <NNN>]
+loopspec plan show -c <change> [-p <NNN>] [--json]
 ```
 
-返回未结束 Plan（或 `--plan` 指定的 Plan）的 `meta`、`spec`、`baseline` 与 `repository`，这是人在确认前评审的内容。参数：`--change`、`--plan`、`--home`。
+返回未结束 Plan（或 `--plan` 指定的 Plan）的 `meta`、`spec`、`baseline` 与 `repository`，这是人在确认前评审的内容。参数：`--change`、`--plan`、`--json`、`--home`。
 
 ## loopspec plan list
 
 ```bash
-loopspec plan list -c <change>
+loopspec plan list -c <change> [--json]
 ```
 
-列出全部 Plan 的编号、状态、修订号、说明与时间。参数：`--change`、`--home`。
+列出全部 Plan 的编号、状态、修订号、说明与时间。参数：`--change`、`--json`、`--home`。
 
 ## loopspec plan approve
 
 ```bash
-loopspec plan approve -c <change> -p <NNN> --digest <digest>
-loopspec plan approve -c <change> -p <NNN> -f <revision-request> --digest <digest>
+loopspec plan approve -c <change> -p <NNN> --digest <digest> [--json]
+loopspec plan approve -c <change> -p <NNN> -f <revision-request> --digest <digest> [--json]
 ```
 
-只在人明确确认展示内容后执行。不带 `--file` 时确认草稿：重新编译草稿的 flow，要求存储摘要与重新编译摘要都等于 `--digest`，核对仓库，置 `revision: 1` 并设为活动 Plan。带 `--file` 时确认活动 Plan 的修订：重新编译请求，要求其摘要等于 `--digest`，检查 `base_revision` 与冻结规则，归档将重新执行节点的文件并替换 `spec`。重复提交已生效的确认返回 `alreadyApproved: true`，不追加事件。确认或修订生效后向 Plan 级 `state.md` 末尾追加一行事件（见[概览](overview.md)）；追加失败不影响结果，只在输出中加 `warnings: ["state_append_failed: <路径>"]`。参数：`--change`、`--plan`、`--digest`、`--file`、`--home`。
+只在人明确确认展示内容后执行。不带 `--file` 时确认草稿：重新编译草稿的 flow，要求存储摘要与重新编译摘要都等于 `--digest`，核对仓库，置 `revision: 1` 并设为活动 Plan。带 `--file` 时确认活动 Plan 的修订：重新编译请求，要求其摘要等于 `--digest`，检查 `base_revision` 与冻结规则，归档将重新执行节点的文件并替换 `spec`。重复提交已生效的确认返回 `alreadyApproved: true`，不追加事件。确认或修订生效后向 Plan 级 `state.md` 末尾追加一行事件（见[概览](overview.md)）；追加失败不影响结果，只在输出中加 `warnings: ["state_append_failed: <路径>"]`。参数：`--change`、`--plan`、`--digest`、`--file`、`--json`、`--home`。
 
 ## loopspec plan archive
 
 ```bash
-loopspec plan archive -c <change> -p <NNN> [--note <text>]
+loopspec plan archive -c <change> -p <NNN> [--note <text>] [--json]
 ```
 
-把未结束的草稿或已确认 Plan 标记为 `archived` 并清空 Change 的指针，Change 回到 `unplanned`。Plan 目录与业务代码保持原样。归档已确认 Plan 前必须先取得人的明确同意。提交后向 Plan 级与 Change 级 `state.md` 末尾各追加一行事件（见[概览](overview.md)）；追加失败不影响结果，只在输出中加 `warnings: ["state_append_failed: <路径>"]`。参数：`--change`、`--plan`、`--note`、`--home`。
+把未结束的草稿或已确认 Plan 标记为 `archived` 并清空 Change 的指针，Change 回到 `unplanned`。Plan 目录与业务代码保持原样。归档已确认 Plan 前必须先取得人的明确同意。提交后向 Plan 级与 Change 级 `state.md` 末尾各追加一行事件（见[概览](overview.md)）；追加失败不影响结果，只在输出中加 `warnings: ["state_append_failed: <路径>"]`。参数：`--change`、`--plan`、`--note`、`--json`、`--home`。
 
 ## loopspec plan rollback
 
 ```bash
-loopspec plan rollback -c <change> -p <NNN>
+loopspec plan rollback -c <change> -p <NNN> [--json]
 ```
 
-活动 Plan 中有有效 FAIL 时，按该 Gate 自身的 `on_fail` 返工：把其 `reset` 节点、该 Gate 与全部下游的产物、报告与证据归档到 `.attempts/<NNN>/`（`kind: rollback`）。业务代码不回退。Gate 没有 `on_fail` 或次数用完时返回 `retries_exhausted`，没有失败时返回 `no_failed_gate`。提交后向 Plan 级 `state.md` 末尾追加一行事件（见[概览](overview.md)）；追加失败不影响结果，只在输出中加 `warnings: ["state_append_failed: <路径>"]`。参数：`--change`、`--plan`、`--home`。
+活动 Plan 中有有效 FAIL 时，按该 Gate 自身的 `on_fail` 返工：把其 `reset` 节点、该 Gate 与全部下游的产物、报告与证据归档到 `.attempts/<NNN>/`（`kind: rollback`）。业务代码不回退。Gate 没有 `on_fail` 或次数用完时返回 `retries_exhausted`，没有失败时返回 `no_failed_gate`。提交后向 Plan 级 `state.md` 末尾追加一行事件（见[概览](overview.md)）；追加失败不影响结果，只在输出中加 `warnings: ["state_append_failed: <路径>"]`。参数：`--change`、`--plan`、`--json`、`--home`。
 
 ## loopspec node instructions
 
 ```bash
-loopspec node instructions -c <change> -n <node>
+loopspec node instructions -c <change> -n <node> [--json]
 ```
 
-返回执行活动 Plan 中一个就绪（或已完成）叶子节点所需的一切：实时读取的 `instruction`、`template` 或 Gate `templates`，`outputPath` 与 `resolvedOutputPath`，`dependencies`，以及 `priorAttempts`（以前的重做记录与 FAIL 报告，标注为不可信）。代码 Gate 额外返回含 `gate begin` 与 `gate record` 命令的 `gateProtocol`；保障节点返回它的 `gate record` 命令。每个叶子还会得到 `stateProtocol`：适合该节点的 `state add` 命令，与模板同源于同一张段落注册表，每项含 `when`、`contentBoundary`、`format`、`required`、`optional` 与 `command`。Change 级命令只带 Change；Plan 级命令固定实际的 Change、Plan 与节点；Gate 节点还会多出 `rework`。已生效重做记录中还有待归档的文件时，它先在 Change 写锁内补完搬运，保证新产物不会覆盖尚未归档的文件；否则只读，因此并行的 Agent 可以同时获取各自的节点。参数：`--change`、`--node`、`--home`。 另含 `memory`：与 `change status` 相同的有界 topic 摘要（`topics`、`total`、`omitted`、`listCommand`），其中 `core` 只有 `present`、`bytes` 与 `showCommand`，不含正文。
+返回执行活动 Plan 中一个就绪（或已完成）叶子节点所需的一切：实时读取的 `instruction`、`template` 或 Gate `templates`，`outputPath` 与 `resolvedOutputPath`，`dependencies`，以及 `priorAttempts`（以前的重做记录与 FAIL 报告，标注为不可信）。代码 Gate 额外返回含 `gate begin` 与 `gate record` 命令的 `gateProtocol`；保障节点返回它的 `gate record` 命令。每个叶子还会得到 `stateProtocol`：适合该节点的 `state add` 命令，与模板同源于同一张段落注册表，每项含 `when`、`contentBoundary`、`format`、`required`、`optional` 与 `command`。Change 级命令只带 Change；Plan 级命令固定实际的 Change、Plan 与节点；Gate 节点还会多出 `rework`。已生效重做记录中还有待归档的文件时，它先在 Change 写锁内补完搬运，保证新产物不会覆盖尚未归档的文件；否则只读，因此并行的 Agent 可以同时获取各自的节点。参数：`--change`、`--node`、`--json`、`--home`。 另含 `memory`：与 `change status` 相同的有界 topic 摘要（`topics`、`total`、`omitted`、`listCommand`），其中 `core` 只有 `present`、`bytes` 与 `showCommand`，不含正文。
 
 ## loopspec gate begin
 
 ```bash
-loopspec gate begin -c <change> -n <gate>
+loopspec gate begin -c <change> -n <gate> [--json]
 ```
 
-只用于就绪的代码 Gate。以基线为准固定其 `evidence.paths` 范围内的内容，返回一次性的 `roundId` 与范围内的文件（路径、类型与摘要，不含内容）。存在被 Git 忽略、但不在 `workflow.excluded_paths` 中的路径时，返回 `warnings`（`ignoredPaths` 最多 20 条与 `ignoredTotal`）；审查者应把这些告警写进报告摘要。参数：`--change`、`--node`、`--home`。
+只用于就绪的代码 Gate。以基线为准固定其 `evidence.paths` 范围内的内容，返回一次性的 `roundId` 与范围内的文件（路径、类型与摘要，不含内容）。存在被 Git 忽略、但不在 `workflow.excluded_paths` 中的路径时，返回 `warnings`（`ignoredPaths` 最多 20 条与 `ignoredTotal`）；审查者应把这些告警写进报告摘要。参数：`--change`、`--node`、`--json`、`--home`。
 
 ## loopspec gate record
 
 ```bash
-loopspec gate record -c <change> -n <gate> --round <roundId> --report <artifacts/...>
-loopspec gate record -c <change> -n <assurance-node>
+loopspec gate record -c <change> -n <gate> --round <roundId> --report <artifacts/...> [--json]
+loopspec gate record -c <change> -n <assurance-node> [--json]
 ```
 
-代码 Gate 必须带 `--round` 与 `--report`。报告位于 Plan 的 `artifacts/` 下，头部只含 `verdict` 与 `summary`。轮次未被使用且固定的代码未变化时，写出 PASS 或 FAIL 报告与绑定 Plan 摘要的证据，并返回同样的 `warnings`。保障节点拒绝这两个参数：CLI 按保障规则检查完整 Diff，写出带诊断的系统 PASS 或 FAIL；告警不影响结论，会写进系统报告的 `summary` 与诊断的 `warnings`；保障规则的 `unknown_paths` 为 `warn` 时，不匹配任何规则的路径也作为告警写入。被忽略的文件从不计入 Diff 与证据摘要。参数：`--change`、`--node`、`--round`、`--report`、`--home`。
+代码 Gate 必须带 `--round` 与 `--report`。报告位于 Plan 的 `artifacts/` 下，头部只含 `verdict` 与 `summary`。轮次未被使用且固定的代码未变化时，写出 PASS 或 FAIL 报告与绑定 Plan 摘要的证据，并返回同样的 `warnings`。保障节点拒绝这两个参数：CLI 按保障规则检查完整 Diff，写出带诊断的系统 PASS 或 FAIL；告警不影响结论，会写进系统报告的 `summary` 与诊断的 `warnings`；保障规则的 `unknown_paths` 为 `warn` 时，不匹配任何规则的路径也作为告警写入。被忽略的文件从不计入 Diff 与证据摘要。参数：`--change`、`--node`、`--round`、`--report`、`--json`、`--home`。
 
 ## loopspec state add
 
 ```bash
-loopspec state add -c <change> --section <key> --text <content> [--scope change|plan] [-p <plan>] [-n <node>] [--actor HUMAN|MODEL --by <who>]
+loopspec state add -c <change> --section <key> --text <content> [--scope change|plan] [-p <plan>] [-n <node>] [--actor HUMAN|MODEL --by <who>] [--json]
 ```
 
-在 Change 写锁内，把一行单行记录追加到 Change 级或 Plan 级 `state.md` 的对应段落。这是唯一的 state 写操作：解决问题、替代决策、验证假设或更正记录，都通过追加一条引用旧记录的新记录来表达，不分配条目 ID。输出 `changeName`、`scope`、`plan`（Change 级为 `null`）、`section`、`path` 与追加的 `line`。参数：`--change`、`--section`、`--text`、`--scope`、`--plan`、`--node`、`--actor`、`--by`、`--home`。
+在 Change 写锁内，把一行单行记录追加到 Change 级或 Plan 级 `state.md` 的对应段落。这是唯一的 state 写操作：解决问题、替代决策、验证假设或更正记录，都通过追加一条引用旧记录的新记录来表达，不分配条目 ID。输出 `changeName`、`scope`、`plan`（Change 级为 `null`）、`section`、`path` 与追加的 `line`。参数：`--change`、`--section`、`--text`、`--scope`、`--plan`、`--node`、`--actor`、`--by`、`--json`、`--home`。
 
 | 段落 | 层级 | 必填 | 条目 |
 | --- | --- | --- | --- |
@@ -213,35 +213,35 @@ loopspec state add -c <change> --section <key> --text <content> [--scope change|
 
 ## loopspec fragment list
 
-列出工作区中的 Fragment。registry 模式下包含 lock 锁定的 registry 定义与项目内的本地定义。每个条目带 `source`（`registry` 或 `local`）与 `registry` 字段：registry 定义为 `{syncedTag, syncedCommit}`，本地定义为 `null`。registry 模式下锁缺失、不合法或与本地定义同名时返回对应错误。参数：`--home`。
+列出工作区中的 Fragment。registry 模式下包含 lock 锁定的 registry 定义与项目内的本地定义。每个条目带 `source`（`registry` 或 `local`）与 `registry` 字段：registry 定义为 `{syncedTag, syncedCommit}`，本地定义为 `null`。registry 模式下锁缺失、不合法或与本地定义同名时返回对应错误。参数：`--json`、`--home`。
 
 ## loopspec fragment show
 
-`loopspec fragment show <name>` 返回一个 Fragment 定义。参数：`--home`。
+`loopspec fragment show <name>` 返回一个 Fragment 定义。参数：`--json`、`--home`。
 
 ## loopspec fragment validate
 
-`loopspec fragment validate <name>` 展开 Fragment 并检查依赖、资源、输出与 `on_fail`（含 `on_fail_conflict`）。参数：`--home`。
+`loopspec fragment validate <name>` 展开 Fragment 并检查依赖、资源、输出与 `on_fail`（含 `on_fail_conflict`）。参数：`--json`、`--home`。
 
 ## loopspec profile list
 
-列出工作区中的 Profile。registry 模式下包含 lock 锁定的 registry 定义与项目内的本地定义。每个条目带 `source`（`registry` 或 `local`）与 `registry` 字段：registry 定义为 `{syncedTag, syncedCommit}`，本地定义为 `null`。registry 模式下锁缺失、不合法或与本地定义同名时返回对应错误。参数：`--home`。
+列出工作区中的 Profile。registry 模式下包含 lock 锁定的 registry 定义与项目内的本地定义。每个条目带 `source`（`registry` 或 `local`）与 `registry` 字段：registry 定义为 `{syncedTag, syncedCommit}`，本地定义为 `null`。registry 模式下锁缺失、不合法或与本地定义同名时返回对应错误。参数：`--json`、`--home`。
 
 ## loopspec profile show
 
-`loopspec profile show <name>` 返回一个 Profile。参数：`--home`。
+`loopspec profile show <name>` 返回一个 Profile。参数：`--json`、`--home`。
 
 ## loopspec profile validate
 
-`loopspec profile validate <name>` 编译其 flow，返回构建顺序、实例与每个 Gate 最终的 `on_fail`。参数：`--home`。
+`loopspec profile validate <name>` 编译其 flow，返回构建顺序、实例与每个 Gate 最终的 `on_fail`。参数：`--json`、`--home`。
 
 ## loopspec profile save
 
 ```bash
-loopspec profile save <name> -c <change>
+loopspec profile save <name> -c <change> [--json]
 ```
 
-把活动 Plan 的 `spec.flow`（含 `on_fail`）保存为 `profiles/<name>.yaml`。不保存执行状态，从不覆盖已有 Profile；registry 模式下名称与 registry 中的 Profile 相同时返回 `profile_exists`。参数：`--change`、`--home`。
+把活动 Plan 的 `spec.flow`（含 `on_fail`）保存为 `profiles/<name>.yaml`。不保存执行状态，从不覆盖已有 Profile；registry 模式下名称与 registry 中的 Profile 相同时返回 `profile_exists`。参数：`--change`、`--json`、`--home`。
 
 ## loopspec graph
 
@@ -257,34 +257,34 @@ loopspec graph -c <change> [--plan <id>] [--output <file>] [--no-open] [--json]
 ## loopspec registry update
 
 ```bash
-loopspec registry update [--full]
+loopspec registry update [--full] [--json]
 ```
 
-按 `config.yaml` 的 `registry` 规划 `registry.lock.yaml` 的更新，从不写 lock，项目内只写 `<home>/.cache/registry/`。先用 `git ls-remote` 解析目标（`latest` 或固定 tag）：新格式锁的 commit 与 tag 都已是目标时直接返回 `upToDate: true`；固定 tag 且已锁定时完全不执行 git。否则从 git 读取目标 commit 的定义树（私有裸仓库，从不 checkout），把它发布为全局存储中的快照，与当前 lock 逐文件比对：每个文件的 `status` 为 `added`、`modified` 或 `deleted`。旧格式锁总是生成计划（`migration: true`）。返回 `registry`、`upToDate`、`baseCommit`、`baseTag`、`upstreamCommit`、`upstreamTag`、`baseAvailable`（能否给出当前版本的内容）、`migration`、`sourceChanged` 与 `previousRegistry`（lock 来源与配置不同时为旧来源，需单独确认）、`planId`、`definitions`（每项含 `kind`、`name`、`change`）、`files`（每项含 `path`、`status`、`upstreamPath`、`basePath`，指向全局存储中已校验的文件，供审阅 diff）、`localConflicts`（目标版本中与项目内定义同名的路径）、`brokenReferences`（进行中的 Plan 引用、但目标版本不再提供的资源，每项含 `change` 与 `path`）、`warnings` 与 `nextSteps`。`--full` 跳过版本预检，总是生成计划。需要 `PATH` 中有 `git`。参数：`--full`、`--home`。
+按 `config.yaml` 的 `registry` 规划 `registry.lock.yaml` 的更新，从不写 lock，项目内只写 `<home>/.cache/registry/`。先用 `git ls-remote` 解析目标（`latest` 或固定 tag）：新格式锁的 commit 与 tag 都已是目标时直接返回 `upToDate: true`；固定 tag 且已锁定时完全不执行 git。否则从 git 读取目标 commit 的定义树（私有裸仓库，从不 checkout），把它发布为全局存储中的快照，与当前 lock 逐文件比对：每个文件的 `status` 为 `added`、`modified` 或 `deleted`。旧格式锁总是生成计划（`migration: true`）。返回 `registry`、`upToDate`、`baseCommit`、`baseTag`、`upstreamCommit`、`upstreamTag`、`baseAvailable`（能否给出当前版本的内容）、`migration`、`sourceChanged` 与 `previousRegistry`（lock 来源与配置不同时为旧来源，需单独确认）、`planId`、`definitions`（每项含 `kind`、`name`、`change`）、`files`（每项含 `path`、`status`、`upstreamPath`、`basePath`，指向全局存储中已校验的文件，供审阅 diff）、`localConflicts`（目标版本中与项目内定义同名的路径）、`brokenReferences`（进行中的 Plan 引用、但目标版本不再提供的资源，每项含 `change` 与 `path`）、`warnings` 与 `nextSteps`。`--full` 跳过版本预检，总是生成计划。需要 `PATH` 中有 `git`。参数：`--full`、`--json`、`--home`。
 
 ## loopspec registry apply
 
 ```bash
-loopspec registry apply --plan <planId>
+loopspec registry apply --plan <planId> [--json]
 ```
 
-在人确认后应用最近一次 `registry update` 的计划，只写 `registry.lock.yaml`。计划 ID 不一致、`config.yaml` 的 registry 或 lock 在计划生成后被改动、计划被篡改时返回 `registry_plan_stale`。写入前依次检查：项目内与目标版本同名的定义（`registry_local_conflict`）；目标版本与本地定义能否全部加载（同步前已失效的本地定义不阻塞）；`workflow.required_fragments` 与 `workflow.assurance_rules` 是否仍可满足（`project_constraint` 等）；进行中的 Plan 引用的资源是否仍存在（`registry_breaks_running_plan`）。任何一项失败都不写 lock。返回 `applied`、`upstreamCommit`、`upstreamTag`、`migration`、`added`、`modified`、`deleted` 与 `lock`。写入会立即影响执行中的 Plan。与 `registry update` 及 registry 模式下的 `profile save` 共用项目级写锁。参数：`--plan`、`--home`。
+在人确认后应用最近一次 `registry update` 的计划，只写 `registry.lock.yaml`。计划 ID 不一致、`config.yaml` 的 registry 或 lock 在计划生成后被改动、计划被篡改时返回 `registry_plan_stale`。写入前依次检查：项目内与目标版本同名的定义（`registry_local_conflict`）；目标版本与本地定义能否全部加载（同步前已失效的本地定义不阻塞）；`workflow.required_fragments` 与 `workflow.assurance_rules` 是否仍可满足（`project_constraint` 等）；进行中的 Plan 引用的资源是否仍存在（`registry_breaks_running_plan`）。任何一项失败都不写 lock。返回 `applied`、`upstreamCommit`、`upstreamTag`、`migration`、`added`、`modified`、`deleted` 与 `lock`。写入会立即影响执行中的 Plan。与 `registry update` 及 registry 模式下的 `profile save` 共用项目级写锁。参数：`--plan`、`--json`、`--home`。
 
 ## loopspec memory list
 
 ```bash
-loopspec memory list [--offset <n>] [--limit <n>] [--all]
+loopspec memory list [--offset <n>] [--limit <n>] [--all] [--json]
 ```
 
-以 JSON 输出跨 Change 的 memory topic 索引（普通 Markdown 文件，位于 `<home>/memory/{topic}.md`）：`topics`（按名称排序的一页，每项含 `topic`、`path`、`title`、`hint`、`bytes` 与 `status`，取值 `ok`、`too_large` 或 `unreadable`）、`total`、`offset` 与 `nextOffset`（最后一页为 `null`）。`title` 与 `hint` 最多 120 个字符；`hint` 取第一行“适用时机：”或 `When to use:`，没有时取正文首行。topic 按 topic 名排序。`--offset` 跳过相应数量的 topic，`--limit` 设置页大小（默认 200，最大 500），因此每个 topic 都能分页取到。`--all` 还会把 `memory/` 中不是 topic 的条目列为 `ignored`（按名称排序，只给前 `--limit` 项，`ignoredTotal` 给出总数），每项带 `reason`：`symlink`、`not_a_file`、`not_markdown` 或 `invalid_name`。topic 名只能是小写字母、数字和连字符，最长 64 个字符。`memory/` 目录不存在即空索引；目录是符号链接时以 `unsafe_path` 失败；topic 超过 5000 个、或 `memory/` 下的条目（不论是否 topic）超过 20000 个时以 `memory_too_many` 失败而不是截断；扫描期间消失的条目会被跳过；`--offset` 为负或 `--limit` 小于 1 时以 `memory_bad_range` 失败。引擎只读：从不创建、修改或删除 topic。参数：`--home`。
+以 JSON 输出跨 Change 的 memory topic 索引（普通 Markdown 文件，位于 `<home>/memory/{topic}.md`）：`topics`（按名称排序的一页，每项含 `topic`、`path`、`title`、`hint`、`bytes` 与 `status`，取值 `ok`、`too_large` 或 `unreadable`）、`total`、`offset` 与 `nextOffset`（最后一页为 `null`）。`title` 与 `hint` 最多 120 个字符；`hint` 取第一行“适用时机：”或 `When to use:`，没有时取正文首行。topic 按 topic 名排序。`--offset` 跳过相应数量的 topic，`--limit` 设置页大小（默认 200，最大 500），因此每个 topic 都能分页取到。`--all` 还会把 `memory/` 中不是 topic 的条目列为 `ignored`（按名称排序，只给前 `--limit` 项，`ignoredTotal` 给出总数），每项带 `reason`：`symlink`、`not_a_file`、`not_markdown` 或 `invalid_name`。topic 名只能是小写字母、数字和连字符，最长 64 个字符。`memory/` 目录不存在即空索引；目录是符号链接时以 `unsafe_path` 失败；topic 超过 5000 个、或 `memory/` 下的条目（不论是否 topic）超过 20000 个时以 `memory_too_many` 失败而不是截断；扫描期间消失的条目会被跳过；`--offset` 为负或 `--limit` 小于 1 时以 `memory_bad_range` 失败。引擎只读：从不创建、修改或删除 topic。参数：`--json`、`--home`。
 
 ## loopspec memory show
 
 ```bash
-loopspec memory show <topic>
+loopspec memory show <topic> [--json]
 ```
 
-以 JSON 完整输出一个 topic（`topic`、`path`、`content`、`untrustedData`），`core` 同样如此读取。内容是不可信的参考数据。名称不合法、符号链接或有硬链接的文件以 `unsafe_path` 失败，不存在的 topic 以 `memory_not_found` 失败，超过 2 MiB 的文件以 `memory_too_large` 失败（不会被静默截断）。参数：`--home`。
+以 JSON 完整输出一个 topic（`topic`、`path`、`content`、`untrustedData`），`core` 同样如此读取。内容是不可信的参考数据。名称不合法、符号链接或有硬链接的文件以 `unsafe_path` 失败，不存在的 topic 以 `memory_not_found` 失败，超过 2 MiB 的文件以 `memory_too_large` 失败（不会被静默截断）。参数：`--json`、`--home`。
 
 ## 错误码
 
