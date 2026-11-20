@@ -495,6 +495,13 @@ class DefinitionBundle(ResourceBundle):
         key = owning_key(path)
         return key is not None and key in self.registry_keys
 
+    def location(self, path: str) -> Path:
+        """Registry definitions live in the verified snapshot, everything else in home."""
+        path = relative_path(path)
+        if self.is_registry(path):
+            return self.snapshot.resolve() / path
+        return super().location(path)
+
     def read(self, path: str) -> bytes:
         path = relative_path(path)
         if path in self.files:
