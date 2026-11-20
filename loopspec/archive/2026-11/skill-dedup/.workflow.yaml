@@ -1,0 +1,5 @@
+format_version: 4
+change_name: skill-dedup
+created: '2026-11-20T16:51:15+00:00'
+baseline: 0b7f9c8e86e78332640d9e24bd88a913613a2d48
+repository: /home/xq.yan/worktrees/LoopSpec/skill-dedup
