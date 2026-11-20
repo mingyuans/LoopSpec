@@ -11,7 +11,7 @@ from .common import (
     join,
     memory_topics,
     node_entry,
-    quote,
+    quote_block,
     sanitize,
     section,
     steps,
@@ -57,8 +57,8 @@ PROMPT_CHANGES = (
 )
 PROMPT_SKIPPED = "Changes that --all left out, with the reason."
 PROMPT_REVIEW = (
-    "How to review memory before confirming, quoted verbatim, followed by the\n"
-    "current memory topic index (memoryIndex)."
+    "How to review memory before confirming, quoted verbatim between the begin and\n"
+    "end lines, followed by the current memory topic index (memoryIndex)."
 )
 PROMPT_ARCHIVED = (
     "Step 2 of 2 is done: the memory review outcome was recorded in each change's\n"
@@ -196,7 +196,7 @@ def render_archive(payload: dict) -> str:
     lines += _skipped(payload)
     review = payload.get("memoryReview")
     if review:
-        body = ["--- instructions ---", *quote(review["instructions"]), "", "--- memoryIndex ---"]
+        body = [*quote_block("instructions", review["instructions"]), "", "--- memoryIndex ---"]
         index = review["memoryIndex"]
         body += fields(
             [
