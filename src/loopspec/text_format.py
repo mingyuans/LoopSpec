@@ -28,6 +28,7 @@ __all__ = [
     "fields",
     "flag",
     "quote",
+    "quote_block",
     "sanitize",
     "section",
     "steps",
@@ -93,6 +94,22 @@ def quote(content: str, indent: str = QUOTE) -> list[str]:
     text = content.replace("\r\n", "\n").replace("\r", "\n")
     text = _QUOTED_CONTROL.sub(lambda match: escape_control(match.group()), text)
     return [indent + line for line in text.removesuffix("\n").split("\n")]
+
+
+def quote_block(label: str, content: str, detail: str = "", end: str | None = None) -> list[str]:
+    """A bounded quote: `--- begin <label> (N lines) ---`, N indented lines, `--- end <end> ---`.
+
+    The begin and end lines are written only here; the quoted lines are all indented,
+    so text inside the block can never end it early or open a section of its own.
+    """
+    body = quote(content) if content else []
+    count = f"{len(body)} line" + ("" if len(body) == 1 else "s")
+    extra = f", {detail}" if detail else ""
+    return [
+        f"--- begin {sanitize(label)} ({count}{extra}) ---",
+        *body,
+        f"--- end {sanitize(end if end is not None else label)} ---",
+    ]
 
 
 def bullet(items: Iterable[Any], indent: str = "", empty: str = NONE) -> list[str]:
