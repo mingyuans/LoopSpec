@@ -32,3 +32,4 @@
 ## Plan 记录
 
 <!-- 引擎自动追加 Plan 沿革，请勿手工编辑，也勿在此段之后新增段落。 -->
+- 2026-11-20T16:04:40+00:00 · Change fragment-dir 归档前 memory 审阅 · 结论：updated · 变化的 topic：registry-definitions · 备注：新增 registry-definitions：定义文件位置须经 bundle.location 对文件路径定位（目录路径会被当作 home 路径）；指令辅助文件按 fragmentDir 解析，fragment 字段是实例 id。
