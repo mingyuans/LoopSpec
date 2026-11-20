@@ -53,7 +53,7 @@ def symlinked_skill(home: Path, outside_file: Path, name: str) -> None:
 
 @when(parsers.re(r'在项目中新建 Change "(?P<change>[A-Za-z0-9-]+)"'))
 def new_change_with_stderr(home: Path, last_call: LastCall, change: str) -> None:
-    result = runner.invoke(app, ["change", "new", change, "--home", str(home)])
+    result = runner.invoke(app, ["change", "new", change, "--json", "--home", str(home)])
     data = json.loads(result.stdout) if result.stdout.strip() else {}
     last_call.outcome = CliOutcome(result.exit_code, data, output=result.stderr)
 

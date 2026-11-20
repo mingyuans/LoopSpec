@@ -542,6 +542,14 @@ def only_changed(llm_project: LlmProject, path: str) -> None:
     assert changed == [path], (changed, llm_project.where())
 
 
+@then("Agent 读取的是 loopspec 默认的文本报告，没有加 --json")
+def read_text_reports(llm_project: LlmProject) -> None:
+    commands = [cmd for run in llm_project.runs for cmd in run.bash_commands]
+    loopspec = [cmd for cmd in commands if "loopspec " in cmd]
+    assert loopspec, (commands, llm_project.where())
+    assert not [cmd for cmd in loopspec if "--json" in cmd], (loopspec, llm_project.where())
+
+
 # --- archive memory review --------------------------------------------------------------
 
 

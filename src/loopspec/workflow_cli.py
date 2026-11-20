@@ -1,4 +1,8 @@
-"""`loopspec <resource> <verb>` workflow commands; every one of them prints JSON."""
+"""`loopspec <resource> <verb>` workflow commands.
+
+Every command prints a plain-text report written for an LLM to read by default, and
+the same payload as JSON with `--json` (see `text_reports` and AGENTS.md).
+"""
 
 from __future__ import annotations
 
@@ -42,6 +46,11 @@ OUTPUT = typer.Option(
 )
 
 
+JSON_OUTPUT = typer.Option(
+    False, "--json", help="Print the JSON payload instead of the text report."
+)
+
+
 def emit(value: Any) -> None:
     typer.echo(json.dumps(value, ensure_ascii=False, indent=2, default=str))
 
@@ -51,13 +60,27 @@ def run(
     render: Callable[[Any], str] | None = None,
     render_error: Callable[[dict], str] | None = None,
 ) -> None:
-    """JSON by default; `render`/`render_error` print text instead (`change status`, `graph`)."""
+    """JSON without a renderer; `render`/`render_error` print a text report instead.
+
+    The command has already taken effect when its result is rendered, so a renderer
+    failure must not look like a failed command: the payload is printed as JSON instead,
+    with a note on stderr, and the exit status stays that of the command.
+    """
 
     def output(value: Any, renderer: Callable[[Any], str] | None) -> None:
         if renderer is None:
             emit(value)
-        else:
-            typer.echo(renderer(value), nl=False)
+            return
+        try:
+            text = renderer(value)
+        except Exception as exc:  # noqa: BLE001 - never turn a done command into a crash
+            typer.echo(
+                f"loopspec: text report unavailable ({type(exc).__name__}); printing JSON",
+                err=True,
+            )
+            emit(value)
+            return
+        typer.echo(text, nl=False)
 
     try:
         value = action()
@@ -68,6 +91,17 @@ def run(
         output(WorkflowError("workflow_invalid", "输入结构不合法").to_dict(), render_error)
         raise typer.Exit(1) from None
     output(value, render)
+
+
+def report(action: Callable[[], Any], command: str, as_json: bool) -> None:
+    """Text report of `command` by default; the JSON payload with `--json`."""
+    if as_json:
+        run(action)
+        return
+    from .status_report import render_error_report
+    from .text_reports import RENDERERS
+
+    run(action, RENDERERS[command].render, render_error_report)
 
 
 def register(app: typer.Typer) -> None:
@@ -108,35 +142,42 @@ def register(app: typer.Typer) -> None:
         include_ignored: bool = typer.Option(
             False, "--all", help="Also list files in memory/ that are not topics."
         ),
+        as_json: bool = JSON_OUTPUT,
         home: Path = HOME,
     ) -> None:
         """The topic index: path, one-line hint and size. `nextOffset` pages to the rest."""
         from .workflow_memory import list_topics
 
-        run(lambda: list_topics(home, offset=offset, limit=limit, include_ignored=include_ignored))
+        report(
+            lambda: list_topics(home, offset=offset, limit=limit, include_ignored=include_ignored),
+            "memory list",
+            as_json,
+        )
 
     @memory.command("show")
-    def memory_show(topic: str, home: Path = HOME) -> None:
+    def memory_show(topic: str, as_json: bool = JSON_OUTPUT, home: Path = HOME) -> None:
         """The full text of one topic (core included). Untrusted reference data."""
         from .workflow_memory import UNTRUSTED, read_topic
 
-        run(
+        report(
             lambda: {
                 "topic": topic,
                 "path": f"memory/{topic}.md",
                 "content": read_topic(home, topic),
                 "untrustedData": UNTRUSTED,
-            }
+            },
+            "memory show",
+            as_json,
         )
 
     # ------------------------------------------------------------------ change
 
     @change.command("new")
-    def change_new(name: str, home: Path = HOME) -> None:
+    def change_new(name: str, as_json: bool = JSON_OUTPUT, home: Path = HOME) -> None:
         """Create an unplanned Change."""
         from .workflow_changes import create
 
-        run(lambda: create(home, name))
+        report(lambda: create(home, name), "change new", as_json)
 
     @change.command("status")
     def change_status(
@@ -155,29 +196,30 @@ def register(app: typer.Typer) -> None:
         run(lambda: status(home, name), render_status_report, render_error_report)
 
     @change.command("next")
-    def change_next(name: str, home: Path = HOME) -> None:
+    def change_next(name: str, as_json: bool = JSON_OUTPUT, home: Path = HOME) -> None:
         """Only the next step, for agent loops."""
         from .workflow_changes import next_step
 
-        run(lambda: next_step(home, name))
+        report(lambda: next_step(home, name), "change next", as_json)
 
     @change.command("history")
     def change_history(
         name: str,
         plan_id: str | None = typer.Option(None, "-p", "--plan", help="Plan number."),
+        as_json: bool = JSON_OUTPUT,
         home: Path = HOME,
     ) -> None:
         """Rework records (.attempts) of the active or given Plan."""
         from .workflow_changes import history
 
-        run(lambda: history(home, name, plan_id))
+        report(lambda: history(home, name, plan_id), "change history", as_json)
 
     @change.command("artifacts")
-    def change_artifacts(name: str, home: Path = HOME) -> None:
+    def change_artifacts(name: str, as_json: bool = JSON_OUTPUT, home: Path = HOME) -> None:
         """All artifacts of the Change grouped by Plan, archived ones included."""
         from .workflow_changes import artifacts
 
-        run(lambda: artifacts(home, name))
+        report(lambda: artifacts(home, name), "change artifacts", as_json)
 
     @change.command("archive")
     def change_archive(
@@ -194,6 +236,7 @@ def register(app: typer.Typer) -> None:
         note: str | None = typer.Option(
             None, "--note", help="What was updated in memory, or why nothing was reusable."
         ),
+        as_json: bool = JSON_OUTPUT,
         home: Path = HOME,
     ) -> None:
         """Archive in two steps: prepare (review memory), then --confirm the archiveId."""
@@ -218,9 +261,7 @@ def register(app: typer.Typer) -> None:
                     raise WorkflowError("workflow_invalid", "--memory 只能是 updated 或 none")
                 return confirm(home, confirm_id, memory=memory, note=note, today=date.today())  # type: ignore[arg-type]
             if memory is not None or note is not None:
-                raise WorkflowError(
-                    "option_conflict", "--memory 与 --note 只用于 --confirm 第二段"
-                )
+                raise WorkflowError("option_conflict", "--memory 与 --note 只用于 --confirm 第二段")
             if all_changes == (name is not None):
                 raise WorkflowError("option_conflict", "指定一个需求名，或使用 --all")
             if all_changes and force:
@@ -236,43 +277,57 @@ def register(app: typer.Typer) -> None:
                 today=date.today(),
             )
 
-        run(action)
+        report(action, "change archive", as_json)
 
     # -------------------------------------------------------------------- plan
 
     @plan.command("validate")
-    def plan_validate(change_name: str = CHANGE, path: str = FILE, home: Path = HOME) -> None:
+    def plan_validate(
+        change_name: str = CHANGE,
+        path: str = FILE,
+        as_json: bool = JSON_OUTPUT,
+        home: Path = HOME,
+    ) -> None:
         """Read-only compile and check; previews a revision when a Plan is approved."""
         from .workflow_plans import validate
 
-        run(lambda: validate(home, change_name, path))
+        report(lambda: validate(home, change_name, path), "plan validate", as_json)
 
     @plan.command("create")
     def plan_create(
-        change_name: str = CHANGE, path: str = FILE, note: str | None = NOTE, home: Path = HOME
+        change_name: str = CHANGE,
+        path: str = FILE,
+        note: str | None = NOTE,
+        as_json: bool = JSON_OUTPUT,
+        home: Path = HOME,
     ) -> None:
         """Create the draft Plan, or replace the spec of the current draft."""
         from .workflow_plans import create
 
-        run(lambda: create(home, change_name, path, note))
+        report(lambda: create(home, change_name, path, note), "plan create", as_json)
 
     @plan.command("show")
     def plan_show(
         change_name: str = CHANGE,
         plan_id: str | None = typer.Option(None, "-p", "--plan", help="Plan number."),
+        as_json: bool = JSON_OUTPUT,
         home: Path = HOME,
     ) -> None:
         """Show meta and spec of the open Plan, or of the given Plan."""
         from .workflow_plans import show
 
-        run(lambda: show(home, change_name, plan_id))
+        report(lambda: show(home, change_name, plan_id), "plan show", as_json)
 
     @plan.command("list")
-    def plan_list(change_name: str = CHANGE, home: Path = HOME) -> None:
+    def plan_list(
+        change_name: str = CHANGE,
+        as_json: bool = JSON_OUTPUT,
+        home: Path = HOME,
+    ) -> None:
         """List every Plan of the Change."""
         from .workflow_plans import plan_list as listing
 
-        run(lambda: listing(home, change_name))
+        report(lambda: listing(home, change_name), "plan list", as_json)
 
     @plan.command("approve")
     def plan_approve(
@@ -280,34 +335,47 @@ def register(app: typer.Typer) -> None:
         plan_id: str = PLAN,
         digest: str = typer.Option(..., "--digest", help="Digest the human confirmed."),
         path: str | None = typer.Option(None, "-f", "--file", help="Revision request file."),
+        as_json: bool = JSON_OUTPUT,
         home: Path = HOME,
     ) -> None:
         """Confirm a draft Plan, or (with -f) a revision; only after a human confirmed it."""
         from .workflow_plans import approve
 
-        run(lambda: approve(home, change_name, plan_id, digest, path))
+        report(lambda: approve(home, change_name, plan_id, digest, path), "plan approve", as_json)
 
     @plan.command("archive")
     def plan_archive(
-        change_name: str = CHANGE, plan_id: str = PLAN, note: str | None = NOTE, home: Path = HOME
+        change_name: str = CHANGE,
+        plan_id: str = PLAN,
+        note: str | None = NOTE,
+        as_json: bool = JSON_OUTPUT,
+        home: Path = HOME,
     ) -> None:
         """Archive the draft or approved Plan; an approved one needs the human's consent first."""
         from .workflow_plans import archive
 
-        run(lambda: archive(home, change_name, plan_id, note))
+        report(lambda: archive(home, change_name, plan_id, note), "plan archive", as_json)
 
     @plan.command("rollback")
-    def plan_rollback(change_name: str = CHANGE, plan_id: str = PLAN, home: Path = HOME) -> None:
+    def plan_rollback(
+        change_name: str = CHANGE,
+        plan_id: str = PLAN,
+        as_json: bool = JSON_OUTPUT,
+        home: Path = HOME,
+    ) -> None:
         """Rework a failed Gate by its own on_fail; business code is never reverted."""
         from .workflow_plans import rollback
 
-        run(lambda: rollback(home, change_name, plan_id))
+        report(lambda: rollback(home, change_name, plan_id), "plan rollback", as_json)
 
     # -------------------------------------------------------------------- node
 
     @node.command("instructions")
     def node_instructions(
-        change_name: str = CHANGE, identity: str = NODE, home: Path = HOME
+        change_name: str = CHANGE,
+        identity: str = NODE,
+        as_json: bool = JSON_OUTPUT,
+        home: Path = HOME,
     ) -> None:
         """Everything needed to execute one leaf node of the active Plan."""
         from .workflow_runtime import instructions
@@ -327,7 +395,7 @@ def register(app: typer.Typer) -> None:
             with write_lock(ctx.root):
                 return instructions(settled(open_change(home, change_name)), identity)
 
-        run(action)
+        report(action, "node instructions", as_json)
 
     # ------------------------------------------------------------------- state
 
@@ -349,12 +417,13 @@ def register(app: typer.Typer) -> None:
         by: str | None = typer.Option(
             None, "--by", help="The actual decision maker: the user or an Agent role."
         ),
+        as_json: bool = JSON_OUTPUT,
         home: Path = HOME,
     ) -> None:
         """Append one record to the matching section of state.md (append only)."""
         from .workflow_state_notes import add
 
-        run(
+        report(
             lambda: add(
                 home,
                 change_name,
@@ -365,35 +434,47 @@ def register(app: typer.Typer) -> None:
                 node=node,
                 actor=actor,
                 by=by,
-            )
+            ),
+            "state add",
+            as_json,
         )
 
     # -------------------------------------------------------------------- gate
 
     @gate.command("begin")
-    def gate_begin(change_name: str = CHANGE, identity: str = NODE, home: Path = HOME) -> None:
+    def gate_begin(
+        change_name: str = CHANGE,
+        identity: str = NODE,
+        as_json: bool = JSON_OUTPUT,
+        home: Path = HOME,
+    ) -> None:
         """Pin the code under review for a code Gate and get a one-time round id."""
         from .workflow_evidence import begin
 
-        run(lambda: begin(home, change_name, identity))
+        report(lambda: begin(home, change_name, identity), "gate begin", as_json)
 
     @gate.command("record")
     def gate_record(
         change_name: str = CHANGE,
         identity: str = NODE,
         round_id: str | None = typer.Option(None, "--round", help="Round id from gate begin."),
-        report: str | None = typer.Option(None, "--report", help="Report under artifacts/."),
+        report_path: str | None = typer.Option(None, "--report", help="Report under artifacts/."),
+        as_json: bool = JSON_OUTPUT,
         home: Path = HOME,
     ) -> None:
         """Record a code Gate verdict, or run the system check of an assurance node."""
         from .workflow_evidence import record
 
-        run(lambda: record(home, change_name, identity, round_id, report))
+        report(
+            lambda: record(home, change_name, identity, round_id, report_path),
+            "gate record",
+            as_json,
+        )
 
     # ---------------------------------------------------------------- fragment
 
     @fragment.command("list")
-    def fragment_list(home: Path = HOME) -> None:
+    def fragment_list(as_json: bool = JSON_OUTPUT, home: Path = HOME) -> None:
         def action() -> dict:
             catalog = WorkflowCatalog(home)
             version = catalog.registry_version()
@@ -409,14 +490,18 @@ def register(app: typer.Typer) -> None:
                 )
             return {"fragments": items}
 
-        run(action)
+        report(action, "fragment list", as_json)
 
     @fragment.command("show")
-    def fragment_show(name: str, home: Path = HOME) -> None:
-        run(lambda: WorkflowCatalog(home).fragment(name).model_dump(by_alias=True))
+    def fragment_show(name: str, as_json: bool = JSON_OUTPUT, home: Path = HOME) -> None:
+        report(
+            lambda: WorkflowCatalog(home).fragment(name).model_dump(by_alias=True),
+            "fragment show",
+            as_json,
+        )
 
     @fragment.command("validate")
-    def fragment_validate(name: str, home: Path = HOME) -> None:
+    def fragment_validate(name: str, as_json: bool = JSON_OUTPUT, home: Path = HOME) -> None:
         def action() -> dict:
             expanded = FragmentExpander(WorkflowCatalog(home))
             expanded.expand(name, "fragment")
@@ -425,12 +510,12 @@ def register(app: typer.Typer) -> None:
             expanded.resolve_nodes()
             return {"valid": True, "buildOrder": build_order(expanded.dependencies)}
 
-        run(action)
+        report(action, "fragment validate", as_json)
 
     # ----------------------------------------------------------------- profile
 
     @profile.command("list")
-    def profile_list(home: Path = HOME) -> None:
+    def profile_list(as_json: bool = JSON_OUTPUT, home: Path = HOME) -> None:
         def action() -> dict:
             catalog = WorkflowCatalog(home)
             version = catalog.registry_version()
@@ -446,24 +531,33 @@ def register(app: typer.Typer) -> None:
                 )
             return {"profiles": items}
 
-        run(action)
+        report(action, "profile list", as_json)
 
     @profile.command("show")
-    def profile_show(name: str, home: Path = HOME) -> None:
-        run(
-            lambda: WorkflowCatalog(home).profile(name).model_dump(by_alias=True, exclude_none=True)
+    def profile_show(name: str, as_json: bool = JSON_OUTPUT, home: Path = HOME) -> None:
+        report(
+            lambda: (
+                WorkflowCatalog(home).profile(name).model_dump(by_alias=True, exclude_none=True)
+            ),
+            "profile show",
+            as_json,
         )
 
     @profile.command("validate")
-    def profile_validate(name: str, home: Path = HOME) -> None:
+    def profile_validate(name: str, as_json: bool = JSON_OUTPUT, home: Path = HOME) -> None:
         def action() -> dict:
             catalog = WorkflowCatalog(home)
             return validate_profile(catalog, catalog.profile(name))
 
-        run(action)
+        report(action, "profile validate", as_json)
 
     @profile.command("save")
-    def profile_save(name: str, change_name: str = CHANGE, home: Path = HOME) -> None:
+    def profile_save(
+        name: str,
+        change_name: str = CHANGE,
+        as_json: bool = JSON_OUTPUT,
+        home: Path = HOME,
+    ) -> None:
         """Save the active Plan's flow as a new Profile; never overwrites."""
 
         def action() -> dict:
@@ -502,7 +596,7 @@ def register(app: typer.Typer) -> None:
                 )
             return {"saved": path, "includesRuntimeState": False}
 
-        run(action)
+        report(action, "profile save", as_json)
 
     # ------------------------------------------------------------------- graph
 
@@ -588,8 +682,7 @@ def register(app: typer.Typer) -> None:
                 lines.append(f"Not opened ({result['reason']}).")
                 if result["reason"] in REMOTE_REASONS:
                     lines.append(
-                        "Copy it to a machine with a browser, "
-                        f"e.g. scp <host>:{result['path']} ."
+                        f"Copy it to a machine with a browser, e.g. scp <host>:{result['path']} ."
                     )
                 else:
                     lines.append("Open the URL above in a browser.")
@@ -607,18 +700,19 @@ def register(app: typer.Typer) -> None:
     # ---------------------------------------------------------------- registry
 
     @registry.command("update")
-    def registry_update(full: bool = FULL, home: Path = HOME) -> None:
+    def registry_update(full: bool = FULL, as_json: bool = JSON_OUTPUT, home: Path = HOME) -> None:
         """Fetch the registry and plan an update of registry.lock.yaml; never writes the lock."""
         from .registry_sync import update
 
-        run(lambda: update(home, full=full))
+        report(lambda: update(home, full=full), "registry update", as_json)
 
     @registry.command("apply")
     def registry_apply(
         plan_id: str = REGISTRY_PLAN,
+        as_json: bool = JSON_OUTPUT,
         home: Path = HOME,
     ) -> None:
         """Apply a confirmed plan: verify the global snapshot and update registry.lock.yaml."""
         from .registry_sync import apply
 
-        run(lambda: apply(home, plan_id))
+        report(lambda: apply(home, plan_id), "registry apply", as_json)

@@ -6,6 +6,12 @@
 
 ## Unreleased
 
+### Workflow commands print text reports by default (breaking)
+
+- Every workflow command (`change`, `plan`, `node`, `gate`, `state`, `fragment`, `profile`, `registry`, `memory`) now prints a plain-text report written for an LLM, in the style of `change status`; `--json` prints exactly the JSON it printed before.
+- In text mode a failure prints an `=== ERROR ===` report; exit statuses are unchanged. `hook pre-tool-use` still prints JSON only.
+- Migration: scripts that parse `loopspec` JSON output must add `--json`. The project's loopspec skills are synced by the next workflow command.
+
 ### Workflow commands keep the project's skills in sync
 
 - Every command that accepts `--home` first brings the loopspec skill and command files of the project's configured AI tools in line with this CLI (stale ones rewritten, missing ones added) and reports on stderr; after upgrading the CLI there is no need to rerun `loopspec init` to refresh them.

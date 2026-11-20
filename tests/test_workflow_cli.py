@@ -113,18 +113,18 @@ def test_removed_flags_do_not_exist(tmp_path: Path, flag):
     assert result.exit_code == 2
 
 
-def test_workflow_commands_print_json_except_the_status_report(tmp_path: Path):
+def test_workflow_commands_print_text_unless_asked_for_json(tmp_path: Path):
     home = home_fixture(tmp_path)
     result = runner.invoke(app, ["change", "new", CHANGE, "--home", str(home)])
+    assert result.exit_code == 0 and result.stdout.startswith("=== CHANGE ===\n")
+    assert f"changeName:   {CHANGE}" in result.stdout
+    result = runner.invoke(app, ["change", "new", CHANGE, "--json", "--home", str(home)])
     assert result.exit_code == 0 and json.loads(result.stdout)["changeName"] == CHANGE
     result = runner.invoke(app, ["change", "status", "missing", "--json", "--home", str(home)])
     assert result.exit_code == 1
     assert set(json.loads(result.stdout)) == {"error", "message", "fix"}
     result = runner.invoke(app, ["change", "status", CHANGE, "--home", str(home)])
     assert result.exit_code == 0 and result.stdout.startswith("=== OVERVIEW ===\n")
-    assert (
-        runner.invoke(app, ["change", "new", CHANGE, "--json", "--home", str(home)]).exit_code == 2
-    )
 
 
 def test_catalog_commands(tmp_path: Path):

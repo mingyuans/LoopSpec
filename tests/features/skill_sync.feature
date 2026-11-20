@@ -3,7 +3,7 @@
 功能: 工作流命令自动同步项目中的 loopspec skill
   带 --home 的工作流命令执行前，把项目里已配置 AI 工具的 loopspec skill/command 文件
   同步到当前 CLI 内置的内容：过期的覆盖、缺失的补上，未配置的工具不新建；
-  同步只在 stderr 提示，不改变命令的 JSON 输出，失败也不影响命令本身。
+  同步只在 stderr 提示，不改变命令的输出，失败也不影响命令本身。
 
   场景: 升级 CLI 后过期和缺失的 skill 被自动同步
     假如 项目已用 loopspec init 配置了 claude 的 skill

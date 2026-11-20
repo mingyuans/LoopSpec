@@ -83,6 +83,7 @@ markers = [
     "plan_revision: BDD scenarios of tests/features/plan_revision.feature",
     "registry: BDD scenarios of tests/features/registry.feature",
     "skill_sync: BDD scenarios of tests/features/skill_sync.feature",
+    "text_output: BDD scenarios of tests/features/text_output.feature",
     "state_add: BDD scenarios of tests/features/state_add.feature",
     "update: BDD scenarios of tests/features/update.feature",
     "version: BDD scenarios of tests/features/version.feature",
