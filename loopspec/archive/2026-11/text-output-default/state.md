@@ -32,3 +32,4 @@
 ## Plan 记录
 
 <!-- 引擎自动追加 Plan 沿革，请勿手工编辑，也勿在此段之后新增段落。 -->
+- 2026-11-20T15:46:40+00:00 · Change text-output-default 归档前 memory 审阅 · 结论：updated · 变化的 topic：dev-environment, gate-workflow, skill-files · 备注：gate-workflow 补充：record 后报告绑定哈希、PASS 后改代码需重跑 Gate、LLM E2E 期间不改代码；新增 dev-environment（仓库内用 uv run loopspec、不要整目录 ruff format、pytest -n 2）；skill-files 加交叉引用。
